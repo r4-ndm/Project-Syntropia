@@ -15,7 +15,7 @@ Instead of hosting heavy model files on centralized servers, Syntropia uses **P2
 ### 🌐 How It Works
 1. **Weight Distribution**: Lightweight models (e.g., Qwen-2.5-0.5B-Instruct at ~950MB) are distributed via magnet links. This is too big for standard GitHub repositories but perfect for BitTorrent.
 2. **BitTorrent Integration**:
-   - The CLI client contains a background BitTorrent engine (using Python `libtorrent` or wrapping a Node/CLI daemon inspired by Thor Hammer).
+   - The CLI client contains a background BitTorrent engine (using Python `libtorrent` or wrapping a Node/CLI daemon inspired by Thor's Hammer).
    - When a node needs a specialized agent, it checks if the model weights (.gguf format) are present locally. If not, it pulls them from the torrent swarm.
    - Once downloaded, the node automatically seeds to others, making the global network more resilient as new peers join.
 3. **Agent Manifests**: A decentralized registry tracks magnet links for each model type.
@@ -74,7 +74,7 @@ Project-Syntropia/
    cd Project-Syntropia
    pip install -r requirements.txt
    ```
-2. **Start Node**: `python src/main.py --start-node`. The client initializes, checks local GGUF models, and uses Thor Hammer to fetch any missing models via magnet links.
+2. **Start Node**: `python src/main.py --start-node`. The client initializes, checks local GGUF models, and uses Thor's Hammer to fetch any missing models via magnet links.
 3. **Submit an Agent**: Create a new folder in `agents/`, write a Python class, define `manifest.json`, and open a Pull Request.
 
 ---

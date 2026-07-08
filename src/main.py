@@ -14,11 +14,11 @@ def print_banner():
     
     # Raw banner with backslashes
     banner = r"""
-  _______ __                 __  __                                
- /_  __// /_  ____  _____   / / / /___ _____ ___  ____ ___  ___  _____
-  / /  / __ \/ __ \/ ___/  / /_/ / __ `/ __ `__ \/ __ `__ \/ _ \/ ___/
- / /  / / / / /_/ / /     / __  / /_/ / / / / / / / / / / /  __/ /    
-/_/  /_/ /_/\____/_/     /_/ /_/\__,_/_/ /_/ /_/_/ /_/ /_/\___/_/     """
+  _______ __                 _          __  __                                
+ /_  __// /_  ____  _______ ( )_____   / / / /___ _____ ___  ____ ___  ___  _____
+  / /  / __ \/ __ \/ ___/ ___// ___/  / /_/ / __ `/ __ `__ \/ __ `__ \/ _ \/ ___/
+ / /  / / / / /_/ / /  (__  )(__  )  / __  / /_/ / / / / / / / / / / /  __/ /    
+/_/  /_/ /_/\____/_/  /____//____/  /_/ /_/\__,_/_/ /_/ /_/_/ /_/ /_/\___/_/     """
     print(banner)
     
     # Reset color and print subtitle
@@ -45,7 +45,7 @@ def main():
     registry = AgentRegistry(agents_dir="agents")
     registry.scan_and_load()
 
-    # 2. Run Thor Hammer P2P model synchronization
+    # 2. Run Thor's Hammer P2P model synchronization
     thor_hammer = ThorHammer()
     thor_hammer.sync_models(registry)
 

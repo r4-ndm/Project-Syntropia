@@ -32,7 +32,7 @@ The TUI splits the terminal screen into a modular grid:
 ### Key UI Sections:
 1. **System Metadata Panel (Top-Left)**: Monitors local CPU/RAM constraints, network sync statistics, and current clock rate (BPM).
 2. **Agent Swarm Panel (Top-Right)**: Displays the active local agent registry, their current execution state (`Idle`, `Busy`, `Unresponsive`, `Dead`), and their evolutionary fitness scores.
-3. **Torrent Downloader Panel (Bottom-Left)**: Displays active model weight file downloads (similar to the progress layout in Thor Hammer), download percentages, seed/peer counts, and upload speed.
+3. **Torrent Downloader Panel (Bottom-Left)**: Displays active model weight file downloads (similar to the progress layout in Thor's Hammer), download percentages, seed/peer counts, and upload speed.
 4. **Log Monitor (Bottom-Right)**: Real-time scrolling output of the Orchestrator routing path.
 5. **Interactive Console Bar (Bottom)**: Allows typing queries directly into the living computer without exiting the monitor.
 
