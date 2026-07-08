@@ -8,11 +8,15 @@ from syntropia.orchestrator import Orchestrator
 from syntropia.engine import SyntropiaEngine
 
 def print_banner():
-    banner = """
-\033[1;36m🌀 Project Syntropia: The Living Computer Swarm 🌀\033[0m
-===================================================
-Conducting Edge AI Agents & Logic Swarms via MIDI
-===================================================
+    banner = """\033[1;36m
+  _______ __                 _          __  __                                
+ /_  __// /_  ____  _______ ( )_____   / / / /___ _____ ___  ____ ___  ___  _____
+  / /  / __ \/ __ \/ ___/ ___// ___/  / /_/ / __ `/ __ `__ \/ __ `__ \/ _ \/ ___/
+ / /  / / / / /_/ / /  (__  )(__  )  / __  / /_/ / / / / / / / / / / /  __/ /    
+/_/  /_/ /_/\____/_/  /____//____/  /_/ /_/\__,_/_/ /_/ /_/_/ /_/ /_/\___/_/     
+\033[0m
+  \033[33m"The Living Computer P2P Torrent Sync Engine"\033[0m
+  --------------------------------------------------
     """
     print(banner)
 
