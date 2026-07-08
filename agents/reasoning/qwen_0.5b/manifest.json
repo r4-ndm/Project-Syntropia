@@ -1,0 +1,10 @@
+{
+  "name": "QwenAgent",
+  "role": "reasoning",
+  "timeout": 8,
+  "model": {
+    "filename": "qwen2.5-0.5b-instruct.gguf",
+    "magnet": "magnet:?xt=urn:btih:d8b2d41b52a1a89c9e8a719c2825008064c12345"
+  },
+  "description": "Local reasoning agent powered by local Qwen 0.5B model."
+}

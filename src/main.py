@@ -6,6 +6,7 @@ import time
 from syntropia.registry import AgentRegistry
 from syntropia.orchestrator import Orchestrator
 from syntropia.engine import SyntropiaEngine
+from syntropia.thors_hammer import ThorsHammer
 
 def print_banner():
     # Print color code (cyan)
@@ -44,7 +45,11 @@ def main():
     registry = AgentRegistry(agents_dir="agents")
     registry.scan_and_load()
 
-    # 2. Setup Orchestrator
+    # 2. Run Thor's Hammer P2P model synchronization
+    thors_hammer = ThorsHammer()
+    thors_hammer.sync_models(registry)
+
+    # 3. Setup Orchestrator
     orchestrator = Orchestrator()
 
     # 3. Instantiate and register local agents dynamically
