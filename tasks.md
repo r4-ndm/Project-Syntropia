@@ -27,7 +27,7 @@ This document tracks the current implementation status of Syntropia's modules, c
 
 ## 📅 Phase 1: Torrent & P2P Layer
 - [ ] **DHT Peer Discovery**: Implementing Kademlia-based peer discovery (no central tracker) to find nodes hosting specific agent roles.
-- [ ] **Thor's Hammer Sync Engine (`src/syntropia/thors_hammer.py`)**: Wrapping a client engine (e.g. using `libtorrent` or calling a background helper) to fetch model weights via magnet links.
+- [ ] **Thor Hammer Sync Engine (`src/syntropia/thor_hammer.py`)**: Wrapping a client engine (e.g. using `libtorrent` or calling a background helper) to fetch model weights via magnet links.
 - [ ] **Hardware Probe**: Automatically diagnosing RAM and CPU availability on boot to select the best model weight tier (Ultra-light, Light, Medium, Heavy).
 - [ ] **Interactive TUI Dashboard**: Creating the unified console dashboard monitor inside `src/main.py`.
 

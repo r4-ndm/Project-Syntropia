@@ -75,7 +75,7 @@ Project-Syntropia/
 │   │   ├── __init__.py
 │   │   ├── engine.py            # Tick engine, system clock
 │   │   ├── orchestrator.py      # Router, heartbeat supervisor, fallback logic
-│   │   ├── thors_hammer.py      # BitTorrent downloader/seeder wrapper
+│   │   ├── thor_hammer.py       # BitTorrent downloader/seeder wrapper
 │   │   ├── registry.py          # Agent discovery and manifest management
 │   │   └── evolution.py         # Fitness scoring, replication, pruning
 │   └── main.py                  # Interactive CLI / onboarding tool

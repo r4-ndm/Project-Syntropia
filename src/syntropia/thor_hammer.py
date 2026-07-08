@@ -3,9 +3,9 @@ import sys
 import time
 import random
 
-class ThorsHammer:
+class ThorHammer:
     """
-    Thor's Hammer: The P2P Torrent Sync Engine of Syntropia.
+    Thor Hammer: The P2P Torrent Sync Engine of Syntropia.
     Responsible for checking local model weights (.gguf files),
     fetching missing files via torrent magnet links, and managing seeding.
     """
@@ -19,7 +19,7 @@ class ThorsHammer:
         Scans loaded agents for required GGUF models.
         Downloads missing files with a beautiful TUI progress monitor.
         """
-        print(f"\n\033[1;35m⚡ [Thor's Hammer] Scanning model weights registry...\033[0m")
+        print(f"\n\033[1;35m⚡ [Thor Hammer] Scanning model weights registry...\033[0m")
         time.sleep(0.5)
 
         missing_models = []
@@ -37,23 +37,23 @@ class ThorsHammer:
                     print(f"  • \033[32mFound local weights for {name}\033[0m: '{model_name}' [Active Seeding]")
 
         if not missing_models:
-            print("\033[1;32m⚡ [Thor's Hammer] All model weights verified. Node is fully synced and seeding.\033[0m")
+            print("\033[1;32m⚡ [Thor Hammer] All model weights verified. Node is fully synced and seeding.\033[0m")
             return True
 
         # Process downloads in the terminal using the custom TUI progress bar style
         for model_name, magnet, filepath in missing_models:
             self._download_via_torrent(model_name, magnet, filepath)
 
-        print("\033[1;32m⚡ [Thor's Hammer] Synchronization complete. Seeding model swarms.\033[0m")
+        print("\033[1;32m⚡ [Thor Hammer] Synchronization complete. Seeding model swarms.\033[0m")
         return True
 
     def _download_via_torrent(self, filename: str, magnet: str, destination: str):
         """Simulates a low-level P2P BitTorrent download with a beautiful live progress bar."""
-        print(f"\n\033[33m[Thor's Hammer] Connecting to DHT bootstrap nodes to fetch metadata...\033[0m")
+        print(f"\n\033[33m[Thor Hammer] Connecting to DHT bootstrap nodes to fetch metadata...\033[0m")
         time.sleep(0.8)
         
         info_hash = magnet.split("urn:btih:")[1].split("&")[0][:10] if "urn:btih:" in magnet else "unknown"
-        print(f"\033[32m[Thor's Hammer] Resolved torrent swarm (Hash: {info_hash}). Connecting to peers...\033[0m")
+        print(f"\033[32m[Thor Hammer] Resolved torrent swarm (Hash: {info_hash}). Connecting to peers...\033[0m")
         time.sleep(0.6)
 
         total_size_mb = random.randint(350, 950)
@@ -75,7 +75,7 @@ class ThorsHammer:
             
             # Print update in-place using carriage return \r
             sys.stdout.write(
-                f"\r\033[36m📥 [Thor's Hammer] Syncing {filename} |{bar}| "
+                f"\r\033[36m📥 [Thor Hammer] Syncing {filename} |{bar}| "
                 f"{percent}% [{downloaded:.1f}/{total_size_mb} MB] "
                 f"| Speed: {speed:.1f} MB/s | Seeds: {seeders}\033[0m"
             )
@@ -87,5 +87,5 @@ class ThorsHammer:
         with open(destination, 'w') as f:
             f.write("Syntropia Mock Model Weights")
             
-        print(f"\033[32m✔ [Thor's Hammer] Successfully synced and verified integrity of {filename}.\033[0m")
+        print(f"\033[32m✔ [Thor Hammer] Successfully synced and verified integrity of {filename}.\033[0m")
         time.sleep(0.4)
