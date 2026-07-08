@@ -1,0 +1,7 @@
+{
+  "name": "AdditionAgent",
+  "role": "addition",
+  "timeout": 2,
+  "model": null,
+  "description": "Performs fast arithmetic addition on numerical inputs."
+}
