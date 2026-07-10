@@ -1,0 +1,7 @@
+{
+  "name": "BinaryAnalyzerAgent",
+  "role": "binary_analyzer",
+  "timeout": 5,
+  "model": null,
+  "description": "Analyzes binary executable headers (ELF, PE, Mach-O) to resolve OS, CPU architecture, and dynamic library dependencies."
+}

@@ -15,13 +15,18 @@ This document tracks the current implementation status of Syntropia's modules, c
 - [x] **Proof-of-Concept Agent**: Added `agents/math/add/` showing a simple rule-based agent structure (`manifest.json` and `agent.py`).
 - [x] **MIDI Sync Architecture Spec**: Created the synchronization and sonification mapping in `docs/midi_sync.md`.
 - [x] **TUI Dashboard Spec**: Designed the native terminal user interface layout in `docs/architecture/tui_dashboard.md`.
+- [x] **Agent Manifest Loader (`src/syntropia/registry.py`)**: Completed dynamic agent discovery and loading from the `agents/` folder.
+- [x] **Binary Analyzer Agent (`agents/binary_analyzer/`)**: Completed pure-Python ELF, PE, and Mach-O parser with RVA translations, caching, and CLI tool fallback.
+- [x] **Tick Engine (`src/syntropia/engine.py`)**: Local event loop using logical clock coordination (Lamport Timestamps) syncable to a MIDI Clock pulse (24 PPQN).
+- [x] **Orchestrator Heartbeat & Routing (`src/syntropia/orchestrator.py`)**: Implemented heartbeat routing pipeline (Primary -> Fallback) with automatic reputation updates and thread-safe asynchronous execution.
+- [x] **Cryptographic Trust Anchor (`src/syntropia/crypto.py`)**: Implemented BIP32/SLIP10-like HD key derivation, Ed25519 signing, and verification.
+- [x] **Constitution Rule Engine (`src/syntropia/constitution.py`)**: Completed a hardcoded 12-rule checking module to govern agent mutations.
+- [x] **SQLite Bulletin Chain (`src/syntropia/blockchain.py`)**: Created an SQLite-based content-addressable storage (CAS) and block-chained registry log.
+- [x] **Reputation Ledger (Phase 2)**: Added on-chain reputation ledger scoring and automatic adjustment triggers.
 
 ---
 
-## 🏃 In Progress (Phase 0: Core Local Engine)
-- [ ] **Tick Engine (`src/syntropia/engine.py`)**: Local event loop using logical clock coordination (Lamport Timestamps) syncable to a MIDI Clock pulse (24 PPQN).
-- [ ] **Orchestrator (`src/syntropia/orchestrator.py`)**: Setting up the heartbeat routing pipeline (Primary $\rightarrow$ Shadow $\rightarrow$ Fallback).
-- [ ] **Agent Manifest Loader (`src/syntropia/registry.py`)**: Dynamic agent discovery and parsing from `agents/` directories.
+## 🏃 In Progress (Phase 1: Torrent & P2P Layer)
 
 ---
 
@@ -34,7 +39,6 @@ This document tracks the current implementation status of Syntropia's modules, c
 ---
 
 ## 📅 Phase 2: Trust & Evolution
-- [ ] **Reputation System**: Tracking node accuracy and reliability history (nodes with higher scores perform critical tasks).
 - [ ] **Consensus Verification**: 3-way redundant validation for critical computation paths.
 - [ ] **Evolution Engine (`src/syntropia/evolution.py`)**: Genetic algorithms tweaking agent timeouts, reproducing high-fitness nodes, and pruning degraded ones.
 

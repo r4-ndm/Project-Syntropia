@@ -24,6 +24,7 @@ dependencies = [
     "python-rtmidi>=1.5.0",        # Low-latency MIDI backend for mido
     "psutil>=5.9.0",               # Hardware probing (RAM, CPU)
     "pydantic>=2.0.0",             # Agent manifest validation
+    "cryptography>=41.0.0",        # HD Key derivation and signature signing
 ]
 
 [project.optional-dependencies]

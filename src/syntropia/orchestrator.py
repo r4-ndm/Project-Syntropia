@@ -1,23 +1,34 @@
 import time
 import random
-from typing import Optional, Any
+import threading
+from typing import Optional, Any, Dict, Tuple
+from syntropia.constitution import ConstitutionGuard
+from syntropia.blockchain import SQLiteBulletinChain
 
 class Orchestrator:
     """Manages agent tasks, heartbeat monitoring, and fallback routing."""
     
-    def __init__(self):
+    def __init__(self, db_path: str = ":memory:"):
         self.engine = None
         self.active_agents = {}  # agent_name -> instance
         self.role_map = {}       # role -> list of agent_names
         self.fallbacks = {}      # primary_name -> secondary_name
         self.reputation = {}     # node/agent name -> score
         
+        # Track active executions
+        self.active_tasks: Dict[str, dict] = {}
+        self.task_counter = 0
+        self.lock = threading.Lock()
+        
+        # Governance and ledger
+        self.blockchain = SQLiteBulletinChain(db_path)
+        self.constitution = ConstitutionGuard()
+        
     def set_engine(self, engine):
         self.engine = engine
 
     def register_agent(self, instance, role: str, fallback_name: Optional[str] = None):
         name = getattr(instance, "__class__").__name__
-        # Fall back to instance.name if defined
         if hasattr(instance, "name"):
             name = instance.name
             
@@ -35,11 +46,68 @@ class Orchestrator:
 
     def route(self, current_tick: int):
         """Called by the SyntropiaEngine on each heartbeat tick."""
-        # Heartbeat check: query all busy agents and check if their execution exceeded timeouts
-        pass
+        with self.lock:
+            # Check for running tasks that have timed out logically
+            for task_id, task in list(self.active_tasks.items()):
+                if task["status"] == "running":
+                    start_tick = task["start_tick"]
+                    timeout = task["timeout"]
+                    
+                    if current_tick - start_tick > timeout:
+                        agent_name = task["agent_name"]
+                        print(f"\n\033[31m[Orchestrator] Timeout detected for task {task_id} on agent '{agent_name}' "
+                              f"(logical tick: {current_tick}, started: {start_tick}, limit: {timeout} ticks)\033[0m")
+                        
+                        # Penalize reputation
+                        self.reputation[agent_name] = max(0.0, self.reputation.get(agent_name, 100.0) - 15.0)
+                        task["status"] = "timeout"
+                        
+                        if self.engine:
+                            self.engine.trigger_agent_sound("fault_consensus")
+                            
+                        # Redirect to fallback if available
+                        fallback_name = task["fallback_name"]
+                        if fallback_name and fallback_name in self.active_agents:
+                            self._start_fallback(task, fallback_name)
+                        else:
+                            task["error"] = RuntimeError(f"Task {task_id} timed out on primary '{agent_name}' and no fallback was available.")
+                            task["status"] = "failed"
+                            task["event"].set()
+
+    def _start_fallback(self, task: dict, fallback_name: str):
+        """Dispatches the fallback agent for a task under lock."""
+        print(f"  \033[33m[Fallback] Redirecting task {task['task_id']} to backup agent '{fallback_name}'...\033[0m")
+        fallback_agent = self.active_agents[fallback_name]
+        
+        current_tick = self.engine.logical_tick if self.engine else 0
+        task["agent_name"] = fallback_name
+        task["start_tick"] = current_tick
+        task["timeout"] = getattr(fallback_agent, "timeout", 5)
+        task["status"] = "running"
+        task["fallback_name"] = None  # Prevent infinite routing loops
+        
+        def run_fallback():
+            try:
+                result = fallback_agent.execute(task["inputs"])
+                with self.lock:
+                    if task["status"] == "running":
+                        task["status"] = "success"
+                        task["result"] = result
+                        self.reputation[fallback_name] = min(200.0, self.reputation.get(fallback_name, 100.0) + 1.0)
+                        task["event"].set()
+            except Exception as e_fallback:
+                with self.lock:
+                    if task["status"] == "running":
+                        task["status"] = "failed"
+                        task["error"] = e_fallback
+                        self.reputation[fallback_name] = max(0.0, self.reputation.get(fallback_name, 100.0) - 15.0)
+                        task["event"].set()
+
+        t = threading.Thread(target=run_fallback, daemon=True)
+        t.start()
 
     def execute_task(self, role: str, inputs: Any) -> Any:
-        """Dispatches a task to the primary agent for the role, falling back if it fails."""
+        """Dispatches a task to the primary agent for the role, falling back if it fails/times out."""
         agent_names = self.role_map.get(role, [])
         if not agent_names:
             raise ValueError(f"No agents found for role '{role}'")
@@ -47,40 +115,108 @@ class Orchestrator:
         # Select primary agent (highest reputation)
         primary_name = sorted(agent_names, key=lambda name: self.reputation.get(name, 100.0), reverse=True)[0]
         primary = self.active_agents[primary_name]
+        timeout = getattr(primary, "timeout", 5)
         
-        print(f"\n\033[1m[Orchestrator] Routing '{role}' task to primary: {primary_name}\033[0m")
+        with self.lock:
+            self.task_counter += 1
+            task_id = f"task_{self.task_counter}"
+            current_tick = self.engine.logical_tick if self.engine else 0
+            event = threading.Event()
+            
+            task_record = {
+                "task_id": task_id,
+                "role": role,
+                "agent_name": primary_name,
+                "inputs": inputs,
+                "start_tick": current_tick,
+                "timeout": timeout,
+                "status": "running",
+                "event": event,
+                "result": None,
+                "error": None,
+                "fallback_name": self.fallbacks.get(primary_name)
+            }
+            self.active_tasks[task_id] = task_record
+
+        print(f"\n\033[1m[Orchestrator] Routing '{role}' task to primary: {primary_name} (Logical Clock: {current_tick}, Timeout: {timeout} ticks)\033[0m")
         
-        # Simulate local execution
-        try:
-            start_time = time.perf_counter()
-            # If engine is attached, play sound for success
-            if self.engine:
-                # Math role triggers success sounds
-                if role == "addition":
-                    self.engine.trigger_agent_sound("success_math")
+        def run_execution():
+            try:
+                # Support simulated mock delay in inputs (for testing timeouts)
+                if isinstance(inputs, dict) and "mock_delay_seconds" in inputs:
+                    time.sleep(inputs["mock_delay_seconds"])
                     
-            result = primary.execute(inputs)
-            
-            # Record reputation bonus
-            self.reputation[primary_name] = min(200.0, self.reputation.get(primary_name, 100.0) + 1.0)
-            return result
-            
-        except Exception as e:
-            print(f"  \033[31m[Warning] Primary agent '{primary_name}' failed: {e}\033[0m")
-            # Update reputation penalty
-            self.reputation[primary_name] = max(0.0, self.reputation.get(primary_name, 100.0) - 15.0)
-            
-            if self.engine:
-                self.engine.trigger_agent_sound("fault_consensus")
+                result = primary.execute(inputs)
                 
-            # Attempt fallback
-            fallback_name = self.fallbacks.get(primary_name)
-            if fallback_name and fallback_name in self.active_agents:
-                print(f"  \033[33m[Fallback] Redirecting to backup: {fallback_name}...\033[0m")
-                backup = self.active_agents[fallback_name]
-                try:
-                    return backup.execute(inputs)
-                except Exception as e_backup:
-                    print(f"  \033[31m[Critical] Backup agent '{fallback_name}' also failed: {e_backup}\033[0m")
-                    
-            raise RuntimeError(f"All execution paths for role '{role}' failed.")
+                with self.lock:
+                    if task_record["status"] == "running":
+                        task_record["status"] = "success"
+                        task_record["result"] = result
+                        self.reputation[primary_name] = min(200.0, self.reputation.get(primary_name, 100.0) + 1.0)
+                        
+                        if self.engine:
+                            # Update logical clock (Lamport Timestamp coordination)
+                            self.engine.update_logical_clock(current_tick)
+                            if role == "addition":
+                                self.engine.trigger_agent_sound("success_math")
+                        task_record["event"].set()
+            except Exception as e:
+                with self.lock:
+                    if task_record["status"] == "running":
+                        print(f"  \033[31m[Warning] Primary agent '{primary_name}' failed: {e}\033[0m")
+                        self.reputation[primary_name] = max(0.0, self.reputation.get(primary_name, 100.0) - 15.0)
+                        
+                        if self.engine:
+                            self.engine.trigger_agent_sound("fault_consensus")
+                            
+                        # Attempt fallback
+                        fallback_name = task_record["fallback_name"]
+                        if fallback_name and fallback_name in self.active_agents:
+                            self._start_fallback(task_record, fallback_name)
+                        else:
+                            task_record["status"] = "failed"
+                            task_record["error"] = e
+                            task_record["event"].set()
+
+        t = threading.Thread(target=run_execution, daemon=True)
+        t.start()
+        
+        # Block until event matches success, failure, or timeout redirect completion
+        event.wait()
+        
+        with self.lock:
+            # Clean up active tasks registry
+            if task_id in self.active_tasks:
+                del self.active_tasks[task_id]
+            
+            if task_record["status"] == "success":
+                return task_record["result"]
+            elif task_record["error"]:
+                raise task_record["error"]
+            else:
+                raise RuntimeError(f"Task execution finished with unexpected status: {task_record['status']}")
+
+    def propose_mutation(self, agent_name: str, proposal: Dict[str, Any], signature: str) -> Tuple[bool, str]:
+        """
+        Proposes a code mutation for an active agent.
+        The proposal must pass the Constitution checks and get committed on-chain.
+        """
+        # 1. Constitution Guard Check
+        is_approved, reason = self.constitution.check_mutation(proposal)
+        if not is_approved:
+            print(f"\033[31m[Orchestrator] Mutation proposal for '{agent_name}' REJECTED: {reason}\033[0m")
+            return False, reason
+            
+        proposer_key = proposal.get("proposer_key")
+        
+        # 2. Log to SQLite Bulletin Chain
+        try:
+            block_hash = self.blockchain.log_mutation(proposer_key, proposal, signature)
+            print(f"\033[32m[Orchestrator] Mutation proposal for '{agent_name}' APPROVED and committed to Block {block_hash[:8]}\033[0m")
+            return True, "Approved"
+        except Exception as e:
+            err_msg = f"Failed to commit mutation to blockchain: {e}"
+            print(f"\033[31m[Orchestrator] {err_msg}\033[0m")
+            return False, err_msg
+
+

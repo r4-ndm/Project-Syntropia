@@ -95,6 +95,10 @@ class SyntropiaEngine:
         # Sonification: emit a subtle MIDI note click on every downbeat (every quarter note / 24 ticks)
         if self.logical_tick % 24 == 0:
             self._send_midi_note(60, velocity=20)  # Play C4 softly
+
+    def update_logical_clock(self, sender_tick: int):
+        """Lamport timestamp coordination."""
+        self.logical_tick = max(self.logical_tick, sender_tick) + 1
             
     def trigger_agent_sound(self, event_type: str):
         """Helper to play MIDI sounds mapped to agent success/failure events."""
