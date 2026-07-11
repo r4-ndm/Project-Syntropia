@@ -23,6 +23,8 @@ This document tracks the current implementation status of Syntropia's modules, c
 - [x] **Constitution Rule Engine (`src/syntropia/constitution.py`)**: Completed a hardcoded 12-rule checking module to govern agent mutations.
 - [x] **SQLite Bulletin Chain (`src/syntropia/blockchain.py`)**: Created an SQLite-based content-addressable storage (CAS) and block-chained registry log.
 - [x] **Reputation Ledger (Phase 2)**: Added on-chain reputation ledger scoring and automatic adjustment triggers.
+- [x] **Recursive Container Hierarchy (`src/syntropia/container.py`)**: Created recursive container tree model (L0-L5) with level validation, JSON serialization/deserialization, and logical task execution routing.
+- [x] **Stateless Gossip & Ephemeral Erasure Coding (`src/syntropia/gossip.py`)**: Simulated (K, 1) XOR erasure coding chunk distribution and recovery alongside an anti-entropy rumor-mongering gossip sync protocol.
 
 ---
 
@@ -53,7 +55,7 @@ We need developers, systems architects, and contributors to help solve these nex
 
 ### 2. State Persistence & Migration
 * *Problem*: Some agents (e.g., storage or database agents) accumulate execution state. If their host node goes offline, that state is lost.
-* *Question*: Should we implement state partitioning and active replication (similar to Kafka partitions) across peer groups, or save encrypted state snapshots directly to a DHT storage layer?
+* *Status*: Resolved via Ephemeral Redundant Storage (Reed-Solomon / XOR coding) and health-monitoring replication in [ephemeral_storage.md](file:///home/r4/Desktop/Project-Syntropia/docs/architecture/ephemeral_storage.md).
 
 ### 3. Incentive Mechanism
 * *Problem*: Volunteering compute power is passion-driven, but incentivization increases network scale and stability.

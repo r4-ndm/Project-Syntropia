@@ -100,7 +100,9 @@ Project-Syntropia/
 │   │   ├── orchestrator.py      # Router, heartbeat supervisor, fallback logic
 │   │   ├── crypto.py            # Hierarchical Deterministic keys, signing, verifying
 │   │   ├── constitution.py      # 12 unbreakable rules validation guard
-│   │   ├── blockchain.py        # SQLite Bulletin Chain ledger mimic
+│   │   ├── blockchain.py        # SQLite Bulletin Chain ledger mimic (placeholder)
+│   │   ├── container.py         # Recursive container group hierarchy (L0-L5)
+│   │   ├── gossip.py            # Stateless gossip broadcast & erasure coding sync
 │   │   ├── thor_hammer.py       # BitTorrent downloader/seeder wrapper
 │   │   ├── registry.py          # Agent/Script discovery and manifest management
 │   │   ├── runner.py            # Sandboxed script execution manager (subprocess/WASM)
