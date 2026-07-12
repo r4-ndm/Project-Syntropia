@@ -1,0 +1,24 @@
+pkgbase = syntropia
+	pkgdesc = A performance-tuned AI container overlay daemon for CachyOS
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://github.com/r4-ndm/Project-Syntropia
+	arch = any
+	license = MIT
+	makedepends = git
+	makedepends = python-setuptools
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	depends = python
+	depends = python-pip
+	depends = python-psutil
+	depends = python-pydantic
+	depends = python-cryptography
+	depends = python-toml
+	depends = podman
+	depends = systemd
+	source = git+https://github.com/r4-ndm/Project-Syntropia.git
+	sha256sums = SKIP
+
+pkgname = syntropia
