@@ -110,6 +110,14 @@ class ConstitutionGuard:
             # Must have minimal resource foot-print (Rule 2 subset check)
             if limits.get("memory_mb", 0) > 128:
                 return False, "Rule 13 Violation (Vaporization Protocol): Distilled script resource limit exceeds maximum (128MB)"
+
+        # Rule 14: Phoenix Resurrection Protocol
+        # Any script that fails repeatedly must spawn a Healer Agent to patch it in a validation sandbox.
+        # If the script cannot be successfully patched within defined constraints, the original AI agent
+        # must be resurrected from its vaporization record to re-solve the task and vaporize into a new script.
+        if proposal.get("status") == "Resurrected":
+            if not proposer_key:
+                return False, "Rule 14 Violation (Phoenix Resurrection Protocol): Resurrected agent missing public key reference"
             
         # Stubs for rules 4, 5, 8, 9, 12 (governed on network level)
         # Passed all local constraints

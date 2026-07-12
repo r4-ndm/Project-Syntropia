@@ -35,6 +35,10 @@ class Orchestrator:
         from syntropia.vaporization import VaporizationEngine
         self.vaporization = VaporizationEngine(self)
         
+        # Healer Engine (Rule 14)
+        from syntropia.healer import HealerEngine
+        self.healer = HealerEngine(self)
+        
     def set_engine(self, engine):
         self.engine = engine
 
@@ -242,9 +246,15 @@ class Orchestrator:
             if task_record["status"] == "success":
                 return task_record["result"]
             elif task_record["error"]:
+                # Notify HealerEngine (Rule 14: Phoenix Resurrection Protocol)
+                self.healer.handle_script_failure(
+                    script_id=task_record["agent_name"],
+                    role=task_record["role"],
+                    error=str(task_record["error"])
+                )
                 raise task_record["error"]
             else:
-                raise RuntimeError(f"Task execution finished with unexpected status: {task_record['status']}")
+                raise RuntimeError(f"Task execution failed with status: {task_record['status']}")
 
     def propose_mutation(self, agent_name: str, proposal: Dict[str, Any], signature: str) -> Tuple[bool, str]:
         """
