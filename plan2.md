@@ -2,7 +2,7 @@
 
 > **"Syntropia isn't a new OS. It's the soul that enters the host."**
 >
-> We pivot from building a new OS from scratch to possessing and enhancing an existing host being: **CachyOS**. L1–L4 AI container overlays are injected directly into CachyOS to deliver low-latency audio performance, Windows gaming compatibility, and a shared global compute network powered by a 1%–100% CPU/GPU sacrifice slider.
+> We pivot from building a new OS from scratch to possessing and enhancing an existing host being: **CachyOS**. L1–L4 AI container overlays are injected directly into CachyOS to deliver low-latency audio performance, Windows gaming compatibility, and a shared global compute network powered by a 0%–100% CPU/GPU sacrifice slider.
 
 ---
 
@@ -17,7 +17,7 @@ Rather than building and maintaining a full custom Linux distribution (which req
 | **Easy Installation** | Installed natively via the AUR (`yay -S syntropia`) or `pip install syntropia`. |
 | **Low Barrier to Entry** | Existing CachyOS users can inject the overlay without nuking their current setup. |
 | **Portability** | The overlay can be adapted to other Arch-based distros (EndeavourOS, Manjaro) later. |
-| **Dynamic Resources** | A transparent 1%–100% sacrifice slider gives users complete control of idle compute contribution. |
+| **Dynamic Resources** | A transparent 0%–100% sacrifice slider gives users complete control of idle compute contribution. |
 
 
 ---
@@ -94,11 +94,11 @@ Rather than building and maintaining a full custom Linux distribution (which req
 
 ---
 
-## 🌐 The Resource Sacrifice Slider (1% to 100%)
+## 🌐 The Resource Sacrifice Slider (0% to 100%)
 
 | Aspect | How It Works |
 | :--- | :--- |
-| **The Rule** | The user chooses a contribution level from 1% (**noob**) to 100% (**monster**). |
+| **The Rule** | The user chooses a contribution level from 0% (**chicken**) to 100% (**monster**). |
 | **The Daemon** | L1 Manager runs low-priority background compute tasks based on the selected slider level when idle. |
 | **The Yield** | cgroup limits + nice values ensure immediate CPU yield when user activity resumes. |
 | **The Swarm** | Model weights are chunked and distributed via P2P DHT (BitTorrent). |
@@ -126,7 +126,7 @@ We are evaluating three decentralized communication protocols to drive agent-to-
 3. **DePIN Aggregators (The "Resource Virtualization OS")**
    * *What it is*: Platforms (e.g., 4EVER Network, Titan Agent) that virtualize and standardize CPU/GPU container executions across heterogeneous volunteer platforms.
    * *Why it fits*: Avoids reinventing low-level transport and scheduling layers. Handles multi-platform VM/container jailing out-of-the-box.
-   * *Syntropia Role*: Plugs into our 1%-100% sacrifice daemon to manage standardized volunteer hardware contributions.
+   * *Syntropia Role*: Plugs into our 0%-100% sacrifice daemon to manage standardized volunteer hardware contributions.
 
 ### B. The Hybrid Network Architecture
 * **Real-Time Mesh Network (`libp2p`)**: Handles command-and-control, task routing, logical clocks, consensus, and metadata gossip.
@@ -154,7 +154,7 @@ To transition the Syntropia node CLI from a foreground script to a robust, backg
 | :--- | :--- | :--- |
 | **Phase 1** | Host Profiling & Init Sandboxing | **Complete** (cachy_host.py implemented) |
 | **Phase 2** | Wine, yabridge, and DAW Sync | **Complete** (automated sync and overrides) |
-| **Phase 3** | 1%-100% Sacrifice Slider Daemon | **Complete** (dynamic load adjustment thread tracking) |
+| **Phase 3** | 0%-100% Sacrifice Slider Daemon | **Complete** (dynamic load adjustment thread tracking) |
 | **Phase 4** | Node Daemonization & Swarm Bootstrapping | **Not Started** (planned) |
 | **Phase 5** | Full ISO Release & Distribution | **Not Started** (planned) |
 

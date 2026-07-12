@@ -62,9 +62,9 @@ CachyOS was chosen as the host being because it:
 
 ---
 
-## 🌐 The Resource Sacrifice Slider (1% to 100%)
+## 🌐 The Resource Sacrifice Slider (0% to 100%)
 
-You decide how much of your idle CPU/GPU to share with the Syntropia swarm. Drag the slider from 1% (noob) to 100% (monster)—change it anytime.
+You decide how much of your idle CPU/GPU to share with the Syntropia swarm. Drag the slider from 0% (🐔 chicken) to 100% (monster)—change it anytime.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
@@ -73,8 +73,8 @@ You decide how much of your idle CPU/GPU to share with the Syntropia swarm. Drag
 │  How much of your idle CPU/GPU are you willing to share?       │
 │                                                                 │
 │  [━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●━━━━━━━━━]  42%   │
-│  1%           5%           25%          75%          100%      │
-│  🧸 noob      🐸 Balanced   ⚡ Power     ☠️ Beast     😈 monster│
+│  0%        1%        5%        25%         75%         100%     │
+│ 🐔 chicken 🧸 noob   🐸 Balanced   ⚡ Power   ☠️ Beast  😈 monster   │
 │                                                                 │
 │  ✔️ Only when idle (no keyboard/mouse for 5+ min)              │
 │  ✔️ Yields to games, DAWs, and other active apps              │

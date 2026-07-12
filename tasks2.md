@@ -28,8 +28,8 @@ This board tracks the concrete implementation tasks and status for Syntropia's C
 * [x] **Low-latency Wine audio configuration variables** (`WINE_AUDIO_BACKGROUND=1`)
 * [x] **Unit tests for VST sync** (`tests/test_cachy_host.py` -> `test_configure_wine_yabridge`)
 
-### 🌐 Phase 4: The 1%-100% Sacrifice Slider Daemon
-* **Goal**: Safely harvest 1% (noob) to 100% (monster) idle system resources without impacting active DAW or gaming sessions.
+### 🌐 Phase 4: The 0%-100% Sacrifice Slider Daemon
+* **Goal**: Safely harvest 0% (chicken) to 100% (monster) idle system resources without impacting active DAW or gaming sessions.
 * [x] **Idle monitor checks** (`src/syntropia/cachy_host.py` -> `start_resource_sacrifice`)
 * [x] **cgroup nice scheduling restrictions**
 * [x] **Unit tests for resource sacrifice thread** (`tests/test_cachy_host.py` -> `test_resource_sacrifice`)

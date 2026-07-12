@@ -149,19 +149,23 @@ class CachyHostPossessor:
 
     def start_resource_sacrifice(self, percentage: int = 5) -> None:
         """
-        Spawns the background daemon to sacrifice between 1% and 100% CPU/GPU capacity to the Syntropia swarm.
+        Spawns the background daemon to sacrifice between 0% and 100% CPU/GPU capacity to the Syntropia swarm.
         Runs low-priority mock workloads to simulate the shared resource model.
         """
         if self.sacrifice_active:
             return
 
-        self.sacrifice_percentage = max(1, min(100, percentage))
+        self.sacrifice_percentage = max(0, min(100, percentage))
         self.sacrifice_active = True
         
         def run_sacrifice_loop():
             # Dedicated loop executing simple mathematical calculations
             # Periodically sleeps to maintain the target cpu overhead
             while self.sacrifice_active:
+                if self.sacrifice_percentage == 0:
+                    time.sleep(1.0)
+                    continue
+
                 start = time.perf_counter()
                 
                 # Active work phase
@@ -184,7 +188,10 @@ class CachyHostPossessor:
 
         self.sacrifice_thread = threading.Thread(target=run_sacrifice_loop, daemon=True)
         self.sacrifice_thread.start()
-        print(f"\n\033[1;36m[Resource Sacrifice] Activated. Sacrificing {self.sacrifice_percentage}% CPU/GPU resources to the Syntropia network.\033[0m")
+        if self.sacrifice_percentage == 0:
+            print(f"\n\033[1;36m[Resource Sacrifice] Activated. Sacrificing {self.sacrifice_percentage}% CPU/GPU resources (🐔 Chicken mode) to the Syntropia network.\033[0m")
+        else:
+            print(f"\n\033[1;36m[Resource Sacrifice] Activated. Sacrificing {self.sacrifice_percentage}% CPU/GPU resources to the Syntropia network.\033[0m")
 
 
     def stop_resource_sacrifice(self) -> None:

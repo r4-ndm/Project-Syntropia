@@ -84,6 +84,11 @@ class TestCachyHostPossessor(unittest.TestCase):
         self.assertEqual(self.possessor.sacrifice_percentage, 50)
         self.possessor.stop_resource_sacrifice()
 
+        # Test 0% (Chicken mode)
+        self.possessor.start_resource_sacrifice(0)
+        self.assertEqual(self.possessor.sacrifice_percentage, 0)
+        self.possessor.stop_resource_sacrifice()
+
         # Test 100% (Unleashed)
         self.possessor.start_resource_sacrifice(100)
         self.assertEqual(self.possessor.sacrifice_percentage, 100)

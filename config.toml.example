@@ -5,7 +5,7 @@ bpm = 120
 agents_dir = "/opt/syntropia/agents"
 
 [resource]
-slider_percentage = 5        # Sacrifice slider level (1 to 100%)
+slider_percentage = 5        # Sacrifice slider level (0 to 100%, where 0% is Chicken mode)
 only_when_idle = true        # Idle-only resource contribution
 idle_threshold_seconds = 300 # 5 minutes inactivity before sacrifice daemon triggers
 

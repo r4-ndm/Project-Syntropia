@@ -4,11 +4,11 @@ pkgver=0.1.0
 pkgrel=1
 pkgdesc="A performance-tuned AI container overlay daemon for CachyOS"
 arch=('any')
-url="https://github.com/your-username/Project-Syntropia"
+url="https://github.com/r4-ndm/Project-Syntropia"
 license=('MIT')
-depends=('python' 'python-psutil' 'python-pydantic' 'python-cryptography' 'python-toml')
-makedepends=('python-setuptools' 'python-build' 'python-installer' 'python-wheel')
-source=("git+https://github.com/your-username/Project-Syntropia.git")
+depends=('python' 'python-pip' 'python-psutil' 'python-pydantic' 'python-cryptography' 'python-toml' 'podman' 'systemd')
+makedepends=('git' 'python-setuptools' 'python-build' 'python-installer' 'python-wheel')
+source=("git+https://github.com/r4-ndm/Project-Syntropia.git")
 sha256sums=('SKIP')
 
 package() {
