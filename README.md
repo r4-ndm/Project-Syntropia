@@ -73,8 +73,8 @@ You decide how much of your idle CPU/GPU to share with the Syntropia swarm. Drag
 │  How much of your idle CPU/GPU are you willing to share?                  │
 │                                                                           │
 │    [━━━━━━━━━━━━━━━━━━━━━●---------------------------------------------]  │
-│    0%        1%          5%          25%         75%         100%         │
-│  🐔 chicken  🧸 noob    🐸 Balanced   ⚡ Power     ☠️ Beast   😈 monster  │
+│    0%           1%          5%           25%          75%         100%    │
+│  🐔 chicken  🧸 noob   🐸 Balanced   ⚡ Power     ☠️ Beast   😈 monster   │
 │                                                                           │
 │  ✔️ Only when idle (no keyboard/mouse for 5+ min)                         │
 │  ✔️ Yields to games, DAWs, and other active apps                          │
