@@ -67,20 +67,20 @@ CachyOS was chosen as the host being because it:
 You decide how much of your idle CPU/GPU to share with the Syntropia swarm. Drag the slider from 0% (🐔 chicken) to 100% (monster)—change it anytime.
 
 ```text
-┌─────────────────────────────────────────────────────────────────┐
-│  ⚡ Syntropia Resource Contribution                            │
-│                                                                 │
-│  How much of your idle CPU/GPU are you willing to share?       │
-│                                                                 │
-│  [━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●━━━━━━━━━]  42%   │
-│  0%        1%        5%        25%         75%         100%     │
-│ 🐔 chicken 🧸 noob   🐸 Balanced   ⚡ Power   ☠️ Beast  😈 monster   │
-│                                                                 │
-│  ✔️ Only when idle (no keyboard/mouse for 5+ min)              │
-│  ✔️ Yields to games, DAWs, and other active apps              │
-│  ✔️ Runs at lowest priority (nice 19)                         │
-│  ✔️ Enforces thermal (85°C) and battery protections             │
-└─────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────┐
+│  ⚡ Syntropia Resource Contribution                                        │
+│                                                                           │
+│  How much of your idle CPU/GPU are you willing to share?                  │
+│                                                                           │
+│    [━━━━━━━━━━━━━━━━━━━━━●────────────────────────────────────]           │
+│    0%        1%          5%          25%         75%         100%         │
+│  🐔 chicken  🧸 noob    🐸 Balanced   ⚡ Power     ☠️ Beast   😈 monster       │
+│                                                                           │
+│  ✔️ Only when idle (no keyboard/mouse for 5+ min)                         │
+│  ✔️ Yields to games, DAWs, and other active apps                          │
+│  ✔️ Runs at lowest priority (nice 19)                                     │
+│  ✔️ Enforces thermal (85°C) and battery protections                       │
+└───────────────────────────────────────────────────────────────────────────┘
 ```
 
 The daemon runs at the lowest priority (nice 19), yielding immediately when you game, produce audio, or compile code. In return, you get:
