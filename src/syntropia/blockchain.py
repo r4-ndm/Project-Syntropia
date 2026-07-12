@@ -89,6 +89,15 @@ class SQLiteBulletinChain:
         )
         self.conn.commit()
 
+    def update_agent_status(self, public_key: str, status: str) -> None:
+        """Updates the status of a registered agent on the blockchain."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE agent_registry SET status = ? WHERE public_key = ?",
+            (status, public_key)
+        )
+        self.conn.commit()
+
     def get_agent(self, public_key: str) -> Optional[Dict[str, Any]]:
         """Retrieves registered agent metadata from public key."""
         cursor = self.conn.cursor()

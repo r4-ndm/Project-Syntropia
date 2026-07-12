@@ -61,11 +61,16 @@ class TestGossipAndErasure(unittest.TestCase):
         # Trigger rumor from node_0
         net.trigger_gossip_rumor("node_0", "cid_rep_99", {"reputation": "node_x_adjust_minus_15"})
         
+        # Run anti-entropy rounds to guarantee complete ledger convergence across the network
+        for _ in range(10):
+            net.run_anti_entropy_round()
+            
         # Ensure all nodes received and updated their ledger
         for i in range(5):
             node = net.nodes[f"node_{i}"]
             self.assertIn("cid_rep_99", node.ledger)
             self.assertEqual(node.ledger["cid_rep_99"]["reputation"], "node_x_adjust_minus_15")
+
 
     def test_anti_entropy_sync(self):
         # Create node A and B, not connected directly

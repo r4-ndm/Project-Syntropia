@@ -1,0 +1,45 @@
+[Unit]
+Description=Syntropia Living Computer Node Daemon
+Documentation=https://github.com/your-username/Project-Syntropia
+After=network.target pipewire.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=syntropia
+Group=syntropia
+WorkingDirectory=/opt/syntropia
+ExecStart=/usr/bin/python3 /opt/syntropia/src/main.py --start-node --daemon
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=10
+Nice=19
+CPUSchedulingPolicy=idle
+IOSchedulingClass=idle
+
+# Environment
+Environment="SYNTROPIA_CONFIG=/etc/syntropia/config.toml"
+EnvironmentFile=-/etc/default/syntropia
+
+# Resource Limits (cgroups)
+CPUQuota=100%
+MemoryMax=4G
+TasksMax=1024
+
+# Security Hardening
+ProtectSystem=strict
+ReadWritePaths=/var/lib/syntropia /tmp
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=syntropia
+
+[Install]
+WantedBy=multi-user.target

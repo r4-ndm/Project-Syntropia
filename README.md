@@ -1,55 +1,92 @@
-# 🌌 Project Syntropia: The Living Computer
+# 🌀 Project Syntropia: The Living OS
 
-> **"Computing Beyond Quantum. Infinity Intelligence."**
+> **"Possessing CachyOS. Injecting Intelligence."**
 
-Syntropia is a prototype of a **living computer**—a general-purpose computing environment built not from static instructions, but from a self-assembling swarm of simple, specialized, and evolving AI/rule-based agents.
+Syntropia is a **living operating system overlay**—a swarm of AI containers that possess and enhance an existing performance-tuned Linux distribution (CachyOS). It turns your machine into a self-evolving, community-powered compute node that runs Windows games, DAWs, and VST3 plugins flawlessly while contributing idle resources to a global intelligence network.
 
 ---
 
 ## 🔥 The Manifesto
 
-* We reject centralized control.
-* We reject fragile, static code.
-* We reject the idea that intelligence must be housed in one machine.
-* We embrace emergence.
-* We embrace evolution.
-* We embrace the swarm.
+- We don't build from scratch. We **possess and enhance** the host being.
+- We don't ask for loyalty. We build **redundancy through numbers**.
+- We don't age. We **reverse-age through accumulated intelligence**.
+- We don't gatekeep. We **inject AI superpowers into existing tools**.
+- We don't rent. We **own and share**.
 
 ---
 
-## 🧠 Core Concept: Torrent-Powered Swarm Intelligence
+## 🧠 Core Concept: The Injected Host Being
 
-Instead of hosting heavy model files on centralized servers, Syntropia uses **P2P Torrent Swarms** to distribute agent logic and model weights.
-
-### 🌐 How It Works
-
-1. **Weight Distribution**: Lightweight models (e.g., Qwen-2.5-0.5B-Instruct at ~950MB) are distributed via magnet links—too big for GitHub LFS, perfect for BitTorrent.
-2. **BitTorrent Integration**:
-   - The CLI client contains a lightweight BitTorrent engine (using `libtorrent`).
-   - When a node needs a specialized agent, it downloads the model weights (.gguf format) from the swarm.
-   - Once downloaded, the node automatically seeds to others—the network grows stronger with every peer.
-3. **Agent Manifests**: A decentralized registry tracks magnet links for each model type.
-
----
-
-## 🐜 The Agent Architecture
-
-Each agent is a microscopic unit of execution adhering to strict rules:
-
-* **Single Responsibility**: Do exactly one thing (e.g., `Add`, `Store`, `Reason`).
-* **Ultralight Edge Models**: Runs sub-1B parameter models locally using CPU inference engines (`llama.cpp`).
-* **Deterministic Ticks**: Operates on a system tick. If no response by tick threshold, fallback triggers.
-* **P2P Redundancy**: Primary → Shadow (hot standby) → Fallback (cold standby) hierarchy.
+Instead of building a new operating system, Syntropia runs as an **active agentic overlay daemon** on top of CachyOS—a performance-optimized Arch-based distribution beloved by gamers and power users.
 
 ```mermaid
 graph TD
-    User([User Request: '3 + 5 * 2']) --> Orchestrator[Orchestrator / Router]
-    Orchestrator -->|Identify needed agent| Registry[Agent Registry]
-    Registry -->|Model weights missing locally?| TorrentClient[Background Torrent Client]
-    TorrentClient -->|Download via Magnet Link| Swarm[Global Torrent Swarm]
-    Swarm -->|Weights completed| LocalModel[Run Local sub-1B GGUF Model]
-    LocalModel -->|Execute task| Orchestrator
+    cachy[CachyOS Host: Kernel & Scheduler] --> init[L4 Init Injection Layer]
+    init -->|Harden Security| sandbox[seccomp / Landlock Sandbox]
+    init -->|Maximize Latency| audio[Pipewire / PipeASIO RT Tuning]
+    
+    subgraph SwarmContainers [L1-L4 AI Overlay]
+        L4[L4 Brain: OS Config Mutator]
+        L3[L3 Orchestrator: DAW / Game Router]
+        L2[L2 Supervisor: yabridge / Wine Manager]
+        L1[L1 Manager: 3% Resource Sacrifice Daemon]
+    end
+    
+    sandbox --> SwarmContainers
+    audio --> SwarmContainers
 ```
+
+---
+
+## 🎮 The Three Pillars
+
+### 1️⃣ Windows Gaming on Linux
+Syntropia's L3/L4 containers detect launched games and apply tailored environment variables, thread scheduler optimizations, and BORE latency tuning—making Windows games run flawlessly on CachyOS.
+
+### 2️⃣ DAW & VST3 Compatibility (Ableton, FL Studio, Bitwig)
+L2/L3 containers automate yabridgectl synchronization, configure Pipewire/PipeASIO for sub-millisecond latency, and enable drag-and-drop between native Linux software and Windows VST3 plugins.
+
+### 3️⃣ Crypto Security (DeFi Hardening)
+L4 init-layer injection applies Landlock LSM, seccomp-bpf, and no-new-privileges to sandbox mutated code, protecting your keys and data from privilege escalation attacks.
+
+---
+
+## 🏗️ Why CachyOS?
+
+CachyOS was chosen as the host being because it:
+- **Already performs** — linux-cachyos kernel with BORE scheduler, optimized compilation flags, and performance tweaks.
+- **Already supports** — Arch-based, so it has access to the AUR and the latest Wine/Proton/yabridge packages.
+- **Already loved** — by gamers, power users, and tinkerers.
+- **Already open** — fully open-source, so we can inject our AI containers without legal or ethical barriers.
+
+---
+
+## 🌐 The Resource Sacrifice Slider (1% to 100%)
+
+You decide how much of your idle CPU/GPU to share with the Syntropia swarm. Drag the slider from 1% (noob) to 100% (monster)—change it anytime.
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│  ⚡ Syntropia Resource Contribution                            │
+│                                                                 │
+│  How much of your idle CPU/GPU are you willing to share?       │
+│                                                                 │
+│  [━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●━━━━━━━━━]  42%   │
+│  1%           5%           25%          75%          100%      │
+│  🧸 noob      🐸 Balanced   ⚡ Power     ☠️ Beast     😈 monster│
+│                                                                 │
+│  ✔️ Only when idle (no keyboard/mouse for 5+ min)              │
+│  ✔️ Yields to games, DAWs, and other active apps              │
+│  ✔️ Runs at lowest priority (nice 19)                         │
+│  ✔️ Enforces thermal (85°C) and battery protections             │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+The daemon runs at the lowest priority (nice 19), yielding immediately when you game, produce audio, or compile code. In return, you get:
+* A self-optimizing system that learns from the network.
+* Priority access to community-built AI agents.
+* A stake in the world's first living computer.
 
 ---
 
@@ -57,30 +94,22 @@ graph TD
 
 ```text
 Project-Syntropia/
-├── .github/
-│   └── ISSUE_TEMPLATE/          # Bug reports, feature requests, new agent proposals
-├── agents/                      # Contributor-submitted agent definitions
-│   ├── math/                    # Arithmetic agents
-│   │   ├── add/
-│   │   ├── multiply/
-│   │   └── divide/
-│   ├── memory/                  # Key-value storage agents
-│   ├── reasoning/               # Edge LLM prompt templates (Qwen, OLMo)
-│   │   └── qwen_0.5b/
-│   │       ├── manifest.json    # Magnet link, timeout, role definition
-│   │       └── prompt.py        # Prompt structure and output parsing
-│   └── network/                 # P2P communication agents
 ├── src/
 │   ├── syntropia/
-│   │   ├── __init__.py
-│   │   ├── engine.py            # Tick engine, system clock
-│   │   ├── orchestrator.py      # Router, heartbeat supervisor, fallback logic
-│   │   ├── thor_hammer.py       # BitTorrent downloader/seeder wrapper
-│   │   ├── registry.py          # Agent discovery and manifest management
-│   │   └── evolution.py         # Fitness scoring, replication, pruning
-│   └── main.py                  # Interactive CLI / onboarding tool
-├── tests/                       # Unit and integration tests
-├── docs/                        # Whitepaper, architecture, roadmap
+│   │   ├── host_profiler.py       # Detects CachyOS kernel, Wine, Pipewire (in cachy_host.py)
+│   │   ├── sandbox.py             # Landlock/seccomp init-layer jail (in cachy_host.py)
+│   │   ├── orchestrator.py        # L3 DAW/Game router
+│   │   ├── yabridge_manager.py    # L2 VST3 auto-sync daemon (in cachy_host.py)
+│   │   ├── sacrifice_daemon.py    # L1 1%-100% resource manager (in cachy_host.py)
+│   │   └── evolution.py           # Mutation engine (keep/rollback/kill)
+├── systemd/                        # Services for init-layer injection (planned)
+│   ├── syntropia-sandbox.service
+│   └── syntropia-sacrifice.service
+├── docs/                           # Architecture, whitepapers, roadmap
+├── tests/                          # 50+ passing tests
+├── reference/                      # Historical/reference plans and tasks
+├── plan2.md                        # Current reality-focused roadmap
+├── tasks2.md                       # Current progress task board
 ├── README.md
 ├── CONTRIBUTING.md
 └── LICENSE
@@ -90,20 +119,23 @@ Project-Syntropia/
 
 ## 🚀 Quick Start (Join the Swarm in 3 Steps)
 
-### 1. Clone and install
+### 1. Install CachyOS
+Download and install [CachyOS](https://cachyos.org/)—our recommended host being.
+
+### 2. Clone and install Syntropia
 ```bash
 git clone https://github.com/[your-username]/Project-Syntropia.git
 cd Project-Syntropia
 pip install -r requirements.txt
 ```
 
-### 2. Start your node
+### 3. Start your node
 ```bash
+sudo systemctl enable --now syntropia-sandbox.service
+sudo systemctl enable --now syntropia-sacrifice.service
 python src/main.py --start-node
 ```
-
-### 3. Submit an agent (optional)
-Create a new folder in `agents/`, write a Python class, define `manifest.json`, and open a Pull Request!
+Your machine is now a living cell in the global brain.
 
 ---
 
@@ -111,47 +143,56 @@ Create a new folder in `agents/`, write a Python class, define `manifest.json`, 
 
 | Phase | Focus | Status |
 | :--- | :--- | :--- |
-| **Phase 0** | Core engine (tick system, orchestrator, fallback) | 🔜 In Progress |
-| **Phase 1** | Torrent integration (download, seed, magnet links) | 🔜 Planned |
-| **Phase 2** | First agents (math, memory, simple reasoning) | 🔜 Planned |
-| **Phase 3** | Evolution engine (fitness, reproduction, mutation) | 🔜 Planned |
-| **Phase 4** | Decentralized registry (DHT-based agent discovery) | 🔜 Planned |
-| **Phase 5** | Infinity Intelligence (general-purpose self-evolving OS) | 🌌 The Future |
+| **Phase 1** | Host profiling & init sandboxing (Landlock/seccomp) | **Complete** (in cachy_host.py) |
+| **Phase 2** | yabridge automation & VST3 sync | **Complete** (in cachy_host.py) |
+| **Phase 3** | Pipewire/PipeASIO latency tuning | **Complete** (in cachy_host.py) |
+| **Phase 4** | 1%-100% sacrifice daemon with cgroup limits | **Complete** (in cachy_host.py) |
+| **Phase 5** | Full CachyOS ISO with Syntropia pre-injected | 🔜 Planned |
+| **Phase 6** | Evolution engine at global scale | 🌌 The Future |
 
 ---
 
 ## 🤝 How to Contribute
 
 We welcome all kinds of contributions:
-* **Add a new agent**: Create a folder in `agents/` with a manifest and logic.
-* **Improve the core engine**: Submit PRs to `src/syntropia/`.
-* **Seed models**: Run a node and let it seed, helping the swarm grow.
+* **Add a new agent**: Create a specialized container for a specific task.
+* **Improve compatibility**: Help us perfect Windows game/DAW support.
+* **Optimize latency**: Tune Pipewire/PipeASIO for sub-millisecond performance.
+* **Harden security**: Improve Landlock/seccomp configurations.
 * **Write documentation**: Clarify concepts, add tutorials.
 * **Spread the word**: Share the project with your network.
 
-Check out [CONTRIBUTING.md](file:///home/r5/Desktop/Project-Syntropia/CONTRIBUTING.md) for full guidelines.
+Check out [CONTRIBUTING.md](file:///home/r4/Desktop/Project-Syntropia/CONTRIBUTING.md) for full guidelines.
 
 ---
 
 ## 🌍 The Philosophy
 
-Syntropia is named after Luigi Fantappiè's concept—the opposite of entropy. Where chaos dissolves, syntropy creates order, complexity, and life. This project is a direct expression of that idea:
-* **From chaos** (millions of simple agents)
-* **Comes order** (self-organizing intelligence)
-* **From order** (evolving, adapting systems)
-* **Comes infinity** (a computer that never stops growing)
+Syntropia is named after Luigi Fantappiè's concept—the opposite of entropy. Where chaos dissolves, syntropy creates order, complexity, and life.
 
-> *"Quantum computers are the end of speed. Syntropia is the end of limitation."*
+We took nature's blueprint (the human body) and fixed its fatal flaw: aging. Syntropia gets smarter, faster, and more resilient with every mutation.
+
+> **"Syntropia doesn't age. It evolves."**
 
 ---
 
 ## 📜 License
-MIT — open-source, forever.
+
+[MIT](file:///home/r4/Desktop/Project-Syntropia/LICENSE) — open-source, forever.
+
+---
 
 ## ⭐ Star This Repo
-If you believe in a future where computers are alive, decentralized, and evolving—give us a ⭐. It helps others find the project.
+
+If you believe in a future where computers are alive, decentralized, and self-optimizing—give us a ⭐.
+
+---
 
 ## 🧠 Connect
+
 * **Discussion**: GitHub Discussions
-* **Issues**: GitHub Issues
-* **Discord**: Coming soon
+* **Issues**: [GitHub Issues](https://github.com/[your-username]/Project-Syntropia/issues)
+* **Discord**: [Coming soon]
+
+> **"Syntropia isn't a new OS. It's the soul that enters the host."**
+

@@ -93,3 +93,44 @@ $$\text{Priority}(t) = \frac{\text{Access Count}}{\text{Current Logical Tick} - 
 3. **Trigger Recovery**: A surviving L3 node downloads the 4 remaining chunks from online peers.
 4. **Reconstruct and Re-seed**: The L3 node reconstructs the original mutation payload, generates 6 new parity chunks, and distributes them via DHT to new volunteer nodes.
 5. **No Loss of State**: A new user requests the synthesizer container. It is assembled and executed without anyone noticing Node Alpha ever left.
+
+---
+
+## 🔁 4. The "Stateless" Fallback Model
+
+Instead of relying on loyal nodes that store data forever, Syntropia is designed so that any node can die at any time without harming the network. This table describes how storage requirements scale per layer:
+
+| Layer | How It Works | Storage Persistence | Who Needs It |
+| :--- | :--- | :--- | :--- |
+| **L0 Workers** | No storage. Exit immediately after task. | Completely disposable. | L0 Workers |
+| **L1 Managers** | Cache recent results. Exit if idle too long. | Ephemeral cache (local memory). | L0 Workers, L1 Managers |
+| **L2 Supervisors** | Store mutation logs and test benchmarks. | Replicated via DHT & Gossip. | L2 Supervisors, L3 Orchestrators |
+| **L3 Orchestrators**| Store global network state hash. | Gossip sync & local Merkle trees. | L3 Orchestrators, L4 Core |
+| **L4 Core** | Store the Constitution and meta-rules. | Immutable genesis rules, replicated globally. | All containers |
+
+No single node is loyal, but through gossip and replication, the collective network has a memory.
+
+---
+
+## 🔐 5. The Syntropia Blockchain Ledger
+
+The blockchain in Syntropia is not a speculative transaction system—it is the immutable memory and rulebook of the global brain. It is kept extremely lightweight (storing only hashes and signatures) so that blocks can propagate in milliseconds over BFT consensus.
+
+### Data Stored on the Blockchain:
+* **Agent Identity**: Permanent public keys mapped to agent names and code hashes.
+* **Mutation Logs**: Signed record of every approved mutation (for scientific auditing, not voting).
+* **Constitution**: The core 12 unbreakable rules of Syntropia.
+* **Reputation Scores**: Aggregated trust ratings for nodes.
+* **Global State Hash**: SHA-256 fingerprint representing the correct state of the network.
+* **Governance Votes**: Signed override decisions by humans or Core AI.
+
+### Data NOT Stored on the Blockchain:
+* **Container Images / Models**: Too large (stored in BitTorrent/IPFS DHT, referenced on-chain by hash).
+* **Task Logs**: Too noisy (stored locally or in ephemeral cache).
+* **Real-time Messages**: Too fast (broadcast directly via gossip).
+
+### How the Blockchain differs from Typical Chains:
+* **Consensus**: Byzantine Fault Tolerant (BFT) rather than heavy PoW or PoS.
+* **Tokens**: None. Transactions are reputation-based.
+* **Purpose**: Swarm memory and truth verification rather than financial exchange.
+

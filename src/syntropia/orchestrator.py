@@ -24,6 +24,10 @@ class Orchestrator:
         self.blockchain = SQLiteBulletinChain(db_path)
         self.constitution = ConstitutionGuard()
         
+        # Evolution Engine
+        from syntropia.evolution import EvolutionEngine
+        self.evolution = EvolutionEngine(self)
+        
     def set_engine(self, engine):
         self.engine = engine
 
@@ -200,23 +204,8 @@ class Orchestrator:
         """
         Proposes a code mutation for an active agent.
         The proposal must pass the Constitution checks and get committed on-chain.
+        Delegates to the Evolution Engine which implements 'Mutate First, Ask Questions Later'.
         """
-        # 1. Constitution Guard Check
-        is_approved, reason = self.constitution.check_mutation(proposal)
-        if not is_approved:
-            print(f"\033[31m[Orchestrator] Mutation proposal for '{agent_name}' REJECTED: {reason}\033[0m")
-            return False, reason
-            
-        proposer_key = proposal.get("proposer_key")
-        
-        # 2. Log to SQLite Bulletin Chain
-        try:
-            block_hash = self.blockchain.log_mutation(proposer_key, proposal, signature)
-            print(f"\033[32m[Orchestrator] Mutation proposal for '{agent_name}' APPROVED and committed to Block {block_hash[:8]}\033[0m")
-            return True, "Approved"
-        except Exception as e:
-            err_msg = f"Failed to commit mutation to blockchain: {e}"
-            print(f"\033[31m[Orchestrator] {err_msg}\033[0m")
-            return False, err_msg
+        return self.evolution.mutate_agent(agent_name, proposal, signature)
 
 

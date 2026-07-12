@@ -3,10 +3,48 @@ import argparse
 import sys
 import threading
 import time
+import os
+import logging
+
+try:
+    import tomllib  # Python 3.11+
+except ImportError:
+    import toml as tomllib  # Fallback for Python < 3.11
+
 from syntropia.registry import AgentRegistry
 from syntropia.orchestrator import Orchestrator
 from syntropia.engine import SyntropiaEngine
-from syntropia.thor_hammer import ThorHammer
+
+logger = logging.getLogger("syntropia")
+
+DEFAULT_CONFIG = {
+    "core": {
+        "bpm": 120,
+        "agents_dir": "agents"
+    },
+    "resource": {
+        "slider_percentage": 5,
+        "only_when_idle": True,
+        "idle_threshold_seconds": 300
+    },
+    "audio": {
+        "latency_target_ms": 1,
+        "pipewire_config": "/etc/pipewire/pipewire.conf"
+    },
+    "security": {
+        "landlock_enabled": True,
+        "seccomp_enabled": True,
+        "no_new_privileges": True
+    },
+    "network": {
+        "p2p_protocol": "libp2p",
+        "bootstrap_nodes": []
+    },
+    "logging": {
+        "level": "INFO",
+        "file": "/var/log/syntropia/syntropia.log"
+    }
+}
 
 def print_banner():
     # Print color code (cyan)
@@ -23,12 +61,43 @@ def print_banner():
     sys.stdout.write("\033[1;33m  \"The Living Computer P2P Torrent Sync Engine\"\033[0m\n")
     sys.stdout.write("  --------------------------------------------------\n")
 
+def setup_logging(config, daemon_mode=False):
+    """Sets up unified logging to file and console/journal."""
+    log_level_str = config.get("logging", {}).get("level", "INFO").upper()
+    log_level = getattr(logging, log_level_str, logging.INFO)
+    log_file = config.get("logging", {}).get("file", "/var/log/syntropia/syntropia.log")
+    
+    handlers = []
+    
+    # File logging
+    try:
+        log_dir = os.path.dirname(log_file)
+        if log_dir and not os.path.exists(log_dir):
+            os.makedirs(log_dir, exist_ok=True)
+        handlers.append(logging.FileHandler(log_file))
+    except Exception:
+        # Fallback to local directory log file if system path is not writable
+        try:
+            handlers.append(logging.FileHandler("syntropia_local.log"))
+        except Exception:
+            pass # Fallback entirely to stream logging if system is read-only
+            
+    # Console logging (suppressed in daemon mode since systemd captures journal stdout/stderr)
+    if not daemon_mode:
+        handlers.append(logging.StreamHandler(sys.stdout))
+        
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=handlers
+    )
+
 def main():
     parser = argparse.ArgumentParser(description="Syntropia: The Living Computer Node Engine")
     parser.add_argument("--start-node", action="store_true", help="Start the local Syntropia node engine")
-    parser.add_argument("--bpm", type=int, default=120, help="Tempo of the internal tick clock (default: 120)")
-    parser.add_argument("--midi-master", action="store_true", help="Synchronize ticks to external MIDI Timing Clock")
-    parser.add_argument("--no-midi", action="store_true", help="Disable MIDI port connectivity and sonification")
+    parser.add_argument("--bpm", type=int, default=None, help="Override tempo of the internal tick clock")
+    parser.add_argument("--config", type=str, default=None, help="Path to config TOML file")
+    parser.add_argument("--daemon", action="store_true", help="Run in background daemon mode (suppresses stream logs)")
     
     args = parser.parse_args()
 
@@ -36,61 +105,92 @@ def main():
         parser.print_help()
         sys.exit(0)
 
-    print_banner()
+    # Resolve configuration path
+    config_path = args.config or os.environ.get("SYNTROPIA_CONFIG", "/etc/syntropia/config.toml")
+    
+    config = DEFAULT_CONFIG.copy()
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "rb") as f:
+                user_config = tomllib.load(f)
+                # Simple dictionary merge
+                for key in user_config:
+                    if isinstance(config.get(key), dict) and isinstance(user_config[key], dict):
+                        config[key].update(user_config[key])
+                    else:
+                        config[key] = user_config[key]
+        except Exception as e:
+            sys.stderr.write(f"Error loading config file: {e}. Using defaults.\n")
+    else:
+        if args.config:
+            sys.stderr.write(f"Config file not found: {config_path}\n")
+            sys.exit(1)
 
-    # 1. Initialize Registry and scan agents/
-    registry = AgentRegistry(agents_dir="agents")
+    setup_logging(config, daemon_mode=args.daemon)
+    
+    logger.info("Initializing Syntropia Node...")
+    if not args.daemon:
+        print_banner()
+
+    # Load agent registry
+    agents_dir = config["core"]["agents_dir"]
+    # Fallback to local directory registry if default /opt path is not found (local testing)
+    if not os.path.exists(agents_dir) and agents_dir == "/opt/syntropia/agents" and os.path.exists("agents"):
+        agents_dir = "agents"
+        
+    registry = AgentRegistry(agents_dir=agents_dir)
     registry.scan_and_load()
 
-    # 2. Run Thor's Hammer P2P model synchronization
-    thor_hammer = ThorHammer()
-    thor_hammer.sync_models(registry)
-
-    # 3. Setup Orchestrator
+    # Setup Orchestrator
     orchestrator = Orchestrator()
 
-    # 3. Instantiate and register local agents dynamically
+    # Instantiate and register local agents dynamically
     for name, manifest in registry.manifests.items():
         agent_instance = registry.get_agent_instance(name)
         if agent_instance:
             orchestrator.register_agent(agent_instance, role=manifest.role)
+            logger.info(f"Registered agent: {name} (Role: {manifest.role})")
 
-    # 4. Initialize Clock-Tick Engine
-    if args.no_midi:
-        # Override mido import inside engine to force fallback
-        import syntropia.engine
-        syntropia.engine.MIDI_AVAILABLE = False
-        print("[System] Running in silent / no-MIDI mode.")
-
+    # Initialize Clock-Tick Engine
     engine = SyntropiaEngine(orchestrator)
     orchestrator.set_engine(engine)
 
-    # 5. Spin up the tick generator loop in a background thread
-    if args.midi_master:
-        clock_thread = threading.Thread(target=engine.external_midi_listener, daemon=True)
-    else:
-        clock_thread = threading.Thread(target=engine.internal_clock_loop, args=(args.bpm,), daemon=True)
-
+    # Spin up the tick generator loop in a background thread
+    bpm = args.bpm or config["core"]["bpm"]
+    clock_thread = threading.Thread(target=engine.internal_clock_loop, args=(bpm,), daemon=True)
     clock_thread.start()
     time.sleep(1.0) # Allow engine thread to print bootstrap logs
 
-    # 6. Execute a sample calculation task to prove the engine works
-    print("\n\033[1;33m[Main] Sending query task to swarm: addition of [15, 27, 42]...\033[0m")
-    try:
-        result = orchestrator.execute_task("addition", [15, 27, 42])
-        print(f"\033[1;32m[Main] Result returned: {result} (Expected: 84)\033[0m")
-    except Exception as e:
-        print(f"\033[1;31m[Main] Task failed: {e}\033[0m")
+    # Possess and profile the CachyOS host environment
+    logger.info("Profiling Host Environment & Injecting Overlay...")
+    from syntropia import CachyHostPossessor
+    possessor = CachyHostPossessor()
+    env = possessor.detect_host_environment()
+    logger.info(f"Host detected: {env['host_os']} | BORE Scheduler: {env['bore_scheduler']} | CPU Cores: {env['cpu_cores']}")
+    
+    # Run audio tuning
+    success, audio_log = possessor.optimize_audio_performance()
+    logger.info(f"Audio Optimization: {audio_log}")
+    
+    # Run sandbox init-layer hardening
+    _, sec_log = possessor.init_harden_security()
+    logger.info(f"Security Hardening: {sec_log}")
+    
+    # Start the resource sacrifice daemon
+    slider_percentage = config["resource"]["slider_percentage"]
+    possessor.start_resource_sacrifice(percentage=slider_percentage)
 
-    # Keep node alive for demonstration
-    print("\n\033[36m[Node] Node is running. Press Ctrl+C to terminate the node.\033[0m")
+    # Keep node alive
+    logger.info("Node is running. Ready for task synchronization.")
     try:
         while True:
             time.sleep(1.0)
     except KeyboardInterrupt:
-        print("\n[Node] Shutting down...")
+        logger.info("Shutting down...")
+        possessor.stop_resource_sacrifice()
         engine.stop()
         sys.exit(0)
+
 
 if __name__ == "__main__":
     main()

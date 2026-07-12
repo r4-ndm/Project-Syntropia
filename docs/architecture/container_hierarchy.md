@@ -144,13 +144,32 @@ How does a global living computer produce a single sound? Here is the mapped out
 
 ---
 
-## 🧬 Self-Evolution & Mutation Trajectory
+## 🧬 Self-Evolution & Mutation Trajectory ("Mutate First, Ask Questions Later")
 
-Because containers are software-defined, they are not locked into their roles. If an L1 Manager detects that its L0 workers are underperforming (e.g. a Python MIDI generator is too slow):
-1. The **L1 Manager** reports this to the **L2 Supervisor**.
-2. The **L2 Supervisor** requests a mutation from the **L4 Brain Core**.
-3. The **L4 Brain Core** uses its Large LLM to generate a new, optimized worker script in Rust/C (compiled to WebAssembly for safety).
-4. The **L4 Brain** checks the mutation against the **Constitution Guard** (e.g., verifying it doesn't violate sandbox guidelines and is faster).
-5. Upon verification, the old L0 container is deleted, and the new mutated L0 container is spawned in its place.
+Because containers are software-defined, they are not locked into their roles. Evolution in Syntropia is permissionless—it does not wait for a vote. If an L1 Manager detects that its L0 workers are underperforming (e.g., a Python MIDI generator is too slow):
+1. **Mutate**: The L4 Brain Core automatically generates a new, optimized worker script and applies it directly to the container, placing it on a probationary period.
+2. **Test**: The container runs a test task to measure correctness and performance (latency, resource usage, system calls).
+3. **Verify**:
+   - **Keep**: If the container is correct and performs faster or equal, the mutation is kept. Its status is restored to active, and the mutation is appended to the blockchain ledger for auditing.
+   - **Rollback**: If the container crashes, is slower, or returns incorrect results, the changes are discarded, and the container rolls back to the last safe state hash.
+   - **Kill**: If the mutation violates the Constitution (e.g., attempts to escape sandbox, run banned syscalls like `os.system`), it is flagged as harmful. The container is immediately killed/deactivated, its reputation is zeroed, and it is removed from orchestrator routing.
 
-*The machine has evolved.*
+---
+
+## 🩸 Biological Blueprint: Reversing Digital Decay
+
+Syntropia uses human biology as a design blueprint, but upgrades it to eliminate aging and decay:
+
+| Human Biology | Syntropia | Upgrade |
+| :--- | :--- | :--- |
+| **Cells** | L0 Workers | Cells die -> Workers are disposable and stateless. |
+| **Tissues** | L1 Managers | Tissues age -> Managers accumulate results. |
+| **Organs** | L2 Supervisors | Organs fail -> Supervisors self-repair and rollback. |
+| **Systems** | L3 Orchestrators | Systems degrade -> Orchestrators dynamically route. |
+| **Brain** | L4 Brain Core | Brain slows down -> Core speeds up via optimized models. |
+| **Immune System** | Watcher Agents | Immune system weakens -> Watchers enforce Constitution. |
+| **DNA** | Constitution / Logs | DNA degrades -> Constitutional rules are immutable. |
+| **Memory** | Blockchain / CAS | Memory fades -> Blockchain memory is permanent. |
+
+While biological organisms decay as they age, **Syntropia gets stronger over time**. Age equals accumulated intelligence, recorded as a permanent, append-only scientific log on the blockchain. Every successful mutation is shared and reused, creating a digital life form that learns and evolves indefinitely.
+

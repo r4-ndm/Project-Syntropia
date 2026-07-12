@@ -1,0 +1,25 @@
+# Syntropia Configuration File (config.toml)
+
+[core]
+bpm = 120
+agents_dir = "/opt/syntropia/agents"
+
+[resource]
+slider_percentage = 5        # Sacrifice slider level (1 to 100%)
+only_when_idle = true        # Idle-only resource contribution
+idle_threshold_seconds = 300 # 5 minutes inactivity before sacrifice daemon triggers
+
+[audio]
+latency_target_ms = 1
+pipewire_config = "/etc/pipewire/pipewire.conf"
+
+[security]
+landlock_enabled = true
+seccomp_enabled = true
+no_new_privileges = true
+
+[network]
+p2p_protocol = "libp2p"      # Gossip network communication transport (libp2p, WebRTC, DePIN)
+bootstrap_nodes = [
+    "/ip4/127.0.0.1/tcp/4001/p2p/Qm...",
+]
