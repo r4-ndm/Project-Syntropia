@@ -106,7 +106,13 @@ def main():
         sys.exit(0)
 
     # Resolve configuration path
-    config_path = args.config or os.environ.get("SYNTROPIA_CONFIG", "/etc/syntropia/config.toml")
+    config_path = args.config or os.environ.get("SYNTROPIA_CONFIG")
+    if not config_path:
+        user_config_path = os.path.expanduser("~/.config/syntropia/config.toml")
+        if os.path.exists(user_config_path):
+            config_path = user_config_path
+        else:
+            config_path = "/etc/syntropia/config.toml"
     
     config = DEFAULT_CONFIG.copy()
     if os.path.exists(config_path):
@@ -120,10 +126,10 @@ def main():
                     else:
                         config[key] = user_config[key]
         except Exception as e:
-            sys.stderr.write(f"Error loading config file: {e}. Using defaults.\n")
+            logger.error(f"Error loading config file: {e}. Using defaults.")
     else:
         if args.config:
-            sys.stderr.write(f"Config file not found: {config_path}\n")
+            logger.error(f"Config file not found: {config_path}")
             sys.exit(1)
 
     setup_logging(config, daemon_mode=args.daemon)
@@ -179,6 +185,30 @@ def main():
     # Start the resource sacrifice daemon
     slider_percentage = config["resource"]["slider_percentage"]
     possessor.start_resource_sacrifice(percentage=slider_percentage)
+
+    # Initialize P2P Layer
+    logger.info("Initializing P2P Swarm Layer...")
+    from syntropia.gossip import GossipNetwork
+    gossip_net = GossipNetwork()
+    local_node_id = f"node_{env['host_os'].lower().replace(' ', '_')}"
+    local_gossip_node = gossip_net.add_node(local_node_id)
+    
+    # Initialize P2P Script Registry hooked into local node
+    from syntropia.registry import P2PScriptRegistry
+    p2p_registry = P2PScriptRegistry(gossip_node=local_gossip_node)
+    p2p_registry.subscribe("syntropia/scripts", lambda msg: logger.info(f"P2P script update received: {msg}"))
+
+    # Start Continuous Mutation Loop
+    def mutation_loop():
+        logger.info("Continuous Mutation Loop active.")
+        # Simulates periodic checking of agent status
+        while True:
+            time.sleep(300) # Check every 5 minutes
+            for agent_name in list(orchestrator.active_agents.keys()):
+                logger.info(f"[Mutation Loop] Running continuous checks for agent '{agent_name}'...")
+
+    mutation_thread = threading.Thread(target=mutation_loop, daemon=True)
+    mutation_thread.start()
 
     # Keep node alive
     logger.info("Node is running. Ready for task synchronization.")

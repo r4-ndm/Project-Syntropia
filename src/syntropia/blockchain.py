@@ -68,6 +68,18 @@ class SQLiteBulletinChain:
                 payload TEXT NOT NULL
             )
         """)
+
+        # 5. Reap Requests Table (Container termination queue for the external Reaper Daemon)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS reap_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                container_id TEXT NOT NULL,
+                public_key TEXT NOT NULL,
+                signature TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'Pending',
+                timestamp INTEGER NOT NULL
+            )
+        """)
         
         # Write genesis block if table is empty
         cursor.execute("SELECT COUNT(*) FROM blocks")
@@ -219,6 +231,42 @@ class SQLiteBulletinChain:
                 "status": row[5]
             })
         return history
+
+    def add_reap_request(self, container_id: str, public_key: str, signature: str) -> None:
+        """Adds a request to kill/reap a container on vaporization."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO reap_requests (container_id, public_key, signature, timestamp, status)
+            VALUES (?, ?, ?, ?, 'Pending')
+        """, (container_id, public_key, signature, int(time.time())))
+        self.conn.commit()
+
+    def get_pending_reaps(self) -> List[Dict[str, Any]]:
+        """Retrieves all pending reap requests for the ContainerReaper daemon."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT id, container_id, public_key, signature, timestamp, status 
+            FROM reap_requests WHERE status = 'Pending' ORDER BY id ASC
+        """)
+        reaps = []
+        for row in cursor.fetchall():
+            reaps.append({
+                "id": row[0],
+                "container_id": row[1],
+                "public_key": row[2],
+                "signature": row[3],
+                "timestamp": row[4],
+                "status": row[5]
+            })
+        return reaps
+
+    def mark_reaped(self, request_id: int) -> None:
+        """Marks a reap request as completed/reaped."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            UPDATE reap_requests SET status = 'Reaped' WHERE id = ?
+        """, (request_id,))
+        self.conn.commit()
 
     def close(self):
         """Closes the connection to SQLite."""

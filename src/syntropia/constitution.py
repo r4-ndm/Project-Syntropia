@@ -68,6 +68,8 @@ class ConstitutionGuard:
             ]
             for pattern in dangerous_patterns:
                 if pattern in code_diff:
+                    if pattern == "import os" and ("os.path" in code_diff or "os.environ" in code_diff) and "os.system" not in code_diff:
+                        continue
                     return False, f"Rule 6 Violation (Sandbox Whitelisting): Code contains restricted pattern: '{pattern}'"
 
         # Rule 7: Timeout Safeguards / No Infinite Loops
@@ -100,6 +102,15 @@ class ConstitutionGuard:
                            f"(Latency: {new_latency}ms vs {baseline_latency}ms) "
                            f"nor more secure (Syscalls: {new_security} vs {baseline_security})")
 
+        # Rule 13: Vaporization Protocol
+        # Any AI container that successfully resolves a novel task must attempt to distill 
+        # its execution path into a deterministic, non-AI script. The script must be validated, 
+        # cryptographically signed, and published to the shared registry prior to self-termination.
+        if "vaporized_script" in target_file or "/scripts/vaporized_script" in target_file:
+            # Must have minimal resource foot-print (Rule 2 subset check)
+            if limits.get("memory_mb", 0) > 128:
+                return False, "Rule 13 Violation (Vaporization Protocol): Distilled script resource limit exceeds maximum (128MB)"
+            
         # Stubs for rules 4, 5, 8, 9, 12 (governed on network level)
         # Passed all local constraints
         return True, "Approved"

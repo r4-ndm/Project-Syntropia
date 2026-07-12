@@ -58,23 +58,25 @@ else
   echo "⚙️ Existing configuration found. Skipping override."
 fi
 
-# Setup systemd service
-echo "🖥️ Deploying systemd unit file..."
+# Setup systemd services
+echo "🖥️ Deploying systemd unit files..."
 cp systemd/syntropia.service /etc/systemd/system/
+cp systemd/syntropia-reaper.service /etc/systemd/system/
 
 # Adjust file ownerships
 echo "🔒 Restricting directory permissions..."
 chown -R syntropia:syntropia /opt/syntropia /var/lib/syntropia /var/log/syntropia /etc/syntropia
 
-# Reload and start service
-echo "🔄 Reloading systemd and enabling syntropia.service..."
+# Reload and start services
+echo "🔄 Reloading systemd and enabling syntropia.service & syntropia-reaper.service..."
 systemctl daemon-reload
-systemctl enable syntropia.service
-systemctl restart syntropia.service
+systemctl enable syntropia.service syntropia-reaper.service
+systemctl restart syntropia.service syntropia-reaper.service
 
 echo "=================================================="
-echo "🌀 Syntropia Node is installed and running!"
+echo "🌀 Syntropia Node & Reaper Daemon are installed and running!"
 echo "--------------------------------------------------"
 echo "💡 To check status: sudo systemctl status syntropia.service"
+echo "💡 To view reaper:  sudo systemctl status syntropia-reaper.service"
 echo "💡 To view logs:    sudo journalctl -u syntropia.service -f"
 echo "=================================================="

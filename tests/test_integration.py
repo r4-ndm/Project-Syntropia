@@ -80,6 +80,54 @@ class TestSwarmIntegration(unittest.TestCase):
         history = self.orchestrator.blockchain.get_mutation_history(self.identity.public_key_hex)
         self.assertEqual(len(history), 0)
 
+    def test_vaporization_integration(self):
+        # 1. Setup Mock Hermes agent in the orchestrator
+        class MockHermesAgent:
+            def __init__(self):
+                self.name = "HermesAgent"
+                self.role = "reasoning"
+                self.status = "Active"
+            def execute(self, inputs):
+                return "running"
+
+        agent_instance = MockHermesAgent()
+        self.orchestrator.active_agents["HermesAgent"] = agent_instance
+        self.orchestrator.role_map["reasoning"] = ["HermesAgent"]
+
+        # Register in blockchain
+        self.orchestrator.blockchain.register_agent(
+            public_key=self.identity.public_key_hex,
+            name="HermesAgent",
+            role="reasoning",
+            code_hash="initial_code_hash_123"
+        )
+
+        # 2. Build mock trace log
+        trace = {
+            "task_id": "integration_task_1",
+            "steps": [
+                {"action": "attempt_crack_hash", "details": {}, "status": "success"}
+            ]
+        }
+
+        # 3. Sign the proposal
+        proposal_hash = self.orchestrator.blockchain.store_payload(trace)
+        signature = self.identity.sign(proposal_hash).hex()
+
+        # 4. Trigger integration virtualization flow
+        success, reason = self.orchestrator.vaporize_agent(
+            agent_name="HermesAgent",
+            proposer_key=self.identity.public_key_hex,
+            trace=trace,
+            signature=signature,
+            target_path="scripts/vaporized_script.py"
+        )
+
+        self.assertTrue(success, f"Vaporization failed: {reason}")
+        self.assertEqual(reason, "Vaporized successfully")
+        self.assertEqual(agent_instance.status, "Vaporized")
+        self.assertNotIn("HermesAgent", self.orchestrator.role_map.get("reasoning", []))
+
 
 if __name__ == "__main__":
     unittest.main()

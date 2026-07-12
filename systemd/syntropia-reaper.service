@@ -1,0 +1,29 @@
+[Unit]
+Description=Syntropia Container Reaper Daemon
+Documentation=https://github.com/your-username/Project-Syntropia
+After=syntropia.service
+Wants=syntropia.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/syntropia
+ExecStart=/usr/bin/python3 /opt/syntropia/src/reaper_daemon.py
+Restart=on-failure
+RestartSec=5
+
+# Security restrictions
+ProtectSystem=strict
+ReadWritePaths=/var/lib/syntropia /tmp
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=syntropia-reaper
+
+[Install]
+WantedBy=multi-user.target

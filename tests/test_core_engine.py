@@ -98,6 +98,26 @@ class TestCoreEngine(unittest.TestCase):
         finally:
             engine.stop()
 
+    def test_multi_level_fallback_chain(self):
+        orchestrator = Orchestrator()
+        engine = SyntropiaEngine(orchestrator)
+        orchestrator.set_engine(engine)
+
+        primary = MockAgent("AgentA", "mock_role", fail=True)
+        backup_1 = MockAgent("AgentB", "mock_role", fail=True)
+        backup_2 = MockAgent("AgentC", "mock_role")
+
+        # Chain: AgentA -> AgentB -> AgentC
+        orchestrator.register_agent(primary, "mock_role", fallback_name="AgentB")
+        orchestrator.register_agent(backup_1, "mock_role", fallback_name="AgentC")
+        orchestrator.register_agent(backup_2, "mock_role")
+
+        result = orchestrator.execute_task("mock_role", "data")
+        self.assertEqual(result, "AgentC processed: data")
+        self.assertEqual(orchestrator.reputation["AgentA"], 85.0)
+        self.assertEqual(orchestrator.reputation["AgentB"], 85.0)
+        self.assertEqual(orchestrator.reputation["AgentC"], 101.0)
+
 
 if __name__ == "__main__":
     unittest.main()

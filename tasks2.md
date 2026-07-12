@@ -37,16 +37,14 @@ This board tracks the concrete implementation tasks and status for Syntropia's C
 
 ### 🛠️ Phase 5: Node Daemonization & Swarm Bootstrapping
 * **Goal**: Build out robust logging, configurations, P2P network startup, and systemd integration.
-* [ ] **Proper Logging Engine**: Replace print statements in `main.py` with the standard `logging` module.
-* [ ] **Centralized Configuration**: Load `--bpm` and `resource_percentage` from `~/.config/syntropia/config.toml` (Draft template `config.toml.example` created).
-* [ ] **Systemd Service Integration**: Create and test `systemd/syntropia.service` (Draft template `systemd/syntropia.service` created).
-
-* [ ] **P2P Layer Initialization**: Hook libp2p/WebRTC mesh host startup into `main.py`.
-* [ ] **Continuous Mutation Loop**: Integrate background evolution testing in `main.py`.
+* [x] **Proper Logging Engine**: Replace print statements in `main.py` with the standard `logging` module.
+* [x] **Centralized Configuration**: Load `--bpm` and `resource_percentage` from `~/.config/syntropia/config.toml` (Draft template `config.toml.example` created).
+* [x] **Systemd Service Integration**: Create and test `systemd/syntropia.service` (Draft template `systemd/syntropia.service` created).
+* [x] **P2P Layer Initialization**: Hook libp2p/WebRTC mesh host startup into `main.py`.
+* [x] **Continuous Mutation Loop**: Integrate background evolution testing in `main.py`.
 
 ### 💿 Phase 6: Full ISO Release & Distribution
 * **Goal**: Build and distribute a ready-to-use CachyOS-Syntropia ISO.
 * [ ] **Automated install script**: Transform a standard CachyOS installation.
 * [ ] **Custom ISO build configuration**: Include pre-configured yabridge, PipeASIO, and the Syntropia daemon.
-* [ ] **P2P Torrent distribution**: Share the final ISO file via BitTorrent model swarms.
 

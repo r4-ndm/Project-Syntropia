@@ -85,3 +85,40 @@ class AgentRegistry:
         if cls:
             return cls()
         return None
+
+
+class P2PScriptRegistry:
+    """
+    P2P registry simulation for publishing and subscribing to vaporized scripts.
+    Integrates with GossipNetwork simulation for decentralization.
+    """
+
+    def __init__(self, gossip_node=None):
+        self.gossip_node = gossip_node
+        self.subscribed_topics = set()
+        self.received_scripts = {}
+
+    def publish(self, topic: str, script_code: str, signature: str) -> str:
+        """Publishes the script wrapper to the P2P topic channel."""
+        import time
+        import hashlib
+        
+        payload = {
+            "script": script_code,
+            "signature": signature,
+            "timestamp": time.time()
+        }
+        cid = "cid_" + hashlib.sha256(script_code.encode("utf-8")).hexdigest()
+        
+        if self.gossip_node:
+            # Propagate the rumor in the Gossip simulation network
+            self.received_scripts[cid] = payload
+            self.gossip_node.ledger[cid] = payload
+            
+        print(f"[P2P Sync] Published script to topic '{topic}' with CID: {cid}")
+        return cid
+
+    def subscribe(self, topic: str, handler: callable) -> None:
+        """Subscribes to script updates on a specific P2P channel."""
+        self.subscribed_topics.add(topic)
+        print(f"[P2P Sync] Subscribed to swarm topic '{topic}'")

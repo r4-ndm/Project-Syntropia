@@ -14,12 +14,19 @@ sha256sums=('SKIP')
 package() {
   cd "$srcdir/Project-Syntropia"
   
-  # Build and install the Python wheel
+  # Build and install the Python wheel (registers entry points in /usr/bin)
   python -m build --wheel --no-isolation
   python -m installer --destdir="$pkgdir" dist/*.whl
 
-  # Install systemd service
+  # Deploy codebase to /opt/syntropia as expected by systemd services
+  install -d -m755 "$pkgdir/opt/syntropia/src"
+  cp -r src/* "$pkgdir/opt/syntropia/src/"
+  install -d -m755 "$pkgdir/opt/syntropia/agents"
+  cp -r agents/* "$pkgdir/opt/syntropia/agents/"
+
+  # Install systemd services
   install -Dm644 systemd/syntropia.service "$pkgdir/usr/lib/systemd/system/syntropia.service"
+  install -Dm644 systemd/syntropia-reaper.service "$pkgdir/usr/lib/systemd/system/syntropia-reaper.service"
   
   # Install default configuration
   install -Dm644 config.toml.example "$pkgdir/etc/syntropia/config.toml"

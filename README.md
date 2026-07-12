@@ -96,23 +96,23 @@ The daemon runs at the lowest priority (nice 19), yielding immediately when you 
 Project-Syntropia/
 ├── src/
 │   ├── syntropia/
-│   │   ├── host_profiler.py       # Detects CachyOS kernel, Wine, Pipewire (in cachy_host.py)
-│   │   ├── sandbox.py             # Landlock/seccomp init-layer jail (in cachy_host.py)
-│   │   ├── orchestrator.py        # L3 DAW/Game router
-│   │   ├── yabridge_manager.py    # L2 VST3 auto-sync daemon (in cachy_host.py)
-│   │   ├── sacrifice_daemon.py    # L1 1%-100% resource manager (in cachy_host.py)
-│   │   └── evolution.py           # Mutation engine (keep/rollback/kill)
-├── systemd/                        # Services for init-layer injection (planned)
-│   ├── syntropia-sandbox.service
-│   └── syntropia-sacrifice.service
-├── docs/                           # Architecture, whitepapers, roadmap
-├── tests/                          # 50+ passing tests
-├── reference/                      # Historical/reference plans and tasks
-├── plan2.md                        # Current reality-focused roadmap
-├── tasks2.md                       # Current progress task board
-├── README.md
-├── CONTRIBUTING.md
-└── LICENSE
+│   │   ├── cachy_host.py          # Detects OS, Wine, Pipewire RT, and manages sacrifices
+│   │   ├── orchestrator.py        # Central task router with dynamic fallback chains
+│   │   ├── evolution.py           # Evolution engine (test correctness/revert/kill)
+│   │   ├── vaporization.py        # Vaporization engine (distill AI trace to scripts)
+│   │   ├── registry.py            # Local & P2P script registry syncing
+│   │   ├── constitution.py        # 13 unbreakable Rules of Syntropia
+│   │   └── ...
+│   ├── main.py                    # Unified daemon node runner
+│   └── reaper_daemon.py           # External host daemon that terminates vaporized containers
+├── systemd/                        # Systemd service unit configurations
+│   ├── syntropia.service          # Main node daemon service
+│   └── syntropia-reaper.service   # Container reaper service
+├── docs/                           # Architecture specs, design whitepapers
+├── tests/                          # 63+ passing unit and integration tests
+├── install.sh                     # Unified root installer script
+├── PKGBUILD                       # Arch User Repository (AUR) package recipe
+└── ...
 ```
 
 ---
@@ -123,17 +123,17 @@ Project-Syntropia/
 Download and install [CachyOS](https://cachyos.org/)—our recommended host being.
 
 ### 2. Clone and install Syntropia
+Run the automated installation script (requires root privileges):
 ```bash
-git clone https://github.com/[your-username]/Project-Syntropia.git
+git clone https://github.com/your-username/Project-Syntropia.git
 cd Project-Syntropia
-pip install -r requirements.txt
+sudo ./install.sh
 ```
 
-### 3. Start your node
+### 3. Verify services are running
 ```bash
-sudo systemctl enable --now syntropia-sandbox.service
-sudo systemctl enable --now syntropia-sacrifice.service
-python src/main.py --start-node
+sudo systemctl status syntropia.service
+sudo systemctl status syntropia-reaper.service
 ```
 Your machine is now a living cell in the global brain.
 
@@ -143,12 +143,12 @@ Your machine is now a living cell in the global brain.
 
 | Phase | Focus | Status |
 | :--- | :--- | :--- |
-| **Phase 1** | Host profiling & init sandboxing (Landlock/seccomp) | **Complete** (in cachy_host.py) |
-| **Phase 2** | yabridge automation & VST3 sync | **Complete** (in cachy_host.py) |
-| **Phase 3** | Pipewire/PipeASIO latency tuning | **Complete** (in cachy_host.py) |
-| **Phase 4** | 1%-100% sacrifice daemon with cgroup limits | **Complete** (in cachy_host.py) |
-| **Phase 5** | Full CachyOS ISO with Syntropia pre-injected | 🔜 Planned |
-| **Phase 6** | Evolution engine at global scale | 🌌 The Future |
+| **Phase 1** | Host profiling & init sandboxing (Landlock/seccomp) | **Complete** |
+| **Phase 2** | yabridge automation & VST3 sync | **Complete** |
+| **Phase 3** | 1%-100% sacrifice daemon with cgroup limits | **Complete** |
+| **Phase 4** | Node daemonization, systemd, configuration | **Complete** |
+| **Phase 5** | Vaporization Engine & Container Reaper | **Complete** |
+| **Phase 6** | Swarm Bootstrapping & Installer scripts | **Complete** |
 
 ---
 

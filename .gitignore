@@ -112,3 +112,4 @@ pip-selfcheck.json
 .cache/
 models/
 *.gguf
+*.db

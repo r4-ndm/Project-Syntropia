@@ -1,9 +1,10 @@
 import time
 import random
+import logging
 import threading
-from typing import Optional, Any, Dict, Tuple
-from syntropia.constitution import ConstitutionGuard
-from syntropia.blockchain import SQLiteBulletinChain
+from typing import Optional, Any, Dict, Tuple, Set
+
+logger = logging.getLogger("syntropia.orchestrator")
 
 class Orchestrator:
     """Manages agent tasks, heartbeat monitoring, and fallback routing."""
@@ -21,12 +22,18 @@ class Orchestrator:
         self.lock = threading.Lock()
         
         # Governance and ledger
+        from syntropia.constitution import ConstitutionGuard
+        from syntropia.blockchain import SQLiteBulletinChain
         self.blockchain = SQLiteBulletinChain(db_path)
         self.constitution = ConstitutionGuard()
         
         # Evolution Engine
         from syntropia.evolution import EvolutionEngine
         self.evolution = EvolutionEngine(self)
+        
+        # Vaporization Engine
+        from syntropia.vaporization import VaporizationEngine
+        self.vaporization = VaporizationEngine(self)
         
     def set_engine(self, engine):
         self.engine = engine
@@ -46,7 +53,30 @@ class Orchestrator:
         if fallback_name:
             self.fallbacks[name] = fallback_name
             
-        print(f"[Orchestrator] Registered agent '{name}' for role '{role}'")
+        logger.info(f"Registered agent '{name}' for role '{role}'")
+
+    def _select_next_fallback(self, task: dict) -> Optional[str]:
+        """Selects the next best fallback agent for the task, excluding already tried agents."""
+        current_agent = task["agent_name"]
+        
+        # 1. Follow the explicit fallback chain
+        explicit_fallback = self.fallbacks.get(current_agent)
+        while explicit_fallback:
+            if explicit_fallback in self.active_agents and explicit_fallback not in task["tried_agents"]:
+                return explicit_fallback
+            explicit_fallback = self.fallbacks.get(explicit_fallback)
+            
+        # 2. Otherwise find other agents registered for this role with the highest reputation
+        role = task["role"]
+        agent_names = self.role_map.get(role, [])
+        available_agents = [name for name in agent_names if name not in task["tried_agents"] and name in self.active_agents]
+        
+        if available_agents:
+            # Sort by reputation descending
+            best_fallback = sorted(available_agents, key=lambda name: self.reputation.get(name, 100.0), reverse=True)[0]
+            return best_fallback
+            
+        return None
 
     def route(self, current_tick: int):
         """Called by the SyntropiaEngine on each heartbeat tick."""
@@ -59,8 +89,10 @@ class Orchestrator:
                     
                     if current_tick - start_tick > timeout:
                         agent_name = task["agent_name"]
-                        print(f"\n\033[31m[Orchestrator] Timeout detected for task {task_id} on agent '{agent_name}' "
-                              f"(logical tick: {current_tick}, started: {start_tick}, limit: {timeout} ticks)\033[0m")
+                        logger.warning(
+                            f"Timeout detected for task {task_id} on agent '{agent_name}' "
+                            f"(logical tick: {current_tick}, started: {start_tick}, limit: {timeout} ticks)"
+                        )
                         
                         # Penalize reputation
                         self.reputation[agent_name] = max(0.0, self.reputation.get(agent_name, 100.0) - 15.0)
@@ -70,17 +102,19 @@ class Orchestrator:
                             self.engine.trigger_agent_sound("fault_consensus")
                             
                         # Redirect to fallback if available
-                        fallback_name = task["fallback_name"]
-                        if fallback_name and fallback_name in self.active_agents:
+                        fallback_name = self._select_next_fallback(task)
+                        if fallback_name:
                             self._start_fallback(task, fallback_name)
                         else:
-                            task["error"] = RuntimeError(f"Task {task_id} timed out on primary '{agent_name}' and no fallback was available.")
+                            task["error"] = RuntimeError(
+                                f"Task {task_id} timed out on agent '{agent_name}' and no remaining fallback was available."
+                            )
                             task["status"] = "failed"
                             task["event"].set()
 
     def _start_fallback(self, task: dict, fallback_name: str):
         """Dispatches the fallback agent for a task under lock."""
-        print(f"  \033[33m[Fallback] Redirecting task {task['task_id']} to backup agent '{fallback_name}'...\033[0m")
+        logger.info(f"Redirecting task {task['task_id']} to backup agent '{fallback_name}'...")
         fallback_agent = self.active_agents[fallback_name]
         
         current_tick = self.engine.logical_tick if self.engine else 0
@@ -88,24 +122,35 @@ class Orchestrator:
         task["start_tick"] = current_tick
         task["timeout"] = getattr(fallback_agent, "timeout", 5)
         task["status"] = "running"
-        task["fallback_name"] = None  # Prevent infinite routing loops
+        task["tried_agents"].add(fallback_name)
         
         def run_fallback():
             try:
                 result = fallback_agent.execute(task["inputs"])
                 with self.lock:
-                    if task["status"] == "running":
+                    # Thread safety check: only update task if this agent is still the active dispatcher
+                    if task["status"] == "running" and task["agent_name"] == fallback_name:
                         task["status"] = "success"
                         task["result"] = result
                         self.reputation[fallback_name] = min(200.0, self.reputation.get(fallback_name, 100.0) + 1.0)
                         task["event"].set()
             except Exception as e_fallback:
                 with self.lock:
-                    if task["status"] == "running":
-                        task["status"] = "failed"
-                        task["error"] = e_fallback
+                    if task["status"] == "running" and task["agent_name"] == fallback_name:
+                        logger.warning(f"Fallback agent '{fallback_name}' failed: {e_fallback}")
                         self.reputation[fallback_name] = max(0.0, self.reputation.get(fallback_name, 100.0) - 15.0)
-                        task["event"].set()
+                        
+                        if self.engine:
+                            self.engine.trigger_agent_sound("fault_consensus")
+                            
+                        # Redirect to next fallback level
+                        next_fallback = self._select_next_fallback(task)
+                        if next_fallback:
+                            self._start_fallback(task, next_fallback)
+                        else:
+                            task["status"] = "failed"
+                            task["error"] = e_fallback
+                            task["event"].set()
 
         t = threading.Thread(target=run_fallback, daemon=True)
         t.start()
@@ -138,11 +183,11 @@ class Orchestrator:
                 "event": event,
                 "result": None,
                 "error": None,
-                "fallback_name": self.fallbacks.get(primary_name)
+                "tried_agents": {primary_name}
             }
             self.active_tasks[task_id] = task_record
 
-        print(f"\n\033[1m[Orchestrator] Routing '{role}' task to primary: {primary_name} (Logical Clock: {current_tick}, Timeout: {timeout} ticks)\033[0m")
+        logger.info(f"Routing '{role}' task to primary: {primary_name} (Logical Clock: {current_tick}, Timeout: {timeout} ticks)")
         
         def run_execution():
             try:
@@ -153,7 +198,8 @@ class Orchestrator:
                 result = primary.execute(inputs)
                 
                 with self.lock:
-                    if task_record["status"] == "running":
+                    # Thread safety check: only update task if this agent is still the active dispatcher
+                    if task_record["status"] == "running" and task_record["agent_name"] == primary_name:
                         task_record["status"] = "success"
                         task_record["result"] = result
                         self.reputation[primary_name] = min(200.0, self.reputation.get(primary_name, 100.0) + 1.0)
@@ -166,16 +212,16 @@ class Orchestrator:
                         task_record["event"].set()
             except Exception as e:
                 with self.lock:
-                    if task_record["status"] == "running":
-                        print(f"  \033[31m[Warning] Primary agent '{primary_name}' failed: {e}\033[0m")
+                    if task_record["status"] == "running" and task_record["agent_name"] == primary_name:
+                        logger.warning(f"Primary agent '{primary_name}' failed: {e}")
                         self.reputation[primary_name] = max(0.0, self.reputation.get(primary_name, 100.0) - 15.0)
                         
                         if self.engine:
                             self.engine.trigger_agent_sound("fault_consensus")
                             
                         # Attempt fallback
-                        fallback_name = task_record["fallback_name"]
-                        if fallback_name and fallback_name in self.active_agents:
+                        fallback_name = self._select_next_fallback(task_record)
+                        if fallback_name:
                             self._start_fallback(task_record, fallback_name)
                         else:
                             task_record["status"] = "failed"
@@ -207,5 +253,24 @@ class Orchestrator:
         Delegates to the Evolution Engine which implements 'Mutate First, Ask Questions Later'.
         """
         return self.evolution.mutate_agent(agent_name, proposal, signature)
+
+    def vaporize_agent(
+        self,
+        agent_name: str,
+        proposer_key: str,
+        trace: Dict[str, Any],
+        signature: str,
+        target_path: str = "scripts/vaporized_script.py"
+    ) -> Tuple[bool, str]:
+        """
+        Vaporizes an active AI agent into a deterministic script.
+        """
+        return self.vaporization.vaporize_container(
+            agent_name=agent_name,
+            proposer_key=proposer_key,
+            trace=trace,
+            signature=signature,
+            target_path=target_path
+        )
 
 
