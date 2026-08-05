@@ -21,7 +21,8 @@ the Final Boss the same questions twice. 😈
 |------|-----------------|
 | [`software-inclusion-policy.md`](software-inclusion-policy.md) | Whether a package ships with Syntropia (base vs. tooling vs. opt-in) |
 | [`git-hygiene.md`](git-hygiene.md) | When agents may commit, push, or rewrite history — and when to ask first |
-| *(more rules to come — transform safety, security boundary…)* |
+| [`transform-safety.md`](transform-safety.md) | Running `syntropia transform`: snapshot first, dry-run always, test systems only, rollback |
+| *(more rules to come — security boundary…)* |
 
 ## Note to agents
 
