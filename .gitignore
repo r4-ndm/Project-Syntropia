@@ -1,0 +1,9 @@
+# Freebuff desktop app local data (conversations database — never commit)
+.freebuff/
+
+# OS junk
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
