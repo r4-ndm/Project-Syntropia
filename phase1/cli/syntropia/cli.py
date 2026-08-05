@@ -7,6 +7,7 @@ import os
 import click
 
 from .brew import BrewError, find_brews, load_brew
+from .transform import TransformError, run_transform
 
 DEFAULT_REGISTRY = "~/.config/syntropia/brews"
 
@@ -43,6 +44,22 @@ def install(brew_file: str) -> None:
             fg="yellow",
         )
     )
+
+
+@cli.command()
+@click.option("--check", is_flag=True, help="Dry-run: report what would change, change nothing.")
+@click.option("--yes", is_flag=True, help="Confirm: actually apply the transform to this system.")
+@click.option("--snapshot", "snapshot_desc", metavar="DESC", help="Create a snapper snapshot before applying.")
+def transform(check: bool, yes: bool, snapshot_desc: str | None) -> None:
+    """Turn this CachyOS system into Syntropia OS.
+
+    Test systems only — see agent-rules/transform-safety.md. Run --check
+    first, snapshot, then apply with --yes.
+    """
+    try:
+        run_transform(check=check, yes=yes, snapshot_desc=snapshot_desc)
+    except TransformError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 @cli.command("list-brews")
