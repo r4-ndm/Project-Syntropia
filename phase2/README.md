@@ -23,7 +23,6 @@ Phase 2 integrates Hermes as the L4 brain with local AI models, establishing the
 ✅ **Prep done** - Planning and research complete, awaiting Phase 1 completion
 
 ## 📚 Reference
-- `../old-docs/phase-2/` - Original task lists and planning
 - `../requirements.md` - Overall project vision
 - `raw/` - Ideas for future requirements compilation
 - Phase 1 must be stable before implementation begins

@@ -7,3 +7,10 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Locally installed AI agent skills (keep local for now — not part of the repo)
+.agents/
+skills-lock.json
+
+# Local agent tooling config (machine-specific)
+.claude/

@@ -16,6 +16,6 @@
 - [ ] Clear need established (not just "interesting")
 
 ## Current Research
-Check `../README.md` for Phase 2 overview and existing planning in `../old-docs/phase-2/`.
+Check `../README.md` for the Phase 2 overview.
 
 **Add ideas here** - They'll be compiled into Phase 2 requirements when ready.

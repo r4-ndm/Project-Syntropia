@@ -25,7 +25,6 @@ Phase 3 containerizes the swarm and adds intelligent routing, establishing a sel
 *"The gods are still sleeping... or pretending to. The architecture is being dreamed before it's built."*
 
 ## 📚 Reference
-- `../old-docs/Phase-3/` - Original research and planning
 - `../requirements.md` - Overall project vision
 - `raw/` - Ideas for future requirements compilation
 - Dependent on successful Phase 2 implementation

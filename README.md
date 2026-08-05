@@ -31,7 +31,6 @@
 │   └── raw/                  # Pure brainstorming
 │       ├── bulletin-chain.md # Immutable ledger concept
 │       └── ephemeral-storage.md # Distributed storage
-└── 📁 old-docs/              # Reference only (don't modify)
 ```
 
 ### **Workflow for Agents**

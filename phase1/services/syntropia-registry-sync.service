@@ -1,0 +1,11 @@
+[Unit]
+Description=Sync local Syntropia recipe registry cache (read-only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Pulls the latest recipe registry (git) into the local cache.
+# Does NOT execute any recipe, install any software, or touch Wine.
+# It's a read-only fetch — nothing here needs elevated privileges.
+ExecStart=/usr/bin/syntropia registry sync

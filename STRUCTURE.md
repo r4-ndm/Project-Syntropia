@@ -12,7 +12,6 @@
 ├── 📁 phase2/               # AI integration (NEXT)
 ├── 📁 phase3/               # Swarm evolution (FUTURE)
 ├── 📁 phase4/               # Divine machine (VISION)
-├── 📁 old-docs/            # Reference only (don't modify)
 └── 📁 Branding/            # Branding assets
 ```
 

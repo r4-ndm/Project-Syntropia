@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily sync of the Syntropia recipe registry cache
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
