@@ -1,0 +1,32 @@
+# Vital Wavetable Synth — initial draft manifest (install commands not yet tested)
+
+[brew]
+name = "Vital Wavetable Synth"
+version = "1.5.5"
+category = "vst3_synth"
+maintainer = "Syntropia Team <hello@project-syntropia.io>"
+
+[wine]
+version = "cachyos-wine"
+prefix = "~/.local/share/syntropia/prefixes/vital"
+arch = "win64"
+
+[wine.overrides]
+gdiplus = "native"
+
+[winetricks]
+packages = ["corefonts", "gdiplus"]
+
+[yabridge]
+enabled = true
+plugin_dirs = ["~/.vst3/Syntropia"]
+
+[environment]
+WINEDLLOVERRIDES = "winemenubuilder.exe=d"
+LANG = "en_US.UTF-8"
+
+[install]
+commands = [
+  "wine /tmp/Vital-Setup.exe /S",
+  "cp -r '$WINEPREFIX/drive_c/Program Files/Common Files/VST3/Vital.vst3' ~/.vst3/Syntropia/",
+]

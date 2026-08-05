@@ -1,0 +1,31 @@
+# Ableton Live 12 — initial draft manifest (install commands not yet tested)
+
+[brew]
+name = "Ableton Live 12"
+version = "12.1"
+category = "daw"
+maintainer = "Syntropia Team <hello@project-syntropia.io>"
+
+[wine]
+version = "cachyos-wine"
+prefix = "~/.local/share/syntropia/prefixes/ableton"
+arch = "win64"
+
+[wine.overrides]
+# d2d1 = "disabled"   # uncomment only if UI artifacts appear
+
+[winetricks]
+packages = ["corefonts", "vcrun2022", "d3dx9"]
+
+[yabridge]
+enabled = false
+plugin_dirs = []
+
+[environment]
+WINEDLLOVERRIDES = "winemenubuilder.exe=d"
+LANG = "en_US.UTF-8"
+
+[install]
+commands = [
+  "wine /tmp/ableton_live_12_setup.exe /S",
+]

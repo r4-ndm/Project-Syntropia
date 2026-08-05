@@ -1,0 +1,231 @@
+"""Tests for syntropia.brew — the .brew manifest parser and validator."""
+
+from pathlib import Path
+
+import pytest
+
+from syntropia.brew import Brew, BrewError, find_brews, load_brew, parse_brew
+
+
+def make_valid_brew() -> dict:
+    """A minimal but valid brew document (mirrors tomllib's nested structure)."""
+    return {
+        "brew": {
+            "name": "Test Synth",
+            "version": "1.0",
+            "category": "vst3_synth",
+            "maintainer": "Syntropia Team <x@y.io>",
+        },
+        "wine": {
+            "version": "cachyos-wine",
+            "prefix": "~/.local/share/syntropia/prefixes/test",
+            "arch": "win64",
+        },
+        "install": {"commands": ["echo installing"]},
+    }
+
+
+def make_full_brew() -> dict:
+    """A brew exercising every optional section."""
+    data = make_valid_brew()
+    data["wine"]["overrides"] = {"d2d1": "disabled", "gdiplus": "native"}
+    data["winetricks"] = {"packages": ["gdiplus", "corefonts", "vcrun2022"]}
+    data["yabridge"] = {"enabled": True, "plugin_dirs": ["~/.vst3/Syntropia"]}
+    data["environment"] = {"WINEDLLOVERRIDES": "winemenubuilder.exe=d", "LANG": "en_US.UTF-8"}
+    return data
+
+
+# --- parsing ------------------------------------------------------------
+
+
+def test_valid_minimal_brew_parses():
+    brew = parse_brew(make_valid_brew())
+    assert isinstance(brew, Brew)
+    assert brew.name == "Test Synth"
+    assert brew.version == "1.0"
+    assert brew.category == "vst3_synth"
+    assert brew.maintainer == "Syntropia Team <x@y.io>"
+    assert brew.wine_version == "cachyos-wine"
+    assert brew.wine_arch == "win64"
+    assert brew.install_commands == ["echo installing"]
+    assert brew.wine_overrides == {}
+    assert brew.winetricks_packages == []
+    assert brew.yabridge_enabled is False
+    assert brew.plugin_dirs == []
+    assert brew.environment == {}
+
+
+def test_full_brew_parses_everything():
+    brew = parse_brew(make_full_brew())
+    assert brew.wine_overrides == {"d2d1": "disabled", "gdiplus": "native"}
+    assert brew.winetricks_packages == ["gdiplus", "corefonts", "vcrun2022"]
+    assert brew.yabridge_enabled is True
+    assert brew.plugin_dirs == ["~/.vst3/Syntropia"]
+    assert brew.environment["WINEDLLOVERRIDES"] == "winemenubuilder.exe=d"
+
+
+# --- required sections/fields ------------------------------------------
+
+
+def test_missing_brew_section():
+    data = make_valid_brew()
+    del data["brew"]
+    with pytest.raises(BrewError, match=r"missing required section \[brew\]"):
+        parse_brew(data)
+
+
+def test_missing_wine_section():
+    data = make_valid_brew()
+    del data["wine"]
+    with pytest.raises(BrewError, match=r"missing required section \[wine\]"):
+        parse_brew(data)
+
+
+def test_missing_install_section():
+    data = make_valid_brew()
+    del data["install"]
+    with pytest.raises(BrewError, match=r"missing required section \[install\]"):
+        parse_brew(data)
+
+
+def test_missing_name_field():
+    data = make_valid_brew()
+    del data["brew"]["name"]
+    with pytest.raises(BrewError, match=r"missing required field 'name' in section \[brew\]"):
+        parse_brew(data)
+
+
+def test_missing_wine_prefix():
+    data = make_valid_brew()
+    del data["wine"]["prefix"]
+    with pytest.raises(BrewError, match=r"missing required field 'prefix' in section \[wine\]"):
+        parse_brew(data)
+
+
+def test_missing_install_commands():
+    data = make_valid_brew()
+    del data["install"]["commands"]
+    with pytest.raises(BrewError, match=r"missing required field 'commands' in section \[install\]"):
+        parse_brew(data)
+
+
+def test_empty_install_commands_rejected():
+    data = make_valid_brew()
+    data["install"]["commands"] = []
+    with pytest.raises(BrewError, match=r"must not be empty"):
+        parse_brew(data)
+
+
+# --- type checks ---------------------------------------------------------
+
+
+def test_version_must_be_string():
+    data = make_valid_brew()
+    data["brew"]["version"] = 1.368  # TOML float — not a string
+    with pytest.raises(BrewError, match=r"field 'version' in section \[brew\] must be a non-empty string"):
+        parse_brew(data)
+
+
+def test_invalid_arch_rejected():
+    data = make_valid_brew()
+    data["wine"]["arch"] = "win128"
+    with pytest.raises(BrewError, match=r"field 'arch' in \[wine\] must be one of win32, win64"):
+        parse_brew(data)
+
+
+def test_winetricks_packages_must_be_list():
+    data = make_valid_brew()
+    data["winetricks"] = {"packages": "corefonts"}  # string, not list
+    with pytest.raises(BrewError, match=r"'packages' in section \[winetricks\] must be a list of strings"):
+        parse_brew(data)
+
+
+def test_yabridge_enabled_must_be_bool():
+    data = make_valid_brew()
+    data["yabridge"] = {"enabled": "yes"}
+    with pytest.raises(BrewError, match=r"field 'enabled' in \[yabridge\] must be a boolean"):
+        parse_brew(data)
+
+
+def test_environment_must_be_str_to_str():
+    data = make_valid_brew()
+    data["environment"] = {"WINEDLLOVERRIDES": 42}
+    with pytest.raises(BrewError, match=r"\[environment\] must be a table of string -> string"):
+        parse_brew(data)
+
+
+# --- strictness ---------------------------------------------------------
+
+
+def test_unknown_top_level_section_rejected():
+    data = make_valid_brew()
+    data["bogus"] = {}
+    with pytest.raises(BrewError, match=r"unknown section\(s\): bogus"):
+        parse_brew(data)
+
+
+def test_unknown_brew_field_rejected():
+    data = make_valid_brew()
+    data["brew"]["secret_field"] = "nope"
+    with pytest.raises(BrewError, match=r"unknown field\(s\) in \[brew\]: secret_field"):
+        parse_brew(data)
+
+
+def test_unknown_wine_field_rejected():
+    data = make_valid_brew()
+    data["wine"]["graphics"] = "vulkan"
+    with pytest.raises(BrewError, match=r"unknown field\(s\) in \[wine\]: graphics"):
+        parse_brew(data)
+
+
+# --- file loading -------------------------------------------------------
+
+
+def test_load_brew_from_file(tmp_path: Path):
+    path = tmp_path / "test.brew"
+    path.write_text(
+        """
+[brew]
+name = "File Synth"
+version = "2.0"
+category = "utility"
+maintainer = "Syntropia Team <x@y.io>"
+
+[wine]
+version = "cachyos-wine"
+prefix = "~/.local/share/syntropia/prefixes/file"
+arch = "win32"
+
+[install]
+commands = ["echo hi"]
+""",
+        encoding="utf-8",
+    )
+    brew = load_brew(path)
+    assert brew.name == "File Synth"
+    assert brew.wine_arch == "win32"
+    assert brew.source == path
+
+
+def test_load_brew_invalid_toml(tmp_path: Path):
+    path = tmp_path / "bad.brew"
+    path.write_text("this is [not valid toml", encoding="utf-8")
+    with pytest.raises(BrewError, match=r"invalid TOML"):
+        load_brew(path)
+
+
+def test_load_brew_missing_file(tmp_path: Path):
+    with pytest.raises(BrewError, match=r"file not found"):
+        load_brew(tmp_path / "nope.brew")
+
+
+def test_find_brews_only_matches_extension(tmp_path: Path):
+    (tmp_path / "a.brew").write_text("", encoding="utf-8")
+    (tmp_path / "b.brew").write_text("", encoding="utf-8")
+    (tmp_path / "notes.txt").write_text("", encoding="utf-8")
+    found = find_brews(tmp_path)
+    assert [p.name for p in found] == ["a.brew", "b.brew"]
+
+
+def test_find_brews_missing_directory(tmp_path: Path):
+    assert find_brews(tmp_path / "does-not-exist") == []

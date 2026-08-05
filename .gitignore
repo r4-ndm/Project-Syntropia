@@ -14,3 +14,9 @@ skills-lock.json
 
 # Local agent tooling config (machine-specific)
 .claude/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/

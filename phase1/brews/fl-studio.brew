@@ -1,0 +1,31 @@
+# FL Studio — initial draft manifest (install commands not yet tested)
+
+[brew]
+name = "FL Studio"
+version = "21.2"
+category = "daw"
+maintainer = "Syntropia Team <hello@project-syntropia.io>"
+
+[wine]
+version = "cachyos-wine"
+prefix = "~/.local/share/syntropia/prefixes/fl-studio"
+arch = "win64"
+
+[wine.overrides]
+gdiplus = "native"
+
+[winetricks]
+packages = ["corefonts", "vcrun2022"]
+
+[yabridge]
+enabled = false
+plugin_dirs = []
+
+[environment]
+WINEDLLOVERRIDES = "winemenubuilder.exe=d"
+LANG = "en_US.UTF-8"
+
+[install]
+commands = [
+  "wine /tmp/flstudio_setup.exe /S",
+]

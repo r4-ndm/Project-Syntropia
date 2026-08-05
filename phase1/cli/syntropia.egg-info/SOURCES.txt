@@ -1,0 +1,10 @@
+pyproject.toml
+syntropia/__init__.py
+syntropia/brew.py
+syntropia/cli.py
+syntropia.egg-info/PKG-INFO
+syntropia.egg-info/SOURCES.txt
+syntropia.egg-info/dependency_links.txt
+syntropia.egg-info/entry_points.txt
+syntropia.egg-info/requires.txt
+syntropia.egg-info/top_level.txt

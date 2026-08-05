@@ -1,0 +1,35 @@
+# Syntropia brew manifest template
+# Copy this file, fill it in, and drop it in ~/.config/syntropia/brews/
+# Full reference: phase1/plan.md -> '.brew' Specification Schema
+
+[brew]
+name = "Example App"
+version = "1.0.0"
+category = "vst3_synth"          # vst3_synth | vst3_effect | daw | utility
+maintainer = "Syntropia Team <hello@project-syntropia.io>"
+
+[wine]
+version = "cachyos-wine"
+prefix = "~/.local/share/syntropia/prefixes/example"
+arch = "win64"                   # win32 | win64
+
+[wine.overrides]
+# d2d1 = "disabled"              # bypass Wine Direct2D rendering bugs
+# gdiplus = "native"             # native GDI+ for text / knob anti-aliasing
+
+[winetricks]
+packages = ["corefonts"]
+
+[yabridge]
+enabled = true
+plugin_dirs = ["~/.vst3/Syntropia"]
+
+[environment]
+WINEDLLOVERRIDES = "winemenubuilder.exe=d"
+LANG = "en_US.UTF-8"
+
+[install]
+commands = [
+  # "wine /tmp/setup.exe /S",
+  # "cp -r '$WINEPREFIX/drive_c/Program Files/Common Files/VST3/Example.vst3' ~/.vst3/Syntropia/",
+]
