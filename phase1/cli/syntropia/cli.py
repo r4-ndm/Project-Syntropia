@@ -8,8 +8,11 @@ import click
 
 from .brew import BrewError, find_brews, load_brew
 from .transform import TransformError, run_transform
+from .wine_helper import WineHelperError, WineInstaller
 
 DEFAULT_REGISTRY = "~/.config/syntropia/brews"
+
+DEFAULT_BRANDING_DIR = "/usr/share/syntropia/branding"
 
 
 def _registry_path(registry: str) -> str:
@@ -24,8 +27,14 @@ def cli() -> None:
 
 @cli.command()
 @click.argument("brew_file", type=click.Path(exists=True, dir_okay=False))
-def install(brew_file: str) -> None:
-    """Validate a .brew manifest (install engine arrives in a later milestone)."""
+@click.option("--check", is_flag=True, help="Dry-run: print the install plan, change nothing.")
+@click.option("--yes", is_flag=True, help="Confirm: actually run the install.")
+def install(brew_file: str, check: bool, yes: bool) -> None:
+    """Install a Windows DAW/VST from a .brew manifest (Wine + yabridge).
+
+    Test systems only — see agent-rules/transform-safety.md. Run --check
+    first, then confirm with --yes.
+    """
     try:
         brew = load_brew(brew_file)
     except BrewError as exc:
@@ -38,26 +47,42 @@ def install(brew_file: str) -> None:
         click.echo(f"   winetricks: {', '.join(brew.winetricks_packages)}")
     if brew.yabridge_enabled:
         click.echo(f"   yabridge:   enabled -> {', '.join(brew.plugin_dirs)}")
-    click.echo(
-        click.style(
-            "   (parsed & validated — the Wine install engine is the next milestone)",
-            fg="yellow",
+    if not check and not yes:
+        raise click.ClickException(
+            "install provisions Wine prefixes — pass --yes to confirm "
+            "(read agent-rules/transform-safety.md first)"
         )
-    )
+    try:
+        WineInstaller(brew, dry_run=check).run_all()
+    except WineHelperError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 @cli.command()
 @click.option("--check", is_flag=True, help="Dry-run: report what would change, change nothing.")
 @click.option("--yes", is_flag=True, help="Confirm: actually apply the transform to this system.")
 @click.option("--snapshot", "snapshot_desc", metavar="DESC", help="Create a snapper snapshot before applying.")
-def transform(check: bool, yes: bool, snapshot_desc: str | None) -> None:
+@click.option(
+    "--branding-dir",
+    "branding_dir",
+    default=DEFAULT_BRANDING_DIR,
+    show_default=True,
+    metavar="DIR",
+    help="Directory with amended assets (plymouth/, grub/, wallpaper.png).",
+)
+def transform(check: bool, yes: bool, snapshot_desc: str | None, branding_dir: str) -> None:
     """Turn this CachyOS system into Syntropia OS.
 
     Test systems only — see agent-rules/transform-safety.md. Run --check
     first, snapshot, then apply with --yes.
     """
     try:
-        run_transform(check=check, yes=yes, snapshot_desc=snapshot_desc)
+        run_transform(
+            check=check,
+            yes=yes,
+            snapshot_desc=snapshot_desc,
+            branding_dir=branding_dir,
+        )
     except TransformError as exc:
         raise click.ClickException(str(exc)) from exc
 

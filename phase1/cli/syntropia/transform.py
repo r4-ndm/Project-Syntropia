@@ -10,11 +10,14 @@ Safety contract (see agent-rules/transform-safety.md):
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+
+from .branding import Branding, BrandingPaths
 
 AUDIO_PACKAGES = [
     "wine-staging",
@@ -68,11 +71,30 @@ context.properties = {{
 }}
 """
 
-FASTFETCH_CONF = """{
+FASTFETCH_CONF_TEMPLATE = """{{
   // Syntropia branding (managed by syntropia transform)
-  "logo": { "source": "/usr/share/syntropia/logo.txt" }
-}
+  "logo": {{
+    "source": "/usr/share/syntropia/logo.txt"{colors}
+  }}
+}}
 """
+
+
+def build_fastfetch_conf(color_map: dict[str, str] | None = None) -> str:
+    """Build the fastfetch config, merging a logo.color map if provided.
+
+    ``color_map`` maps fastfetch placeholder numbers ("1".."9") to hex
+    colors — the output of tools/png_to_ascii.py --color-map. Fastfetch
+    resolves $N placeholders in the logo file through this map.
+    """
+    if not color_map:
+        return FASTFETCH_CONF_TEMPLATE.format(colors="")
+    entries = ",\n".join(
+        f'    "{k}": "{v}"' for k, v in sorted(color_map.items())
+    )
+    colors_block = ",\n    \"color\": {\n" + entries + "\n    }"
+    return FASTFETCH_CONF_TEMPLATE.format(colors=colors_block)
+
 
 
 class TransformError(Exception):
@@ -87,6 +109,7 @@ class TransformPaths:
     os_release: Path = Path("/etc/os-release")
     logo_dir: Path = Path("/usr/share/syntropia")
     usr_local_bin: Path = Path("/usr/local/bin")
+    branding_dir: Path = Path("/usr/share/syntropia/branding")
 
     @property
     def logo_path(self) -> Path:
@@ -185,11 +208,20 @@ class Transform:
         path.write_text(OS_RELEASE_CONTENT, encoding="utf-8")
 
     def apply_logo(self) -> None:
-        self._would("logo", f"write {self.paths.logo_path}")
+        # Prefer a logo.txt dropped in the branding asset-dir (e.g. the
+        # output of tools/png_to_ascii.py); fall back to the built-in art.
+        custom = self.paths.branding_dir / "logo.txt"
+        if custom.is_file():
+            text = custom.read_text(encoding="utf-8")
+            source = str(custom)
+        else:
+            text = LOGO_TEXT
+            source = "built-in"
+        self._would("logo", f"write {self.paths.logo_path} (from {source})")
         if self.dry_run:
             return
         self.paths.logo_dir.mkdir(parents=True, exist_ok=True)
-        self.paths.logo_path.write_text(LOGO_TEXT, encoding="utf-8")
+        self.paths.logo_path.write_text(text, encoding="utf-8")
 
     def apply_shell_prompt(self) -> None:
         for rc, line in ((self.paths.bashrc, BASH_PROMPT_LINE), (self.paths.zshrc, ZSH_PROMPT_LINE)):
@@ -220,11 +252,21 @@ class Transform:
 
     def apply_fastfetch(self) -> None:
         target = self.paths.fastfetch_dir / "config.jsonc"
-        self._would("fastfetch", f"write {target}")
+        # Merge a color map dropped in the asset-dir (from png_to_ascii --color).
+        color_map: dict[str, str] | None = None
+        color_file = self.paths.branding_dir / "fastfetch-color.json"
+        if color_file.is_file():
+            try:
+                color_map = json.loads(color_file.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                raise TransformError(f"invalid color map {color_file}: {exc}") from exc
+        conf = build_fastfetch_conf(color_map)
+        note = f" ({len(color_map)} colors)" if color_map else ""
+        self._would("fastfetch", f"write {target}{note}")
         if self.dry_run:
             return
         self.paths.fastfetch_dir.mkdir(parents=True, exist_ok=True)
-        target.write_text(FASTFETCH_CONF, encoding="utf-8")
+        target.write_text(conf, encoding="utf-8")
 
     def deploy_cli(self) -> None:
         found = shutil.which("syntropia")
@@ -240,6 +282,20 @@ class Transform:
             target.unlink()
         os.symlink(found, target)
 
+    def apply_branding(self) -> None:
+        if not self.paths.branding_dir.is_dir():
+            self.log(
+                "branding",
+                f"no assets in {self.paths.branding_dir} — use --branding-dir (skipped)",
+            )
+            return
+        branding = Branding(
+            BrandingPaths(home=self.paths.home, assets_dir=self.paths.branding_dir),
+            dry_run=self.dry_run,
+        )
+        branding.apply_all()
+        self.planned += branding.planned
+
     # -- runner -----------------------------------------------------------
 
     def run_all(self) -> None:
@@ -251,14 +307,24 @@ class Transform:
         self.apply_pipewire()
         self.apply_fastfetch()
         self.deploy_cli()
+        self.apply_branding()
         if self.dry_run:
             print(f"\nDry-run complete: {self.planned} action(s) would be taken.")
             print("Remember the safety rule: snapshot first, then run with --yes.")
 
 
-def run_transform(*, check: bool, yes: bool, snapshot_desc: str | None = None) -> None:
+def run_transform(
+    *,
+    check: bool,
+    yes: bool,
+    snapshot_desc: str | None = None,
+    branding_dir: str | None = None,
+) -> None:
     """Entry point used by the CLI. See module docstring for the safety contract."""
-    transform = Transform(TransformPaths.for_user(), dry_run=check)
+    paths = TransformPaths.for_user()
+    if branding_dir:
+        paths.branding_dir = Path(branding_dir).expanduser()
+    transform = Transform(paths, dry_run=check)
 
     if not check:
         if not yes:

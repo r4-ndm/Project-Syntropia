@@ -133,6 +133,93 @@ def test_directories_created(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         assert (transform.paths.home / rel).is_dir()
 
 
+# --- logo source -------------------------------------------------------
+
+
+def test_logo_prefers_branding_dir_logo_txt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A logo.txt dropped in the asset-dir replaces the built-in art."""
+    monkeypatch.setattr(T, "run_command", noop_run([]))
+    paths = make_paths(tmp_path)
+    branding = tmp_path / "branding"
+    branding.mkdir(parents=True)
+    (branding / "logo.txt").write_text("MY CUSTOM ART\n", encoding="utf-8")
+    paths.branding_dir = branding
+    transform = T.Transform(paths, dry_run=False)
+    transform.apply_logo()
+    assert paths.logo_path.read_text(encoding="utf-8") == "MY CUSTOM ART\n"
+
+
+def test_logo_falls_back_to_builtin_without_asset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(T, "run_command", noop_run([]))
+    transform = make_transform(tmp_path, dry_run=False)
+    transform.apply_logo()
+    assert paths_logo_equals_builtin(transform.paths)
+
+
+def paths_logo_equals_builtin(paths: T.TransformPaths) -> bool:
+    return paths.logo_path.read_text(encoding="utf-8") == T.LOGO_TEXT
+
+
+def test_logo_dry_run_reports_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(T, "run_command", noop_run([]))
+    paths = make_paths(tmp_path)
+    branding = tmp_path / "branding"
+    branding.mkdir(parents=True)
+    (branding / "logo.txt").write_text("CUSTOM\n", encoding="utf-8")
+    paths.branding_dir = branding
+    transform = T.Transform(paths, dry_run=True)
+    transform.apply_logo()
+    assert not paths.logo_path.exists()  # dry-run writes nothing
+    assert transform.planned == 1
+
+
+# --- fastfetch color map ------------------------------------------------
+
+
+def test_fastfetch_conf_without_colors_has_no_color_key():
+    conf = T.build_fastfetch_conf(None)
+    assert '"source": "/usr/share/syntropia/logo.txt"' in conf
+    assert "color" not in conf
+
+
+def test_fastfetch_conf_merges_color_map():
+    conf = T.build_fastfetch_conf({"1": "#FF0000", "2": "#00FF00"})
+    assert '"1": "#FF0000"' in conf
+    assert '"2": "#00FF00"' in conf
+    assert "color" in conf
+
+
+def test_apply_fastfetch_reads_color_map_from_asset_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(T, "run_command", noop_run([]))
+    paths = make_paths(tmp_path)
+    branding = tmp_path / "branding"
+    branding.mkdir(parents=True)
+    (branding / "fastfetch-color.json").write_text(
+        '{"1": "#123456"}\n', encoding="utf-8"
+    )
+    paths.branding_dir = branding
+    transform = T.Transform(paths, dry_run=False)
+    transform.apply_fastfetch()
+    conf = (paths.fastfetch_dir / "config.jsonc").read_text(encoding="utf-8")
+    assert '"1": "#123456"' in conf
+
+
+def test_apply_fastfetch_rejects_bad_color_map(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(T, "run_command", noop_run([]))
+    paths = make_paths(tmp_path)
+    branding = tmp_path / "branding"
+    branding.mkdir(parents=True)
+    (branding / "fastfetch-color.json").write_text("not json", encoding="utf-8")
+    paths.branding_dir = branding
+    transform = T.Transform(paths, dry_run=False)
+    with pytest.raises(T.TransformError, match="color map"):
+        transform.apply_fastfetch()
+
+
 # --- packages -----------------------------------------------------------
 
 
