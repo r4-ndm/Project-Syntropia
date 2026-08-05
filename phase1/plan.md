@@ -1,4 +1,4 @@
-# 🌀 Phase 1: Syntropia Core Master Plan
+# 😈 Phase 1: Syntropia Core Master Plan
 
 **Goal**: Deliver an installable, rebranded CachyOS-based operating system ("Syntropia OS") with native Wine/yabridge VST3 plugin management driven by a simple CLI (`syntropia install <brew>`).
 
@@ -40,7 +40,7 @@ Phase 1 prioritizes rapid local development using **`syntropia transform`** befo
 ### 1. Transformation Script (PRIORITY #1)
 * **`syntropia transform`**: Safe, non-destructive, idempotent script that turns any running CachyOS system into Syntropia OS:
   - Applies `/etc/os-release` & `/usr/share/syntropia/logo.txt`.
-  - Configures shell prompt `🌀 \u@\h \W $ ` in `~/.bashrc` & `~/.zshrc`.
+  - Configures shell prompt `😈 \u@\h \W $ ` in `~/.bashrc` & `~/.zshrc`.
   - Installs audio packages (`wine-staging`, `winetricks`, `yabridge`, `pipewire`, `pipewire-pulse`, `wireplumber`).
   - Sets up directories (`~/.config/syntropia/brews`, `~/.local/share/syntropia/prefixes`, `~/.vst3/Syntropia`).
   - Deploys `/usr/local/bin/syntropia` CLI executable.
@@ -49,7 +49,7 @@ Phase 1 prioritizes rapid local development using **`syntropia transform`** befo
 ### 2. Visual Rebranding Kit
 * **`/etc/os-release`**: Custom OS metadata identifying system as Syntropia OS (powered by CachyOS).
 * **Fastfetch ASCII Logo**: Syntropia infinity logo banner (`syntropia fetch` / terminal launch).
-* **Terminal Shell Prompt**: `🌀 user@host` prompt prefix.
+* **Terminal Shell Prompt**: `😈 user@host` prompt prefix.
 * **GRUB Theme & Plymouth Splash**: Dark cosmic GRUB bootloader theme and animated boot splash.
 
 ### 3. The `.brew` System (Replacing Recipes)
@@ -111,7 +111,7 @@ commands = [
 
 | Week | Focus Area | Key Targets |
 | :--- | :--- | :--- |
-| **Week 1** | `syntropia transform` & Branding | Implement `syntropia transform` script, `/etc/os-release`, Fastfetch ASCII logo, shell prompt (`🌀`), PipeWire 128 quantum config, and CLI binary installation. |
+| **Week 1** | `syntropia transform` & Branding | Implement `syntropia transform` script, `/etc/os-release`, Fastfetch ASCII logo, shell prompt (`😈`), PipeWire 128 quantum config, and CLI binary installation. |
 | **Week 2** | `.brew` Parser & VST Engine | Write `src/syntropia/brew.py`, build `syntropia install <brew>` with `wine.overrides` and `winetricks` support, automate Wine prefix initialization and `yabridgectl sync`. |
 | **Week 3** | Target DAW & VST Brews | Test and finalize `ableton-live-12.brew`, `fl-studio.brew`, `serum.brew`, and `vital.brew` on local transformed CachyOS system. |
 | **Week 4** | Seed ISO Assembly & Bootstrap | Package verified `transform` configs into Archiso profile, build `cachyos-syntropia-v0.1.iso`, and perform clean install. |

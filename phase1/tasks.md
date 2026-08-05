@@ -1,4 +1,4 @@
-# 🌀 Phase 1: Task Board
+# 😈 Phase 1: Task Board
 
 This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** (Re-branding, ISO Tooling, `.brew` system, Wine/yabridge VST3 helper).
 
@@ -12,7 +12,7 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 - [ ] **Implement transformation safety checks** - Verify system is CachyOS, backup critical files
 
 ### Shell & User Experience
-- [ ] **Configure shell prompt hooks** - Add `🌀 \u@\h \W $ ` to `~/.bashrc` and `~/.zshrc`
+- [ ] **Configure shell prompt hooks** - Add `😈 \u@\h \W $ ` to `~/.bashrc` and `~/.zshrc`
 - [ ] **Create Fastfetch configuration** - Default Fastfetch display with Syntropia branding
 - [ ] **Implement `syntropia fetch` command** - Display system info with custom branding
 

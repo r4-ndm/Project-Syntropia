@@ -38,7 +38,7 @@ We prioritize **rapid local development** using `syntropia transform` before bui
 **`syntropia transform`**: Safe, non-destructive, idempotent script that turns any running CachyOS system into Syntropia OS:
 
 - **System Branding**: Custom `/etc/os-release` & `/usr/share/syntropia/logo.txt`
-- **Shell Identity**: `🌀 \u@\h \W $ ` prompt in `~/.bashrc` & `~/.zshrc`
+- **Shell Identity**: `😈 \u@\h \W $ ` prompt in `~/.bashrc` & `~/.zshrc`
 - **Audio Stack**: Automated installation of `wine-staging`, `winetricks`, `yabridge`, `pipewire`, `pipewire-pulse`, `wireplumber`
 - **Directory Structure**: Creates `~/.config/syntropia/brews/`, `~/.local/share/syntropia/prefixes/`, `~/.vst3/Syntropia/`
 - **CLI Deployment**: Installs `/usr/local/bin/syntropia` executable
@@ -46,7 +46,7 @@ We prioritize **rapid local development** using `syntropia transform` before bui
 
 ### 2. Visual Rebranding Kit
 - **OS Identity**: Custom `/etc/os-release` metadata identifying as "Syntropia OS (powered by CachyOS)"
-- **Terminal Experience**: Fastfetch ASCII logo banner and `🌀 user@host` prompt prefix
+- **Terminal Experience**: Fastfetch ASCII logo banner and `😈 user@host` prompt prefix
 - **Boot Experience**: Dark cosmic GRUB theme and animated Plymouth splash
 
 ### 3. The `.brew` System
