@@ -55,8 +55,12 @@ Phase 1 prioritizes rapid local development using **`syntropia transform`** befo
 ### 3. The `.brew` System (Replacing Recipes)
 Application and plugin manifests called **brews** (`.brew` TOML format) targeting primary DAWs and VST3 plugins:
 * **Target DAWs**: Ableton Live 12 (`ableton-live-12.brew`), FL Studio (`fl-studio.brew`).
-* **Target VSTs**: Xfer Serum (`serum.brew`), Vital Wavetable Synth (`vital.brew`).
-* **Nidavellir Registry**: Local directory index stored at `~/.config/syntropia/brews/`.
+* **Target VSTs**: Xfer Serum (`serum.brew`), Vital Wavetable Synth (`vital.brew`), Surge XT (`surge.brew`).
+* **Nidavellir Registry — AUR-style**: A `.brew` manifest is the analog of a PKGBUILD. The **local registry** at `~/.config/syntropia/brews/` is your personal tree — a git-able clone of the shared registry. The **shared registry** is a public GitHub repo of `.brew` files (the community "AUR") that anyone can submit to via PR.
+  - `syntropia save <file>.brew` — validate a manifest and copy it into the local registry (saving again overwrites = update).
+  - `syntropia install <name>` — resolves bare names against the registry, AUR-style (`syntropia install surge`), or a file path.
+  - `syntropia remove <name>` / `list-brews` / `search` / `info` — the rest of the read/write surface.
+  - `syntropia submit <name>` — pushes a new/changed brew to the shared GitHub registry ([r4-ndm/syntropia-brews](https://github.com/r4-ndm/syntropia-brews)) as a PR via `gh` (feature branch → commit the brew only → push → `gh pr create`). The local registry syncs from it with a plain `git pull`.
 
 ### 4. Syntropia CLI & VST3 Engine
 * **`syntropia install <brew>`**: Parses `.brew` specs, provisions isolated Wine prefixes, applies DLL overrides (`d2d1 = "disabled"`, `gdiplus = "native"`), runs `winetricks`, registers VST3 DLLs with `yabridgectl`, and triggers automatic sync to `~/.vst3/Syntropia`.

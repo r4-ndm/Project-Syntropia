@@ -4,7 +4,17 @@ from pathlib import Path
 
 import pytest
 
-from syntropia.brew import Brew, BrewError, find_brews, load_brew, parse_brew
+from syntropia.brew import (
+    Brew,
+    BrewError,
+    brew_filename,
+    find_brews,
+    load_brew,
+    parse_brew,
+    resolve_brew,
+    save_brew,
+    slugify_name,
+)
 
 
 def make_valid_brew() -> dict:
@@ -229,3 +239,120 @@ def test_find_brews_only_matches_extension(tmp_path: Path):
 
 def test_find_brews_missing_directory(tmp_path: Path):
     assert find_brews(tmp_path / "does-not-exist") == []
+
+
+# --- registry write ops ------------------------------------------------
+
+
+def test_slugify_name():
+    assert slugify_name("Ableton Live 12") == "ableton-live-12"
+    assert slugify_name("Serum") == "serum"
+    assert slugify_name("Surge XT") == "surge-xt"
+    assert slugify_name("   Vital  ") == "vital"
+    assert slugify_name("FL Studio 2024 Pro") == "fl-studio-2024-pro"
+
+
+def test_slugify_name_empty_falls_back():
+    assert slugify_name("!!!") == "brew"
+
+
+def test_brew_filename_from_name(tmp_path: Path):
+    path = tmp_path / "x.brew"
+    path.write_text(
+        "[brew]\nname = \"Surge XT\"\nversion = \"1.0\"\ncategory = \"vst\"\nmaintainer = \"T\"\n\n"
+        "[wine]\nversion = \"w\"\nprefix = \"~/p\"\narch = \"win64\"\n\n"
+        "[install]\ncommands = [\"echo hi\"]\n",
+        encoding="utf-8",
+    )
+    brew = load_brew(path)
+    assert brew_filename(brew) == "surge-xt.brew"
+
+
+def test_save_brew_creates_registry_and_preserves_bytes(tmp_path: Path):
+    source = tmp_path / "surge.brew"
+    original = "# comment kept\n[brew]\nname = \"Surge XT\"\nversion = \"1.0\"\ncategory = \"vst\"\nmaintainer = \"T\"\n\n[wine]\nversion = \"w\"\nprefix = \"~/p\"\narch = \"win64\"\n\n[install]\ncommands = [\"echo hi\"]\n"
+    source.write_text(original, encoding="utf-8")
+    brew = load_brew(source)
+    registry = tmp_path / "registry"
+
+    target = save_brew(brew, registry)
+
+    assert registry.is_dir()
+    assert target.name == "surge-xt.brew"
+    assert target.read_text(encoding="utf-8") == original  # bytes verbatim
+
+
+def test_save_brew_overwrites_existing(tmp_path: Path):
+    source = tmp_path / "v.brew"
+    source.write_text(
+        "[brew]\nname = \"Vital\"\nversion = \"2.0\"\ncategory = \"vst\"\nmaintainer = \"T\"\n\n"
+        "[wine]\nversion = \"w\"\nprefix = \"~/p\"\narch = \"win64\"\n\n"
+        "[install]\ncommands = [\"echo hi\"]\n",
+        encoding="utf-8",
+    )
+    registry = tmp_path / "registry"
+    save_brew(load_brew(source), registry)
+    target = registry / "vital.brew"
+    assert target.exists()
+
+    # Update the manifest and save again — same slug, new bytes.
+    source.write_text(
+        "[brew]\nname = \"Vital\"\nversion = \"3.0\"\ncategory = \"vst\"\nmaintainer = \"T\"\n\n"
+        "[wine]\nversion = \"w\"\nprefix = \"~/p\"\narch = \"win64\"\n\n"
+        "[install]\ncommands = [\"echo hi\"]\n",
+        encoding="utf-8",
+    )
+    save_brew(load_brew(source), registry)
+    assert "3.0" in target.read_text(encoding="utf-8")
+
+
+def test_resolve_brew_path_passthrough(tmp_path: Path):
+    path = tmp_path / "direct.brew"
+    path.write_text("x", encoding="utf-8")
+    assert resolve_brew(path, tmp_path / "registry") == path
+
+
+def test_resolve_brew_by_name_and_slug(tmp_path: Path):
+    registry = tmp_path / "registry"
+    registry.mkdir()
+    (registry / "serum.brew").write_text("s", encoding="utf-8")
+    (registry / "ableton-live-12.brew").write_text("a", encoding="utf-8")
+
+    assert resolve_brew("serum", registry).name == "serum.brew"
+    assert resolve_brew("Ableton Live 12", registry).name == "ableton-live-12.brew"
+
+
+def test_resolve_brew_matches_manifest_name_slug(tmp_path: Path):
+    registry = tmp_path / "registry"
+    registry.mkdir()
+    (registry / "odd-file.brew").write_text(
+        "[brew]\nname = \"Oddly Named Synth\"\nversion = \"1\"\ncategory = \"vst\"\nmaintainer = \"T\"\n\n"
+        "[wine]\nversion = \"w\"\nprefix = \"~/p\"\narch = \"win64\"\n\n"
+        "[install]\ncommands = [\"echo x\"]\n",
+        encoding="utf-8",
+    )
+    assert resolve_brew("oddly named synth", registry).name == "odd-file.brew"
+    assert resolve_brew("Oddly-Named-Synth", registry).name == "odd-file.brew"
+
+
+def test_resolve_brew_accepts_extension_suffix(tmp_path: Path):
+    registry = tmp_path / "registry"
+    registry.mkdir()
+    (registry / "template.brew").write_text("t", encoding="utf-8")
+    assert resolve_brew("template", registry).name == "template.brew"
+    assert resolve_brew("template.brew", registry).name == "template.brew"
+
+
+def test_resolve_brew_rejects_path_separators(tmp_path: Path):
+    # A name containing '/' must never resolve into the registry via
+    # filename joins (path-traversal guard).
+    registry = tmp_path / "registry"
+    registry.mkdir()
+    outside = tmp_path / "secret.brew"
+    outside.write_text("s", encoding="utf-8")
+    assert resolve_brew("../secret", registry) is None
+    assert resolve_brew("../secret.brew", registry) is None
+
+
+def test_resolve_brew_missing_returns_none(tmp_path: Path):
+    assert resolve_brew("nope", tmp_path / "registry") is None

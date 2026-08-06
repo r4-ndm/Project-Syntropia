@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import click
 
-from .brew import BrewError, find_brews, load_brew
+from .brew import BrewError, brew_filename, find_brews, load_brew, resolve_brew, save_brew
+from .registry import RegistryError, submit_brew
 from .transform import TransformError, run_transform
 from .wine_helper import WineHelperError, WineInstaller
 
@@ -26,15 +28,25 @@ def cli() -> None:
 
 
 @cli.command()
-@click.argument("brew_file", type=click.Path(exists=True, dir_okay=False))
+@click.argument("brew", metavar="NAME_OR_FILE")
+@click.option("--registry", default=DEFAULT_REGISTRY, show_default=True, help="Registry directory to resolve brew names against.")
 @click.option("--check", is_flag=True, help="Dry-run: print the install plan, change nothing.")
 @click.option("--yes", is_flag=True, help="Confirm: actually run the install.")
-def install(brew_file: str, check: bool, yes: bool) -> None:
+def install(brew: str, registry: str, check: bool, yes: bool) -> None:
     """Install a Windows DAW/VST from a .brew manifest (Wine + yabridge).
+
+    NAME_OR_FILE is a .brew file path, or a brew name resolved from the
+    registry (AUR-style: ``syntropia install surge``).
 
     Test systems only — see agent-rules/transform-safety.md. Run --check
     first, then confirm with --yes.
     """
+    brew_file = resolve_brew(brew, registry)
+    if brew_file is None:
+        raise click.ClickException(
+            f"no brew named '{brew}' in {_registry_path(registry)} — "
+            f"run 'syntropia save <file>.brew' to add it, or 'syntropia list-brews'"
+        )
     try:
         brew = load_brew(brew_file)
     except BrewError as exc:
@@ -123,9 +135,15 @@ def search(term: str, registry: str) -> None:
 
 
 @cli.command()
-@click.argument("brew_file", type=click.Path(exists=True, dir_okay=False))
-def info(brew_file: str) -> None:
-    """Show full details of a .brew manifest."""
+@click.argument("brew", metavar="NAME_OR_FILE")
+@click.option("--registry", default=DEFAULT_REGISTRY, show_default=True, help="Registry directory to resolve brew names against.")
+def info(brew: str, registry: str) -> None:
+    """Show full details of a .brew manifest (file path or registry name)."""
+    brew_file = resolve_brew(brew, registry)
+    if brew_file is None:
+        raise click.ClickException(
+            f"no brew named '{brew}' in {_registry_path(registry)} — run 'syntropia save <file>.brew' to add it"
+        )
     try:
         brew = load_brew(brew_file)
     except BrewError as exc:
@@ -151,6 +169,74 @@ def info(brew_file: str) -> None:
     click.echo("  install steps:")
     for command in brew.install_commands:
         click.echo(f"    $ {command}")
+
+
+@cli.command()
+@click.argument("brew_file", type=click.Path(exists=True, dir_okay=False))
+@click.option("--registry", default=DEFAULT_REGISTRY, show_default=True, help="Registry directory to save into.")
+def save(brew_file: str, registry: str) -> None:
+    """Validate a .brew and save it into the registry (AUR-style local tree).
+
+    Anyone can then install it by name from the registry; the shared,
+    GitHub-hosted registry is the upstream for this local copy.
+    """
+    path = _registry_path(registry)
+    try:
+        brew = load_brew(brew_file)
+        existed = (Path(path).expanduser() / brew_filename(brew)).exists()
+        target = save_brew(brew, path)
+    except BrewError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(
+        click.style(f"✅ {'updated' if existed else 'saved'} {target.name} {brew.version}", fg="green")
+    )
+    click.echo(f"   {target}")
+    click.echo(f"   share it: syntropia submit {target.stem}")
+
+
+@cli.command()
+@click.argument("name")
+@click.option("--registry", default=DEFAULT_REGISTRY, show_default=True, help="Registry directory to remove from.")
+def remove(name: str, registry: str) -> None:
+    """Remove a brew from the local registry by name."""
+    path = _registry_path(registry)
+    target = resolve_brew(name, path)
+    if target is None:
+        raise click.ClickException(f"no brew named '{name}' in {path}")
+    # Safety: only ever delete inside the registry directory.
+    root = Path(path).expanduser().resolve()
+    resolved = target.resolve()
+    if root not in resolved.parents or resolved.suffix != ".brew":
+        raise click.ClickException(f"refusing to remove {resolved} — outside the registry")
+    try:
+        resolved.unlink()
+    except OSError as exc:
+        raise click.ClickException(f"cannot remove {resolved}: {exc}") from exc
+    click.echo(click.style(f"🗑️ removed {resolved.name} from {root}", fg="yellow"))
+
+
+@cli.command()
+@click.argument("name")
+@click.option("--registry", default=DEFAULT_REGISTRY, show_default=True, help="Registry directory to submit from.")
+@click.option("--base", default="main", show_default=True, help="Base branch for the pull request.")
+def submit(name: str, registry: str, base: str) -> None:
+    """Open a PR for a brew against the shared GitHub registry (AUR-style).
+
+    The local registry must be a clone of the shared syntropia-brews repo,
+    and the GitHub CLI (gh) must be installed and authenticated.
+    """
+    path = _registry_path(registry)
+    brew_file = resolve_brew(name, path)
+    if brew_file is None:
+        raise click.ClickException(
+            f"no brew named '{name}' in {path} — run 'syntropia save' first"
+        )
+    try:
+        url = submit_brew(Path(brew_file), Path(path), base=base)
+    except RegistryError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(click.style("🚀 PR opened:", fg="green"))
+    click.echo(f"   {url}")
 
 
 def main() -> None:

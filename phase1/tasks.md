@@ -79,16 +79,21 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 - [ ] **Create package cache** - Cache downloaded winetricks packages
 - [ ] **Add progress reporting** - Show installation progress to user
 
-### Registry System
-- [ ] **Implement Nidavellir local registry** - Directory storage at `~/.config/syntropia/brews/`
-- [ ] **Add brew discovery** - Scan and index available brew files
-- [ ] **Create registry management** - Add, remove, update brews in registry
+### Registry System (AUR-style)
+- [x] **Implement Nidavellir local registry** - Directory storage at `~/.config/syntropia/brews/` (your personal AUR checkout)
+- [x] **Add brew discovery** - Scan and index available brew files
+- [x] **Create registry management** - `syntropia save <file>` (validate + copy in), `syntropia remove <name>` (delete), save overwrites = update
+- [x] **Seed registry from repo** - `syntropia save` the bundled brews (`surge`, `vital`, `serum`, ...) into the local registry
+- [x] **Shared GitHub registry** - Public repo [r4-ndm/syntropia-brews](https://github.com/r4-ndm/syntropia-brews) as the community "AUR", seeded with the 6 bundled brews; `~/.config/syntropia/brews` is a clone of it
+- [x] **`syntropia submit <name>`** - gh-based PR flow: feature branch -> commit only the brew -> push -> `gh pr create` (add vs update auto-detected)
 
 ### CLI Commands
-- [ ] **Implement `syntropia install <brew>`** - Parse brew specs and execute installation
-- [ ] **Create `syntropia list-brews`** - List available local brews
-- [ ] **Add `syntropia search <term>`** - Search brew names and descriptions
-- [ ] **Implement `syntropia info <brew>`** - Show detailed brew information
+- [x] **Implement `syntropia install <brew>`** - Parse brew specs and execute installation; accepts a file path **or a bare registry name** (`syntropia install surge`)
+- [x] **Create `syntropia list-brews`** - List available local brews
+- [x] **Add `syntropia search <term>`** - Search brew names and descriptions
+- [x] **Implement `syntropia info <brew>`** - Show detailed brew information (file path or registry name)
+- [x] **Add `syntropia save` / `remove`** - Write ops for the local registry
+- [x] **Add `syntropia submit`** - Push a local brew to the shared GitHub registry as a PR (requires `gh`)
 
 ### Target Brew Definitions
 - [ ] **Create `ableton-live-12.brew`** - Ableton Live 12 Suite installation

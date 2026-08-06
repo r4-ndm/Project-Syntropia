@@ -1,11 +1,12 @@
-"""Syntropia .brew manifest parser and validator.
+"""Syntropia .brew manifest parser, validator, and local-registry manager.
 
 A .brew file is a TOML document describing how to install a Windows DAW
 or VST under Wine via the Syntropia toolchain. The schema is defined in
 ``phase1/plan.md`` ('.brew' Specification Schema).
 
-This module only parses and validates — it never executes anything.
-The install engine lives in the CLI and wine-helper layers.
+This module parses, validates, and manages the local registry
+(``~/.config/syntropia/brews``) — it never executes install commands.
+The install engine lives in the wine-helper layer.
 
 Requires Python 3.11+ (stdlib ``tomllib``).
 """
@@ -214,3 +215,81 @@ def find_brews(directory: Path | str) -> list[Path]:
     if not directory.is_dir():
         return []
     return sorted(p for p in directory.glob(f"*{BREW_EXTENSION}") if p.is_file())
+
+
+# --- registry write ops (AUR-style local tree) --------------------------
+
+
+def slugify_name(name: str) -> str:
+    """Derive a registry filename slug from a brew name, AUR-style.
+
+    ``"Ableton Live 12"`` -> ``"ableton-live-12"``. Keeps ``[a-z0-9]``,
+    collapses any other run to a single hyphen.
+    """
+    slug = "".join(ch if ch.isalnum() else "-" for ch in name.strip().lower())
+    slug = "-".join(part for part in slug.split("-") if part)
+    return slug or "brew"
+
+
+def brew_filename(brew: Brew) -> str:
+    """Registry filename for a brew, e.g. ``ableton-live-12.brew``."""
+    return f"{slugify_name(brew.name)}{BREW_EXTENSION}"
+
+
+def save_brew(brew: Brew, registry: Path | str) -> Path:
+    """Copy a validated brew's manifest into the registry directory.
+
+    The manifest's raw source bytes are preserved verbatim (comments and
+    formatting included) — like copying a PKGBUILD into a local AUR tree.
+    Overwrites an existing entry of the same name; the caller decides
+    whether that was an add or an update.
+    """
+    registry = Path(registry).expanduser()
+    registry.mkdir(parents=True, exist_ok=True)
+    target = registry / brew_filename(brew)
+    source = Path(brew.source).expanduser()
+    try:
+        data = source.read_bytes()
+    except OSError as exc:
+        raise BrewError(source, f"cannot read manifest for saving: {exc}") from exc
+    try:
+        target.write_bytes(data)
+    except OSError as exc:
+        raise BrewError(target, f"cannot write to registry: {exc}") from exc
+    return target
+
+
+def resolve_brew(name_or_path: str | Path, registry: Path | str) -> Path | None:
+    """Resolve a CLI argument to a .brew file.
+
+    * an existing file path is used as-is;
+    * a bare name matches ``<name>.brew`` or a slugified variant in the
+      registry (AUR-style filename lookup);
+    * finally, brews are scanned and matched by their ``[brew] name`` slug
+      (so ``"Surge XT"`` and ``"surge xt"`` both resolve ``surge-xt.brew``).
+    Returns ``None`` when nothing matches.
+    """
+    candidate = Path(name_or_path).expanduser()
+    if candidate.is_file():
+        return candidate
+    registry = Path(registry).expanduser()
+    raw = str(name_or_path)
+    needle = slugify_name(raw)
+    # Only treat the raw argument as a filename when it is a plain name
+    # (no path separators) — otherwise it could escape the registry dir.
+    candidates: list[str] = []
+    if "/" not in raw and "\\" not in raw:
+        candidates.append(raw if raw.endswith(BREW_EXTENSION) else f"{raw}{BREW_EXTENSION}")
+    candidates.append(f"{needle}{BREW_EXTENSION}")
+    for filename in candidates:
+        hit = registry / filename
+        if hit.is_file():
+            return hit
+    for brew_path in find_brews(registry):
+        try:
+            brew_name = load_brew(brew_path).name
+        except BrewError:
+            continue
+        if slugify_name(brew_name) == needle:
+            return brew_path
+    return None

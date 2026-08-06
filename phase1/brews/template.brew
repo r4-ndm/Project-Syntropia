@@ -30,6 +30,7 @@ LANG = "en_US.UTF-8"
 
 [install]
 commands = [
+  "echo template — replace this with the real installer command",
   # "wine /tmp/setup.exe /S",
   # "cp -r '$WINEPREFIX/drive_c/Program Files/Common Files/VST3/Example.vst3' ~/.vst3/Syntropia/",
 ]
