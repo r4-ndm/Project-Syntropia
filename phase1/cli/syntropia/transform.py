@@ -23,6 +23,7 @@ AUDIO_PACKAGES = [
     "wine-staging",
     "winetricks",
     "yabridge",
+    "yabridgectl",
     "pipewire",
     "pipewire-pulse",
     "wireplumber",
