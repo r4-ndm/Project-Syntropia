@@ -1,17 +1,24 @@
 # Syntropia Branding Asset Drop
 
-This is the **input folder** for `syntropia transform --branding-dir Branding/syntropia`.
-Drop your **amended** files here (edited in GIMP from the CachyOS official
-assets — see `~/Desktop/Syntropia-Branding/cachyos-official/` for the originals).
+This is the **single** home for all Syntropia visual branding — the amended
+assets *and* the reference set, merged from the CachyOS official extraction
+(`cachyos-desktop-linux-260628.iso` + installed system).
 
-Expected layout:
+Two roles in one folder:
+
+1. **`syntropia transform --branding-dir Branding/syntropia`** consumes the
+   asset-drop layout (plymouth/, grub/, wallpaper.png, logo.txt).
+2. **The ISO builder** (Week 4) consumes the calamares + syslinux pieces for
+   the install image.
+
+## Expected layout
 
 ```
 syntropia/
-├── logo.txt                   # terminal/fastfetch ASCII logo (optional)
+├── logo.txt                   # terminal/fastfetch ASCII logo (shipped ✓)
 │                              #   made from a PNG via tools/png_to_ascii.py
-├── fastfetch-color.json       # color map for logo.txt ($N -> #RRGGBB) —
-│                              #   written by png_to_ascii.py --color --color-map
+├── fastfetch-color.json       # color map for logo.txt ($N -> #RRGGBB) — kept
+│                              #   for when color placeholders return
 ├── plymouth/                  # whole boot-splash theme (copied as-is)
 │   ├── cachyos.plymouth      # theme descriptor (keep, rename Name=Syntropia)
 │   ├── animation-0001.png    # 30 frames — regenerable via
@@ -19,8 +26,18 @@ syntropia/
 │   ├── throbber-0001.png     # 36 frames (same script)
 │   └── watermark.png         # the boot-screen logo (256x86, transparent)
 ├── grub/
-│   └── splash.png            # 1920x1080 boot menu background
-└── wallpaper.png             # 1920x1080 desktop wallpaper
+│   ├── splash.png            # 1920x1080 boot menu background (amended ✓)
+│   └── syslinux-splash.png   # same art, legacy BIOS boot path
+├── calamares/                # installer branding (for the ISO builder)
+│   ├── slides/               # editable PNG masters (amended ✓)
+│   │   └── slide1-7.png
+│   └── usr/share/calamares/branding/cachyos/
+│       ├── branding.desc     # installer branding config
+│       ├── show.qml / calamares-sidebar.qml / stylesheet.qss
+│       ├── icon.png / logo.png / welcome.png   # installer icons (unamended)
+│       └── slide1-7.jxl      # JXL slides the installer actually loads
+│                             #   (regenerate from PNGs: magick slide1.png -quality 95 slide1.jxl)
+└── wallpaper.png             # 1920x1080 desktop wallpaper (pending)
 ```
 
 ## How the transform consumes it
@@ -30,7 +47,20 @@ syntropia/
 | `fastfetch-color.json` | merged into fastfetch config `logo.color` | rewrite (idempotent) |
 | `plymouth/` | `/usr/share/plymouth/themes/syntropia/` | `.syntropia-branded` in theme dir |
 | `grub/splash.png` | `/boot/grub/splash.png` | `splash.png.syntropia-branded` |
+| `grub/syslinux-splash.png` | ISO legacy-boot splash (for ISO builder) | n/a |
+| `calamares/slides/slide*.png` | ISO installer slideshow (for ISO builder) | n/a |
+| `calamares/usr/.../slide*.jxl` | Same slides in JXL — the installer loads these | n/a |
+| `calamares/usr/.../icon.png, logo.png, welcome.png` | Installer logo / window icon / welcome banner | n/a |
 | `wallpaper.png` | `~/.local/share/backgrounds/syntropia/wallpaper.png` | target exists |
+
+## Amended-vs-pending status
+| Piece | Status |
+|---|---|
+| `grub/splash.png` + `syslinux-splash.png` | ✅ amended |
+| `calamares/slides/slide1-7.png` + `.jxl` | ✅ amended |
+| `calamares/.../icon.png`, `logo.png`, `welcome.png` | ⏳ still CachyOS originals |
+| `plymouth/` frames (74 files) | ⏳ still originals — regenerate via spinner tool |
+| `wallpaper.png` | ⏳ not created yet |
 
 ## Shortcuts
 - **Terminal logo from a PNG**: design a mark in GIMP, then convert it to the
@@ -43,8 +73,8 @@ syntropia/
 - **Keep the colours**: fastfetch resolves `$N` placeholders in the art via the
   `logo.color` config map, so convert with a palette and ship both files:
   ```bash
-  python3 phase1/tools/png_to_ascii.py --input mark.png --width 60 --color --colors 8 \\
-      --contrast --out Branding/syntropia/logo.txt \\
+  python3 phase1/tools/png_to_ascii.py --input mark.png --width 60 --color --colors 8 \
+      --contrast --out Branding/syntropia/logo.txt \
       --color-map Branding/syntropia/fastfetch-color.json
   ```
   `--colors` is the palette size (max 9 — fastfetch's placeholder limit);
@@ -53,4 +83,7 @@ syntropia/
 - **Boot spinner frames**: don't hand-edit — run
   `python3 phase1/tools/generate_spinner.py --logo Branding/syntropia/mark.png --out Branding/syntropia/plymouth --frames 30 --throbber 36`
   once you have a transparent logo mark.
+- **JXL slides**: GIMP can't open JXL — edit the PNG in `calamares/slides/`,
+  then regenerate: `magick slide1.png -quality 95 slide1.jxl` (drop into
+  `calamares/usr/share/calamares/branding/cachyos/`).
 - Dry-run first, always: `syntropia transform --check --branding-dir Branding/syntropia`
