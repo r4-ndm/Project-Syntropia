@@ -9,7 +9,11 @@ Thumbs.db
 *~
 
 # Locally installed AI agent skills (keep local for now — not part of the repo)
-.agents/
+.agents/*
+# But Project Syntropia's own skills ARE tracked
+!.agents/skills/
+!.agents/skills/iso-builder/
+!.agents/skills/iso-builder/**
 skills-lock.json
 
 # Local agent tooling config (machine-specific)

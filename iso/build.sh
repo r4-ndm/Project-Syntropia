@@ -168,6 +168,12 @@ phase2_inject_slides() {
     cd "$remaster_dir"
     ok "Checksum updated"
 
+    # Step 5.5: Remove the unsquashed rootfs to keep ISO size reasonable
+    # (the remaster dir becomes the ISO root; we only need the packaged sfs)
+    info "Cleaning up unsquashed rootfs..."
+    rm -rf rootfs
+    ok "Cleaned rootfs ($(du -sh . | cut -f1) remaining)"
+
     # Step 6: Rebuild hybrid ISO with xorriso
     info "Rebuilding ISO with xorriso..."
     local efi_file
@@ -184,7 +190,7 @@ phase2_inject_slides() {
         -eltorito-boot boot/syslinux/isolinux.bin \
         -eltorito-catalog boot/syslinux/boot.cat \
         -no-emul-boot -boot-load-size 4 -boot-info-table \
-        -isohybrid-mbr isohdpfx.bin \
+        -isohybrid-mbr boot/syslinux/isohdpfx.bin \
         -eltorito-alt-boot \
         -e "EFI/BOOT/$efi_file" \
         -no-emul-boot \
