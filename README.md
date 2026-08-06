@@ -2,6 +2,24 @@
 
 > *"From chaos, order. From order, life. From life, infinity."*
 
+## ⚡ Install on an existing CachyOS
+
+Turn any running CachyOS system into Syntropia OS in one line:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/r4-ndm/Project-Syntropia/main/install-syntropia.sh | bash
+```
+
+What it does: verifies CachyOS, clones this repo (and the shared brew registry,
+best-effort), builds a Python venv, shows the full `syntropia transform --check`
+plan, snapshots (when a snapper root config is available), and applies branding
++ audio stack with your confirmation.
+
+> ⚠️ The repo is **private** right now, so the curl one-liner will not work for
+> others until it goes public. Until then, run it from a clone you already have:
+> `./install-syntropia.sh` (add `--check` for a dry run, `SYNTROPIA_YES=1` to
+> skip the confirmation).
+
 ## 🧭 Navigation Guide for Agents
 
 ### **Quick Start**

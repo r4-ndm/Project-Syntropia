@@ -36,7 +36,7 @@ syntropia/
 │       ├── show.qml / calamares-sidebar.qml / stylesheet.qss
 │       ├── icon.png / logo.png / welcome.png   # installer icons (unamended)
 │       └── slide1-6.jxl      # JXL slides the installer actually loads
-│                             #   (regenerate from PNGs: magick slide1.png -quality 95 slide1.jxl)
+│                             #   (regenerate from PNGs: cjxl --effort 7 -q 90 slide1.png slide1.jxl)
 └── wallpaper.png             # 1920x1080 desktop wallpaper (amended ✓)
 ```
 
@@ -84,6 +84,13 @@ syntropia/
   `python3 phase1/tools/generate_spinner.py --logo Branding/syntropia/mark.png --out Branding/syntropia/plymouth --frames 30 --throbber 36`
   once you have a transparent logo mark.
 - **JXL slides**: GIMP can't open JXL — edit the PNG in `calamares/slides/`,
-  then regenerate: `magick slide1.png -quality 95 slide1.jxl` (drop into
-  `calamares/usr/share/calamares/branding/cachyos/`).
+  then regenerate with the canonical libjxl encoder (better fidelity than
+  ImageMagick — measured ~6x lower error on these slides) and drop it into
+  the packaged dir:
+  ```bash
+  for i in 1 2 3 4 5 6; do
+    cjxl --effort 7 -q 90 slides/slide$i.png slides/slide$i.jxl
+    cp slides/slide$i.jxl usr/share/calamares/branding/cachyos/slide$i.jxl
+  done
+  ```
 - Dry-run first, always: `syntropia transform --check --branding-dir Branding/syntropia`

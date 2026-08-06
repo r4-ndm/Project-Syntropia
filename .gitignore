@@ -23,3 +23,8 @@ __pycache__/
 
 # Python build artifacts
 *.egg-info/
+
+# ISO build artifacts (never commit the built ISOs — huge binaries)
+*.iso
+iso/work/
+iso/out/
