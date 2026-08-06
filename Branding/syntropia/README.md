@@ -30,14 +30,14 @@ syntropia/
 │   └── syslinux-splash.png   # same art, legacy BIOS boot path
 ├── calamares/                # installer branding (for the ISO builder)
 │   ├── slides/               # editable PNG masters (amended ✓)
-│   │   └── slide1-7.png
+│   │   └── slide1-6.png      # the show.qml slideshow uses 6 slides
 │   └── usr/share/calamares/branding/cachyos/
 │       ├── branding.desc     # installer branding config
 │       ├── show.qml / calamares-sidebar.qml / stylesheet.qss
 │       ├── icon.png / logo.png / welcome.png   # installer icons (unamended)
-│       └── slide1-7.jxl      # JXL slides the installer actually loads
+│       └── slide1-6.jxl      # JXL slides the installer actually loads
 │                             #   (regenerate from PNGs: magick slide1.png -quality 95 slide1.jxl)
-└── wallpaper.png             # 1920x1080 desktop wallpaper (pending)
+└── wallpaper.png             # 1920x1080 desktop wallpaper (amended ✓)
 ```
 
 ## How the transform consumes it
@@ -57,10 +57,10 @@ syntropia/
 | Piece | Status |
 |---|---|
 | `grub/splash.png` + `syslinux-splash.png` | ✅ amended |
-| `calamares/slides/slide1-7.png` + `.jxl` | ✅ amended |
+| `calamares/slides/slide1-6.png` + `.jxl` | ✅ amended |
 | `calamares/.../icon.png`, `logo.png`, `welcome.png` | ⏳ still CachyOS originals |
 | `plymouth/` frames (74 files) | ⏳ still originals — regenerate via spinner tool |
-| `wallpaper.png` | ⏳ not created yet |
+| `wallpaper.png` | ✅ amended |
 
 ## Shortcuts
 - **Terminal logo from a PNG**: design a mark in GIMP, then convert it to the

@@ -8,7 +8,7 @@ The asset-drop is the single folder: `Branding/syntropia/`.
 |---|---|
 | `logo.txt` (triangle, 23 rows, `*`/`4`, clean bg) | ✅ shipped |
 | `grub/splash.png` + `grub/syslinux-splash.png` | ✅ amended |
-| `calamares/slides/slide1-7.png` + `.jxl` | ✅ amended |
+| `calamares/slides/slide1-6.png` + `.jxl` | ✅ amended (slideshow uses 6) |
 | `calamares/usr/.../icon.png, logo.png, welcome.png` | ⏳ todo |
 | `plymouth/` boot frames (74 files) | ⏳ todo |
 | `wallpaper.png` | ⏳ todo |
