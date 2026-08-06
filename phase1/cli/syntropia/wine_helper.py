@@ -2,12 +2,13 @@
 
 Drives ``syntropia install <brew>`` end to end:
 
-1. checks the toolchain (wine, winetricks, yabridge, yabridgectl)
+1. checks the toolchain (wine, winetricks, yabridgectl, yabridge-host.exe)
 2. provisions the isolated Wine prefix (``wineboot -u``)
 3. persists DLL overrides into the prefix registry
 4. runs the manifest's winetricks packages
-5. registers VST3 plugin dirs with ``yabridgectl`` and syncs
+5. registers VST3 plugin dirs with ``yabridgectl``
 6. runs the manifest's install commands (with ``$WINEPREFIX`` set)
+7. re-syncs yabridgectl so the freshly copied VST3 gets bridged
 
 Safety contract (see agent-rules/transform-safety.md):
 
@@ -29,7 +30,10 @@ from .brew import Brew
 
 DLL_OVERRIDES_REGKEY = r"HKCU\Software\Wine\DllOverrides"
 
-TOOLCHAIN = ("wine", "winetricks", "yabridge", "yabridgectl")
+# The install pipeline only invokes wine/winetricks/yabridgectl; yabridge-host
+# is the yabridge package's artifact on CachyOS (whose build omits the standalone
+# `yabridge` daemon binary — a packaging quirk, not required to install VST3s).
+TOOLCHAIN = ("wine", "winetricks", "yabridgectl", "yabridge-host.exe")
 
 
 class WineHelperError(Exception):
@@ -204,13 +208,24 @@ class WineInstaller:
                         f"yabridgectl add {resolved} failed: "
                         f"{result.stdout.strip() or result.stderr.strip()}"
                     )
+
+    def step_yabridge_sync(self) -> None:
+        """Bridge everything currently in the registered plugin dirs.
+
+        Runs after the install commands — bridging before the VST3 exists
+        would leave the freshly copied plugin unbridged until a manual
+        ``yabridgectl sync``.
+        """
+        if not self.brew.yabridge_enabled:
+            return
         self._would("yabridge", "sync registered plugin dirs")
-        if not self.dry_run:
-            result = run_command(["yabridgectl", "sync"], env=self.build_env())
-            if result.returncode != 0:
-                raise WineHelperError(
-                    f"yabridgectl sync failed: {result.stdout.strip() or result.stderr.strip()}"
-                )
+        if self.dry_run:
+            return
+        result = run_command(["yabridgectl", "sync"], env=self.build_env())
+        if result.returncode != 0:
+            raise WineHelperError(
+                f"yabridgectl sync failed: {result.stdout.strip() or result.stderr.strip()}"
+            )
 
     def step_install(self) -> None:
         self._would(
@@ -239,6 +254,7 @@ class WineInstaller:
         self.step_winetricks()
         self.step_yabridge()
         self.step_install()
+        self.step_yabridge_sync()
         if self.dry_run:
             print(
                 f"\nDry-run complete: install plan for '{self.brew.name} {self.brew.version}' "

@@ -1,0 +1,41 @@
+# Surge XT — free, open-source wavetable synth (GPL-3.0).
+# Windows installer is NSIS (silent via /S) — static, unauthenticated
+# download from the official GitHub releases:
+#   https://github.com/surge-synthesizer/releases-xt/releases
+# Drop the win64 setup.exe at /tmp/surge-xt-setup.exe before installing.
+
+[brew]
+name = "Surge XT"
+version = "1.3.4"
+category = "vst3_synth"
+maintainer = "Syntropia Team <hello@project-syntropia.io>"
+
+[wine]
+version = "cachyos-wine"
+prefix = "~/.local/share/syntropia/prefixes/surge-xt"
+arch = "win64"
+
+[wine.overrides]
+gdiplus = "native"
+
+[winetricks]
+packages = ["corefonts"]
+
+[yabridge]
+enabled = true
+plugin_dirs = ["~/.vst3/Syntropia"]
+
+[environment]
+WINEDLLOVERRIDES = "winemenubuilder.exe=d"
+LANG = "en_US.UTF-8"
+
+[install]
+# Surge's win64 setup.exe is an Inno Setup installer (the /SL5 self-extraction
+# marker gives it away), so /S is ignored and the wizard would block — use
+# /VERYSILENT. xvfb-run gives it a virtual display for headless installs.
+commands = [
+  "xvfb-run -a wine /tmp/surge-xt-setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
+  "mkdir -p \"$HOME/.vst3/Syntropia\"",
+  "cp -r \"$WINEPREFIX/drive_c/Program Files/Common Files/VST3/Surge Synth Team/Surge XT.vst3\" \"$HOME/.vst3/Syntropia/\"",
+  "cp -r \"$WINEPREFIX/drive_c/Program Files/Common Files/VST3/Surge Synth Team/Surge XT Effects.vst3\" \"$HOME/.vst3/Syntropia/\"",
+]

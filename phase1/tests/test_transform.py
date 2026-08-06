@@ -246,3 +246,39 @@ def test_install_packages_failure_raises(tmp_path: Path, monkeypatch: pytest.Mon
     transform = make_transform(tmp_path, dry_run=False)
     with pytest.raises(T.TransformError, match="package install failed"):
         transform.apply_packages()
+
+
+# --- ownership fix -------------------------------------------------------
+
+
+def test_fix_user_ownership_chowns_managed_paths_under_sudo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Root-run transforms must hand home-dir trees back to the real user
+    (wine refuses prefixes it doesn't own)."""
+    calls: list = []
+    monkeypatch.setattr(T, "run_command", noop_run(calls))
+    monkeypatch.setenv("SUDO_USER", "syn1")
+    paths = make_paths(tmp_path)
+    paths.bashrc.parent.mkdir(parents=True)
+    paths.bashrc.write_text("x")
+    (paths.home / ".vst3" / "Syntropia").mkdir(parents=True)
+    transform = T.Transform(paths, dry_run=False)
+    transform._fix_user_ownership()
+    chowns = [c for c in calls if c[0] == "chown"]
+    assert chowns, "expected chown calls under sudo"
+    assert all(c[1] == "-R" and c[2] == "syn1" for c in chowns)
+    owned = {str(c[3]) for c in chowns}
+    assert str(paths.bashrc) in owned
+    assert str(paths.home / ".vst3") in owned
+
+
+def test_fix_user_ownership_noop_without_sudo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    calls: list = []
+    monkeypatch.setattr(T, "run_command", noop_run(calls))
+    monkeypatch.delenv("SUDO_USER", raising=False)
+    transform = make_transform(tmp_path, dry_run=False)
+    transform._fix_user_ownership()
+    assert all(c[0] != "chown" for c in calls)

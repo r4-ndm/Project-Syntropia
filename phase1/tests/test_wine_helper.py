@@ -167,3 +167,34 @@ def test_install_command_failure_raises(tmp_path: Path, monkeypatch: pytest.Monk
     installer = make_installer(tmp_path, dry_run=False)
     with pytest.raises(WH.WineHelperError, match="install command failed"):
         installer.run_all()
+
+
+def test_post_install_yabridge_sync_bridges_after_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """yabridgectl must re-sync after the install commands, so a freshly
+    copied VST3 actually gets bridged (the pre-install sync alone would
+    leave it unbridged until a manual sync)."""
+    calls: list = []
+    monkeypatch.setattr(WH, "run_command", lambda cmd, env=None: (calls.append(cmd), FakeResult(0))[1])
+    monkeypatch.setattr(WH.shutil, "which", lambda cmd: f"/usr/bin/{cmd}")
+    installer = make_installer(tmp_path, dry_run=False)
+    installer.run_all()
+    sync_calls = [c for c in calls if c == ["yabridgectl", "sync"]]
+    assert len(sync_calls) == 1, "sync must run exactly once — after the install"
+    # the sync comes after the install (bash) commands, so the VST3 is bridged
+    sync_idx = next(i for i, c in enumerate(calls) if c == ["yabridgectl", "sync"])
+    bash_idx = next(i for i, c in enumerate(calls) if c[0] == "bash")
+    assert sync_idx > bash_idx
+    assert calls[-1] == ["yabridgectl", "sync"]
+
+
+def test_dry_run_plans_post_install_sync_without_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    calls: list = []
+    monkeypatch.setattr(WH, "run_command", lambda cmd, env=None: (calls.append(cmd), FakeResult(0))[1])
+    monkeypatch.setattr(WH.shutil, "which", lambda cmd: f"/usr/bin/{cmd}")
+    installer = make_installer(tmp_path, dry_run=True)
+    installer.run_all()
+    assert calls == []  # dry-run never syncs

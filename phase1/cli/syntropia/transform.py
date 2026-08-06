@@ -299,6 +299,35 @@ class Transform:
 
     # -- runner -----------------------------------------------------------
 
+    def _target_user(self) -> str | None:
+        """The real user when running under sudo, else None (running as them)."""
+        sudo_user = os.environ.get("SUDO_USER")
+        return sudo_user if sudo_user and sudo_user != "root" else None
+
+    def _fix_user_ownership(self) -> None:
+        """Return home-dir files to the real user after a root transform.
+
+        mkdir/write under sudo creates root-owned files in the user's home
+        (wine refuses to use a prefix it doesn't own). Re-own the trees the
+        transform manages.
+        """
+        owner = self._target_user()
+        if owner is None:
+            return
+        managed = {
+            self.paths.bashrc,
+            self.paths.zshrc,
+            self.paths.pipewire_conf_dir,
+            self.paths.fastfetch_dir,
+            self.paths.syntropia_config_dir,
+            self.paths.home / ".local" / "share" / "syntropia",
+            self.paths.home / ".vst3",
+            self.paths.home / ".local" / "share" / "backgrounds",
+        }
+        for path in managed:
+            if path.exists():
+                run_command(["chown", "-R", owner, str(path)])
+
     def run_all(self) -> None:
         self.apply_packages()
         self.apply_os_release()
@@ -309,6 +338,8 @@ class Transform:
         self.apply_fastfetch()
         self.deploy_cli()
         self.apply_branding()
+        if not self.dry_run:
+            self._fix_user_ownership()
         if self.dry_run:
             print(f"\nDry-run complete: {self.planned} action(s) would be taken.")
             print("Remember the safety rule: snapshot first, then run with --yes.")
