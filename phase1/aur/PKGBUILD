@@ -1,0 +1,123 @@
+# Maintainer: Syntropia Team <hello@project-syntropia.io>
+# Contributor: r4-ndm
+#
+# Build locally (from repo root):
+#   cd ~/Desktop/Project-Syntropia
+#   cp phase1/aur/PKGBUILD . && makepkg -si --skipinteg && rm PKGBUILD
+#
+# For AUR submission: replace the build() copy step with a source tarball,
+# add source=() + sha256sums=(), and submit to the AUR.
+
+pkgname=syntropia
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Transform CachyOS into Syntropia OS — rebranded, audio-optimised, with Wine/yabridge VST3 support"
+arch=('any')
+url="https://github.com/r4-ndm/Project-Syntropia"
+license=('MIT')
+depends=('python' 'python-click')
+optdepends=(
+  'wine-staging: run Windows audio applications (transform installs this)'
+  'winetricks: install Windows DLLs and components'
+  'yabridge: bridge Windows VST3 plugins to Linux'
+  'yabridgectl: manage yabridge-bridged plugins'
+  'fastfetch: display the Syntropia terminal logo at login'
+  'snapper: create pre-transform snapshots (recommended)'
+)
+makedepends=('python-installer' 'python-setuptools' 'python-wheel')
+
+# No remote source — builds from the parent repo (makepkg sets $startdir).
+# When run from the repo root, $startdir IS the repo root.
+source=()
+sha256sums=()
+
+build() {
+    _repodir="$startdir"
+
+    # Copy the Python package source into $srcdir for a clean build.
+    msg "Copying phase1/cli/ -> $srcdir/cli"
+    cp -r "$_repodir/phase1/cli" "$srcdir/cli"
+    chmod -R u+w "$srcdir/cli"
+
+    cd "$srcdir/cli"
+    msg "Building Python wheel..."
+    pip wheel --no-deps --wheel-dir="$srcdir/dist" .
+}
+
+package() {
+    _repodir="$startdir"
+
+    # -- Python package -------------------------------------------------
+    msg "Installing Python package..."
+    python -m installer --destdir="$pkgdir" "$srcdir/dist/"*.whl
+
+    # -- Branding assets ------------------------------------------------
+    _branding="$pkgdir/usr/share/syntropia/branding"
+    install -d "$_branding"
+
+    msg "Installing branding assets..."
+    for asset in logo.txt fastfetch-color.json wallpaper.png; do
+        if [[ -f "$_repodir/Branding/syntropia/$asset" ]]; then
+            install -m644 "$_repodir/Branding/syntropia/$asset" "$_branding/"
+        fi
+    done
+
+    # grub/
+    if [[ -d "$_repodir/Branding/syntropia/grub" ]]; then
+        cp -r "$_repodir/Branding/syntropia/grub" "$_branding/grub"
+        chmod -R 755 "$_branding/grub"
+    fi
+
+    # plymouth/
+    if [[ -d "$_repodir/Branding/syntropia/plymouth" ]]; then
+        cp -r "$_repodir/Branding/syntropia/plymouth" "$_branding/plymouth"
+        chmod -R 755 "$_branding/plymouth"
+    fi
+
+    # calamares/ is deliberately excluded — it's ISO-only (~10 MB of
+    # installer slides, useless on an already-installed system).
+
+    # -- Brew manifests (seed registry) ---------------------------------
+    _brews="$pkgdir/usr/share/syntropia/brews"
+    install -d "$_brews"
+    msg "Installing seed brew manifests..."
+    for brew in "$_repodir/phase1/brews/"*.brew; do
+        install -m644 "$brew" "$_brews/"
+    done
+
+    # -- Systemd units --------------------------------------------------
+    _units="$pkgdir/usr/lib/systemd/system"
+    install -d "$_units"
+    msg "Installing systemd units..."
+    for unit in syntropia-registry-sync.service syntropia-registry-sync.timer; do
+        if [[ -f "$_repodir/phase1/services/$unit" ]]; then
+            install -m644 "$_repodir/phase1/services/$unit" "$_units/"
+        fi
+    done
+
+    # -- License --------------------------------------------------------
+    install -d "$pkgdir/usr/share/licenses/$pkgname"
+    cat > "$pkgdir/usr/share/licenses/$pkgname/LICENSE" <<'LICEOF'
+MIT License
+
+Copyright (c) 2025-2026 Syntropia Project
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+LICEOF
+}

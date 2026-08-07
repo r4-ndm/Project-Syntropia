@@ -25,8 +25,9 @@ OUT_DIR="${OUT_DIR:-$REPO_ROOT/iso/out}"
 CACHYOS_ISO_REPO="https://github.com/CachyOS/CachyOS-Live-ISO.git"
 CACHYOS_PROFILE_DIR="$WORK_DIR/CachyOS-Live-ISO/archiso"
 
-# Branding source: slides live in the repo under Branding/
-BRANDING_SRC="$REPO_ROOT/Branding/syntropia/calamares/usr/share/calamares/branding/cachyos"
+# Branding source: slides live in the repo under Branding/ — single source of
+# truth. Edit slide{1..6}.png + .jxl in calamares/slides/, nothing else.
+BRANDING_SRC="$REPO_ROOT/Branding/syntropia/calamares/slides"
 
 ISO_DATE="${SOURCE_DATE_EPOCH:-$(date +%s)}"
 ISO_DATE=$(date --date="@$ISO_DATE" +%Y.%m.%d)
@@ -38,6 +39,7 @@ PHASE="${1:-all}"
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; NC='\033[0m'
 info()  { echo -e "${CYAN}[INFO]${NC} $*"; }
 ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
+warn()  { echo -e "${RED}[WARN]${NC} $*"; }
 err()   { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 
 # ── Pre-flight checks ─────────────────────────────────────────
@@ -154,6 +156,27 @@ phase2_inject_slides() {
     local cal_dir="rootfs/usr/share/calamares/branding/cachyos"
     cp "$BRANDING_SRC"/slide{1,2,3,4,5,6}.jxl "$cal_dir/"
     ok "Slides injected"
+
+    # Step 3.5: Ensure the display manager is wired up so the live desktop
+    # auto-starts (the CachyOS profile's dmcheck script creates this symlink,
+    # but our mkarchiso build doesn't run it; the original CachyOS ISO ships
+    # the link pre-baked). Without it, the live ISO boots to a bare tty1
+    # console with no desktop and "Launch Installer" is unreachable.
+    info "Wiring display-manager.service -> plasmalogin.service..."
+    if [[ -f "rootfs/usr/lib/systemd/system/plasmalogin.service" ]]; then
+        ln -sf /usr/lib/systemd/system/plasmalogin.service \
+            "rootfs/etc/systemd/system/display-manager.service"
+        ok "display-manager.service symlink created"
+    else
+        # Fallback: try SDDM if plasmalogin isn't present
+        if [[ -f "rootfs/usr/lib/systemd/system/sddm.service" ]]; then
+            ln -sf /usr/lib/systemd/system/sddm.service \
+                "rootfs/etc/systemd/system/display-manager.service"
+            ok "display-manager.service symlink created (sddm)"
+        else
+            warn "No display-manager service found; live desktop won't auto-start!"
+        fi
+    fi
 
     # Step 4: Repack squashfs
     info "Repacking squashfs (this takes ~5 min)..."

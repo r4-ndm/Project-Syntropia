@@ -75,12 +75,13 @@ README) and push.
 - The Desktop copy (`~/Desktop/Syntropia-Branding/`) was deleted — everything
   lives in the repo now.
 - JXL slides: GIMP can't open JXL. Edit the PNG, then regenerate with the
-  canonical libjxl encoder (magick is measurably worse — ~6x higher error):
+  canonical libjxl encoder (magick is measurably worse — ~6x higher error).
+  The JXL lives next to its PNG in `slides/` — build.sh reads `slides/`
+  directly (single source of truth), so no copy step is needed:
   ```bash
   cd Branding/syntropia/calamares
   for i in 1 2 3 4 5 6; do
     cjxl --effort 7 -q 90 slides/slide$i.png slides/slide$i.jxl
-    cp slides/slide$i.jxl usr/share/calamares/branding/cachyos/slide$i.jxl
   done
   ```
 - Agent rules live in `agent-rules/` — the transform-safety rule (snapshot

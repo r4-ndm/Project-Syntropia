@@ -29,14 +29,14 @@ syntropia/
 │   ├── splash.png            # 1920x1080 boot menu background (amended ✓)
 │   └── syslinux-splash.png   # same art, legacy BIOS boot path
 ├── calamares/                # installer branding (for the ISO builder)
-│   ├── slides/               # editable PNG masters (amended ✓)
-│   │   └── slide1-6.png      # the show.qml slideshow uses 6 slides
+│   ├── slides/               # SINGLE source of truth for slides (amended ✓)
+│   │   └── slide1-6.png + .jxl  # the show.qml slideshow uses 6 slides
 │   └── usr/share/calamares/branding/cachyos/
 │       ├── branding.desc     # installer branding config
 │       ├── show.qml / calamares-sidebar.qml / stylesheet.qss
-│       ├── icon.png / logo.png / welcome.png   # installer icons (unamended)
-│       └── slide1-6.jxl      # JXL slides the installer actually loads
-│                             #   (regenerate from PNGs: cjxl --effort 7 -q 90 slide1.png slide1.jxl)
+│       └── icon.png / logo.png / welcome.png   # installer icons (unamended)
+│                             # NOTE: no slide copies here — build.sh reads
+│                             #   slides/ directly (single source of truth)
 └── wallpaper.png             # 1920x1080 desktop wallpaper (amended ✓)
 ```
 
@@ -48,8 +48,7 @@ syntropia/
 | `plymouth/` | `/usr/share/plymouth/themes/syntropia/` | `.syntropia-branded` in theme dir |
 | `grub/splash.png` | `/boot/grub/splash.png` | `splash.png.syntropia-branded` |
 | `grub/syslinux-splash.png` | ISO legacy-boot splash (for ISO builder) | n/a |
-| `calamares/slides/slide*.png` | ISO installer slideshow (for ISO builder) | n/a |
-| `calamares/usr/.../slide*.jxl` | Same slides in JXL — the installer loads these | n/a |
+| `calamares/slides/slide*.png` + `.jxl` | ISO installer slideshow — build.sh reads these directly (single source of truth) | n/a |
 | `calamares/usr/.../icon.png, logo.png, welcome.png` | Installer logo / window icon / welcome banner | n/a |
 | `wallpaper.png` | `~/.local/share/backgrounds/syntropia/wallpaper.png` | target exists |
 
@@ -85,12 +84,12 @@ syntropia/
   once you have a transparent logo mark.
 - **JXL slides**: GIMP can't open JXL — edit the PNG in `calamares/slides/`,
   then regenerate with the canonical libjxl encoder (better fidelity than
-  ImageMagick — measured ~6x lower error on these slides) and drop it into
-  the packaged dir:
+  ImageMagick — measured ~6x lower error on these slides). The JXL lives in
+  `calamares/slides/` alongside the PNG — build.sh reads it from there, so
+  there is nothing else to copy:
   ```bash
   for i in 1 2 3 4 5 6; do
     cjxl --effort 7 -q 90 slides/slide$i.png slides/slide$i.jxl
-    cp slides/slide$i.jxl usr/share/calamares/branding/cachyos/slide$i.jxl
   done
   ```
 - Dry-run first, always: `syntropia transform --check --branding-dir Branding/syntropia`

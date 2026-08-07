@@ -1,6 +1,6 @@
 # 😈 Syntropia: The Living Computer
 
-> *"From chaos, order. From order, life. From life, infinity."*
+> *"From chaos, order. From order, life. From life, infinity .From infinity...... Gods of Syntropia 🐸."*
 
 ## ⚡ Install on an existing CachyOS
 

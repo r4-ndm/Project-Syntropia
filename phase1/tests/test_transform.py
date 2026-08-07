@@ -151,7 +151,14 @@ def test_logo_prefers_branding_dir_logo_txt(tmp_path: Path, monkeypatch: pytest.
 
 def test_logo_falls_back_to_builtin_without_asset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(T, "run_command", noop_run([]))
-    transform = make_transform(tmp_path, dry_run=False)
+    paths = make_paths(tmp_path)
+    # Point branding_dir at an empty temp dir so the fallback path
+    # is actually exercised (the real /usr/share/syntropia/branding
+    # may have a logo.txt from the installed package).
+    empty = tmp_path / "empty-branding"
+    empty.mkdir()
+    paths.branding_dir = empty
+    transform = T.Transform(paths, dry_run=False)
     transform.apply_logo()
     assert paths_logo_equals_builtin(transform.paths)
 

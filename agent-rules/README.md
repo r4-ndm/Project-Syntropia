@@ -28,3 +28,9 @@ the Final Boss the same questions twice. 😈
 
 These rules apply to decisions about the **Syntropia product and repo**. When in doubt,
 remember the constitution: *"Trust the mutation. Never trust the boundary."*
+
+## Reference docs (read when relevant)
+
+| Doc | When to read |
+|-----|--------------|
+| [`iso/README.md`](../iso/README.md) | **ISO build or VM test work.** Contains testing gotchas learned the hard way: Calamares must run as **root** (non-root launch → "Boost.Python error in job mount"), VM disk ≥ 8 GiB, slideshow only plays during the Install step, and how to verify the amended slides are in the ISO. Update it whenever the ISO build/test pipeline surfaces a new bug. |
