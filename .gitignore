@@ -33,3 +33,8 @@ __pycache__/
 *.iso
 iso/work/
 iso/out/
+
+# Future-phase planning docs (not ready for public eyes yet)
+phase2/
+phase3/
+phase4/
