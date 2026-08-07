@@ -289,3 +289,67 @@ def test_fix_user_ownership_noop_without_sudo(
     transform = make_transform(tmp_path, dry_run=False)
     transform._fix_user_ownership()
     assert all(c[0] != "chown" for c in calls)
+
+
+# --- autologin ----------------------------------------------------------
+
+
+def test_autologin_writes_sddm_conf_under_sudo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(T, "run_command", noop_run([]))
+    monkeypatch.setenv("SUDO_USER", "syn1")
+    paths = make_paths(tmp_path)
+    # Point sddm_conf_dir into tmp_path so we don't touch /etc.
+    sddm_dir = tmp_path / "sddm.conf.d"
+    monkeypatch.setattr(T.TransformPaths, "sddm_conf_dir", property(lambda self: sddm_dir))
+    transform = T.Transform(paths, dry_run=False)
+    transform.apply_autologin()
+    conf = sddm_dir / "syntropia-autologin.conf"
+    assert conf.exists()
+    content = conf.read_text(encoding="utf-8")
+    assert "User=syn1" in content
+    assert "Session=plasma.desktop" in content
+    assert T.SDDM_AUTOLOGIN_MARKER in content
+
+
+def test_autologin_skips_without_sudo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(T, "run_command", noop_run([]))
+    monkeypatch.delenv("SUDO_USER", raising=False)
+    paths = make_paths(tmp_path)
+    sddm_dir = tmp_path / "sddm.conf.d"
+    monkeypatch.setattr(T.TransformPaths, "sddm_conf_dir", property(lambda self: sddm_dir))
+    transform = T.Transform(paths, dry_run=False)
+    transform.apply_autologin()
+    assert not (sddm_dir / "syntropia-autologin.conf").exists()
+
+
+def test_autologin_idempotent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(T, "run_command", noop_run([]))
+    monkeypatch.setenv("SUDO_USER", "syn1")
+    paths = make_paths(tmp_path)
+    sddm_dir = tmp_path / "sddm.conf.d"
+    monkeypatch.setattr(T.TransformPaths, "sddm_conf_dir", property(lambda self: sddm_dir))
+    transform = T.Transform(paths, dry_run=False)
+    transform.apply_autologin()
+    mtime = (sddm_dir / "syntropia-autologin.conf").stat().st_mtime
+    transform.apply_autologin()  # second run
+    assert (sddm_dir / "syntropia-autologin.conf").stat().st_mtime == mtime
+
+
+def test_autologin_dry_run_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(T, "run_command", noop_run([]))
+    monkeypatch.setenv("SUDO_USER", "syn1")
+    paths = make_paths(tmp_path)
+    sddm_dir = tmp_path / "sddm.conf.d"
+    monkeypatch.setattr(T.TransformPaths, "sddm_conf_dir", property(lambda self: sddm_dir))
+    transform = T.Transform(paths, dry_run=True)
+    transform.apply_autologin()
+    assert not (sddm_dir / "syntropia-autologin.conf").exists()
+    assert transform.planned == 1

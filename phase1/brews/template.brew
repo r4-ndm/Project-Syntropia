@@ -8,6 +8,16 @@ version = "1.0.0"
 category = "vst3_synth"          # vst3_synth | vst3_effect | daw | utility
 maintainer = "Syntropia Team <hello@project-syntropia.io>"
 
+# [source] tells syntropia where to find the installer file.
+# - filename: glob pattern to match in look_in directories
+# - url: if the file isn't found locally, syntropia downloads it
+# - look_in: directories to search (default: ~/Downloads)
+# The resolved path is available as $SYNTROPIA_SOURCE in install commands.
+[source]
+# filename = "example_setup_*.exe"
+# url = "https://example.com/installer.exe"
+# look_in = ["~/Downloads", "/tmp"]
+
 [wine]
 version = "cachyos-wine"
 prefix = "~/.local/share/syntropia/prefixes/example"
@@ -30,7 +40,7 @@ LANG = "en_US.UTF-8"
 
 [install]
 commands = [
-  "echo template — replace this with the real installer command",
-  # "wine /tmp/setup.exe /S",
+  # Use $SYNTROPIA_SOURCE to reference the auto-discovered installer file:
+  # "wine \"$SYNTROPIA_SOURCE\" /S",
   # "cp -r '$WINEPREFIX/drive_c/Program Files/Common Files/VST3/Example.vst3' ~/.vst3/Syntropia/",
 ]

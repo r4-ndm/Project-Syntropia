@@ -50,14 +50,27 @@ OS_RELEASE_CONTENT = (
 )
 
 LOGO_TEXT = """\
- __      __ _                  _              _
- \\ \\    / /(_)                | |            (_)
-  \\ \\  / /  _  _ __  _ __ ___ | |_  _ __  __ _  _  ___
-   \\ \\/ /  | || '_ \\| '__/ _ \\| __|| '__|/ _` || |/ _ \\
-    \\  /   | || | | | | | (_) | |_ | |  | (_| || |  __/
-     \\/    |_||_| |_|_|  \\___/ \\__||_|   \\__,_||_|\\___|
-
-              the living computer
+   *444                                       44**
+   4****4444                             444****4
+     4********4444                44444*****44*4
+       4444444*********4     4********4444444*4
+        444444444444444**4 4*44444444444444*4
+        4*4444444444444*4   4*444444444444*4
+          4*44444444444      444444444444*4
+           4*4444444**4       4**4444444*4
+            4*44444*4  *******  4*44444*
+              4*44*4    **4**    4*44*4
+               4**4      4*4      4**4
+                44        4        44
+                  **4444*444444**4*4
+                   4*444444444444*4
+                    4*4444444*44
+                     4*44444444*4
+                      4*444444*4
+                       4*4444*4
+                        4*44*4
+                         4**4
+                          44
 """
 
 SHELL_PROMPT_MARKER = "# syntropia-prompt (managed by syntropia transform)"
@@ -78,6 +91,15 @@ FASTFETCH_CONF_TEMPLATE = """{{
     "source": "/usr/share/syntropia/logo.txt"{colors}
   }}
 }}
+"""
+
+SDDM_AUTOLOGIN_MARKER = "# syntropia-autologin (managed by syntropia transform)"
+SDDM_AUTOLOGIN_CONF = """\
+# syntropia-autologin (managed by syntropia transform)
+# Skips the SDDM password prompt — LUKS already unlocked the disk.
+[Autologin]
+User={user}
+Session=plasma.desktop
 """
 
 
@@ -131,6 +153,10 @@ class TransformPaths:
     @property
     def fastfetch_dir(self) -> Path:
         return self.home / ".config" / "fastfetch"
+
+    @property
+    def sddm_conf_dir(self) -> Path:
+        return Path("/etc/sddm.conf.d")
 
     @property
     def syntropia_config_dir(self) -> Path:
@@ -283,6 +309,27 @@ class Transform:
             target.unlink()
         os.symlink(found, target)
 
+    def apply_autologin(self) -> None:
+        """Enable SDDM auto-login for the real user (skips the login screen).
+
+        Only applies when running under sudo (the transform's normal mode).
+        Auto-login is safe when LUKS full-disk encryption is in use — the
+        disk has already been unlocked before SDDM runs.
+        """
+        owner = self._target_user()
+        if owner is None:
+            self.log("autologin", "not running under sudo, skipping")
+            return
+        target = self.paths.sddm_conf_dir / "syntropia-autologin.conf"
+        if target.exists() and SDDM_AUTOLOGIN_MARKER in target.read_text(encoding="utf-8"):
+            self.log("autologin", f"{target} already configured for {owner}, skipping")
+            return
+        self._would("autologin", f"enable auto-login for {owner} ({target})")
+        if self.dry_run:
+            return
+        self.paths.sddm_conf_dir.mkdir(parents=True, exist_ok=True)
+        target.write_text(SDDM_AUTOLOGIN_CONF.format(user=owner), encoding="utf-8")
+
     def apply_branding(self) -> None:
         if not self.paths.branding_dir.is_dir():
             self.log(
@@ -337,6 +384,7 @@ class Transform:
         self.apply_pipewire()
         self.apply_fastfetch()
         self.deploy_cli()
+        self.apply_autologin()
         self.apply_branding()
         if not self.dry_run:
             self._fix_user_ownership()

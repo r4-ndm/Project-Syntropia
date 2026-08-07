@@ -20,13 +20,14 @@ Safety contract (see agent-rules/transform-safety.md):
 
 from __future__ import annotations
 
+import glob
 import os
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from .brew import Brew
+from .brew import Brew, DEFAULT_SOURCE_LOOK_IN
 
 DLL_OVERRIDES_REGKEY = r"HKCU\Software\Wine\DllOverrides"
 
@@ -81,11 +82,33 @@ class WineInstaller:
     def prefix_is_provisioned(self) -> bool:
         return (self.prefix / "system.reg").exists()
 
+    def _wine_bin_dir(self) -> str | None:
+        """Resolve a custom Wine build path from the brew's wine_version.
+
+        Returns a directory to prepend to PATH, or None to use system Wine.
+        """
+        if self.brew.wine_version == "syntropia-wine":
+            return "/opt/syntropia-wine/bin"
+        return None
+
     def toolchain_missing(self) -> list[str]:
+        wine_dir = self._wine_bin_dir()
+        if wine_dir:
+            saved_path = os.environ.get("PATH", "")
+            os.environ["PATH"] = f"{wine_dir}:{saved_path}"
+            try:
+                return [tool for tool in TOOLCHAIN if shutil.which(tool) is None]
+            finally:
+                os.environ["PATH"] = saved_path
         return [tool for tool in TOOLCHAIN if shutil.which(tool) is None]
+
+    _source_path: Path | None = field(default=None, init=False)
 
     def build_env(self) -> dict[str, str]:
         env = dict(os.environ)
+        wine_dir = self._wine_bin_dir()
+        if wine_dir:
+            env["PATH"] = f"{wine_dir}:{env.get('PATH', '')}"
         env.update(self.brew.environment)
         # Engine invariants must win — a manifest cannot clobber the prefix it
         # itself declared.
@@ -97,6 +120,9 @@ class WineInstaller:
             parts.append(existing)
         if parts:
             env["WINEDLLOVERRIDES"] = ",".join(parts)
+        # Expose the resolved source path so install commands can use it.
+        if self._source_path is not None:
+            env["SYNTROPIA_SOURCE"] = str(self._source_path)
         return env
 
     def log(self, action: str, message: str) -> None:
@@ -128,8 +154,28 @@ class WineInstaller:
             return
         self.log("toolchain", "wine, winetricks, yabridge, yabridgectl all present")
 
+    def _ensure_prefix_ownership(self) -> None:
+        """Chown the prefix to the current user if it's owned by someone else.
+
+        This prevents the "not owned by you" Wine error when a prefix was
+        created by root (e.g. during a previous ``sudo`` run or by a guest
+        agent) and the current user subsequently tries to use it.
+        """
+        if not self.prefix.exists():
+            return
+        try:
+            current_uid = os.getuid()
+            prefix_stat = self.prefix.stat()
+            if prefix_stat.st_uid != current_uid:
+                # Recursive chown of the whole prefix tree.
+                run_command(["chown", "-R", str(current_uid), str(self.prefix)])
+                self.log("prefix", f"re-owned {self.prefix} to uid {current_uid}")
+        except OSError:
+            pass
+
     def step_prefix(self) -> None:
         if self.prefix_is_provisioned():
+            self._ensure_prefix_ownership()
             self.log("prefix", f"{self.prefix} already provisioned, skipping")
             return
         self._would("prefix", f"provision Wine prefix at {self.prefix} (wineboot -u)")
@@ -227,6 +273,64 @@ class WineInstaller:
                 f"yabridgectl sync failed: {result.stdout.strip() or result.stderr.strip()}"
             )
 
+    def step_source(self) -> None:
+        """Find (or download) the installer file declared in [source].
+
+        Searches ``look_in`` directories for a file matching the glob
+        pattern. If found, sets ``$SYNTROPIA_SOURCE`` in the install
+        environment. If not found but ``url`` is set, downloads it to
+        ``/tmp/``.
+        """
+        if not self.brew.source_filename:
+            self.log("source", "no [source] section in manifest, install commands use their own paths")
+            return
+
+        look_in = self.brew.source_look_in or DEFAULT_SOURCE_LOOK_IN
+        pattern = self.brew.source_filename
+
+        self._would("source", f"looking for {pattern} in {', '.join(look_in)}")
+        if self.dry_run:
+            return
+
+        # Search for the file.
+        matches: list[Path] = []
+        for raw_dir in look_in:
+            d = Path(raw_dir).expanduser()
+            if not d.is_dir():
+                continue
+            for hit in sorted(d.glob(pattern)):
+                if hit.is_file():
+                    matches.append(hit)
+
+        if matches:
+            # Pick the largest match (most likely the complete download).
+            found = max(matches, key=lambda p: p.stat().st_size)
+            self.log("source", f"found: {found}")
+            self._source_path = found
+            return
+
+        # Not found — can we download?
+        if self.brew.source_url:
+            dest = Path("/tmp") / Path(self.brew.source_url).name
+            self.log("source", f"not found locally, downloading from {self.brew.source_url}")
+            result = run_command(
+                ["curl", "-L", "--max-time", "900", "-o", str(dest), self.brew.source_url]
+            )
+            if result.returncode != 0:
+                raise WineHelperError(
+                    f"download failed: {result.stdout.strip() or result.stderr.strip()}"
+                )
+            self.log("source", f"downloaded to {dest}")
+            self._source_path = dest
+            return
+
+        # Neither found nor downloadable.
+        raise WineHelperError(
+            f"cannot find {pattern} in {', '.join(look_in)}. "
+            f"Download the installer and place it in {look_in[0]}, "
+            f"then re-run."
+        )
+
     def step_install(self) -> None:
         self._would(
             "install",
@@ -253,6 +357,7 @@ class WineInstaller:
         self.step_overrides()
         self.step_winetricks()
         self.step_yabridge()
+        self.step_source()
         self.step_install()
         self.step_yabridge_sync()
         if self.dry_run:

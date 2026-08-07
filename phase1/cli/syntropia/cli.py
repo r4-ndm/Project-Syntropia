@@ -60,6 +60,10 @@ def install(brew: str, registry: str, check: bool, yes: bool) -> None:
         click.echo(f"   winetricks: {', '.join(brew.winetricks_packages)}")
     if brew.yabridge_enabled:
         click.echo(f"   yabridge:   enabled -> {', '.join(brew.plugin_dirs)}")
+    if brew.source_filename:
+        click.echo(f"   source:     looking for {brew.source_filename}")
+        if brew.source_url:
+            click.echo(f"   download:   {brew.source_url}")
     if not check and not yes:
         raise click.ClickException(
             "install provisions Wine prefixes — pass --yes to confirm "

@@ -1,31 +1,97 @@
-# Ableton Live 12 — initial draft manifest (install commands not yet tested)
+# Ableton Live 12 Suite — version 12.2 (latest as of 2026-08).
+#
+# Research sources:
+#   - Bottles community recipe (bottlesdevs/programs) — Silver grade, allfonts deps
+#   - ENCORE (marekbujko/ENCORE) — Live 12+ patched Wine loader
+#   - sashaduke/ableton-live12-linux — Wine launchers for 12
+#   - Windows-On-Linux/Ableton-On-Linux — Live 11 reference
+#
+# ═══ PREREQUISITES ═══
+# 1. Download the installer from your Ableton account:
+#      https://www.ableton.com/account/
+#    Place it in ~/Downloads/ (the brew auto-discovers it).
+#    Or: syntropia will download it for you from the CDN.
+# 2. You need a valid Ableton license to activate after install.
 
 [brew]
 name = "Ableton Live 12"
-version = "12.1"
+version = "12.2"
 category = "daw"
 maintainer = "Syntropia Team <hello@project-syntropia.io>"
 
+[source]
+filename = "ableton_live_suite_*.zip"
+url = "https://cdn-downloads.ableton.com/channels/12.2/ableton_live_suite_12.2_64.zip"
+look_in = ["~/Downloads", "/tmp"]
+
 [wine]
-version = "cachyos-wine"
+version = "syntropia-wine"
 prefix = "~/.local/share/syntropia/prefixes/ableton"
 arch = "win64"
 
 [wine.overrides]
-# d2d1 = "disabled"   # uncomment only if UI artifacts appear
+wininet = "builtin"
+d3d11 = "builtin"
+dxgi = "builtin"
+d3d10core = "builtin"
+d2d1 = "builtin"
+dcomp = "builtin"
+dwrite = "builtin"
+d3d9 = "builtin"
+d3d8 = "builtin"
 
 [winetricks]
-packages = ["corefonts", "vcrun2022", "d3dx9"]
+packages = [
+  "corefonts",
+  "tahoma",
+  "vcrun2022",
+  "win11",
+]
 
 [yabridge]
 enabled = false
 plugin_dirs = []
 
 [environment]
-WINEDLLOVERRIDES = "winemenubuilder.exe=d"
 LANG = "en_US.UTF-8"
+WINE_D3D_CONFIG = "csmt=0x1"
+WINED3D_DCOMP_FORCE_FULL_REDRAW = "1"
+# Patched Wine (giang17/wine d2d1-dcomp-11.11 + sashaduke redraw fixes)
+# uses OpenGL renderer with native D2D1/DComp. No DXVK needed.
+# Install patched Wine first: syntropia transform --yes (via PKGBUILD)
+# or manual: /opt/syntropia-wine/bin/wine
 
 [install]
 commands = [
-  "wine /tmp/ableton_live_12_setup.exe /S",
+  "mkdir -p \"$WINEPREFIX/drive_c/ableton_installer\"",
+  "unzip -o \"$SYNTROPIA_SOURCE\" -d \"$WINEPREFIX/drive_c/ableton_installer/\"",
+  "wine \"$WINEPREFIX/drive_c/ableton_installer/Ableton Live 12 Suite Installer.exe\" /VERYSILENT /SUPPRESSMSGBOXES /SP- /NORESTART & WINE_PID=$!; for i in $(seq 1 60); do sleep 10; if find \"$WINEPREFIX/drive_c/ProgramData/Ableton\" -name 'Ableton Live 12 Suite.exe' 2>/dev/null | grep -q .; then echo 'Ableton files detected, finishing install...'; wineserver -k 2>/dev/null; break; fi; done; wait $WINE_PID 2>/dev/null; wineserver -k 2>/dev/null; echo 'Installer step complete'",
+  "mkdir -p \"$WINEPREFIX/drive_c/users/$USER/AppData/Roaming/Ableton/Live 12.2/Preferences/\"",
+  "printf '%s\\n' '-_Feature.UseGpuRenderer' '-DontLoadMaxForLiveAtStartup' '-DontCombineAPCs' > \"$WINEPREFIX/drive_c/users/$USER/AppData/Roaming/Ableton/Live 12.2/Preferences/Options.txt\"",
+  "wine reg add 'HKCU\\\\Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Themes\\\\Personalize' /v AppsUseLightTheme /t REG_DWORD /d 1 /f && wine reg add 'HKCU\\\\Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Themes\\\\Personalize' /v SystemUsesLightTheme /t REG_DWORD /d 1 /f",
+  "mkdir -p ~/.local/share/applications ~/.local/bin",
+  """cat > ~/.local/bin/ableton-kill << SCRIPT_EOF
+#!/bin/sh
+WINEPREFIX=$WINEPREFIX /opt/syntropia-wine/bin/wineserver -k 2>/dev/null
+pkill -9 -f "Ableton Live 12 Suite.exe" 2>/dev/null
+notify-send "Ableton" "Force quit complete" 2>/dev/null
+SCRIPT_EOF
+chmod +x ~/.local/bin/ableton-kill""",
+  """cat > ~/.local/share/applications/ableton-live-12.desktop << DESKEOF
+[Desktop Entry]
+Name=Ableton Live 12
+Comment=Digital Audio Workstation (Syntropia Wine)
+Icon=ableton-live-12
+Exec=env WINEPREFIX=$WINEPREFIX WINEDLLOVERRIDES="d3d11=b,dxgi=b,d3d10core=b,d2d1=b,dcomp=b,dwrite=b,d3d9=b,d3d8=b,winemenubuilder.exe=d" WINE_D3D_CONFIG=csmt=0x1 WINED3D_DCOMP_FORCE_FULL_REDRAW=1 WINE_DISABLE_CRASH_DIALOG=1 /opt/syntropia-wine/bin/wine 'C:/ProgramData/Ableton/Live 12 Suite/Program/Ableton Live 12 Suite.exe'
+Type=Application
+Categories=Audio;AudioVideo;
+StartupWMClass=ableton live 12 suite.exe
+Actions=quit-wine
+
+[Desktop Action quit-wine]
+Name=Force Quit
+Exec=$HOME/.local/bin/ableton-kill
+Icon=process-stop
+DESKEOF""",
+  "mkdir -p ~/.local/share/icons/hicolor/256x256/apps && ICOSRC=\"$WINEPREFIX/drive_c/ProgramData/Ableton/Live 12 Suite/Resources/Icons/live_suite.ico\" && ICODST=~/.local/share/icons/hicolor/256x256/apps/ableton-live-12 && if command -v magick >/dev/null 2>&1 && [ -f \"$ICOSRC\" ]; then magick \"$ICOSRC\" -resize 256x256 \"$ICODST.png\" 2>/dev/null; [ -f \"$ICODST-0.png\" ] && cp \"$(ls -S $ICODST-*.png 2>/dev/null | head -1)\" \"$ICODST.png\" && rm -f \"$ICODST-\"*.png; fi; echo 'icon done'",
 ]

@@ -22,11 +22,13 @@ BREW_EXTENSION = ".brew"
 
 REQUIRED_BREW_FIELDS = ("name", "version", "category", "maintainer")
 VALID_WINE_ARCHS = ("win32", "win64")
-KNOWN_SECTIONS = {"brew", "wine", "winetricks", "yabridge", "environment", "install"}
+KNOWN_SECTIONS = {"brew", "wine", "winetricks", "yabridge", "environment", "install", "source"}
 KNOWN_WINE_FIELDS = {"version", "prefix", "arch", "overrides"}
 KNOWN_WINETRICKS_FIELDS = {"packages"}
 KNOWN_YABRIDGE_FIELDS = {"enabled", "plugin_dirs"}
 KNOWN_INSTALL_FIELDS = {"commands"}
+KNOWN_SOURCE_FIELDS = {"filename", "url", "look_in"}
+DEFAULT_SOURCE_LOOK_IN = ["~/Downloads"]
 
 
 class BrewError(Exception):
@@ -56,6 +58,9 @@ class Brew:
     environment: dict[str, str]
     install_commands: list[str]
     source: Path
+    source_filename: str | None = None
+    source_url: str | None = None
+    source_look_in: list[str] | None = None
 
 
 def _fail(path: Path, message: str) -> None:
@@ -176,6 +181,21 @@ def parse_brew(data: dict[str, Any], path: Path | str = "<string>") -> Brew:
     if not install_commands:
         _fail(path, "field 'commands' in [install] must not be empty")
 
+    # --- [source] section (optional) ------------------------------------
+    source_table = data.get("source", {})
+    source_filename: str | None = None
+    source_url: str | None = None
+    source_look_in: list[str] | None = None
+    if source_table:
+        if not isinstance(source_table, dict):
+            _fail(path, "section [source] must be a table")
+        unknown_source = set(source_table) - KNOWN_SOURCE_FIELDS
+        if unknown_source:
+            _fail(path, f"unknown field(s) in [source]: {', '.join(sorted(unknown_source))}")
+        source_filename = _require_str(source_table, path, "source", "filename")
+        source_url = _require_str(source_table, path, "source", "url", optional=True)
+        source_look_in = _require_str_list(source_table, path, "source", "look_in", optional=True) or DEFAULT_SOURCE_LOOK_IN
+
     return Brew(
         name=_require_str(brew_table, path, "brew", "name"),  # type: ignore[arg-type]
         version=_require_str(brew_table, path, "brew", "version"),  # type: ignore[arg-type]
@@ -191,6 +211,9 @@ def parse_brew(data: dict[str, Any], path: Path | str = "<string>") -> Brew:
         environment=environment,
         install_commands=install_commands,
         source=path,
+        source_filename=source_filename,
+        source_url=source_url,
+        source_look_in=source_look_in,
     )
 
 
