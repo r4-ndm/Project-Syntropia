@@ -121,6 +121,39 @@ def test_install_resolves_name_from_registry(tmp_path: Path):
     assert "Surge XT" in result.output
 
 
+JAMMED_BREW = """\
+[brew]
+name = "Jammed App"
+version = "1.0"
+category = "utility"
+maintainer = "Syntropia Team <x@y.io>"
+
+[wine]
+version = "cachyos-wine"
+prefix = "~/.local/share/syntropia/prefixes/jammed"
+arch = "win64"
+
+[install]
+commands = [
+  "echo one", "echo two",
+]
+"""
+
+
+def test_install_fails_fast_on_jammed_manifest(tmp_path: Path):
+    """install must reject a jammed commands line before running anything.
+
+    The lint check runs right after load_brew and before any wine/prefix
+    work, so a jammed manifest errors out even in --check dry-run mode
+    instead of partially proceeding.
+    """
+    source = _write_brew(tmp_path, name="jammed.brew", content=JAMMED_BREW)
+    result = _run("install", str(source), "--check")
+    assert result.exit_code != 0
+    assert "fails lint" in result.output
+    assert "multiple install commands on one line" in result.output
+
+
 def test_info_by_name(tmp_path: Path):
     source = _write_brew(tmp_path)
     registry = tmp_path / "registry"

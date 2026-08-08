@@ -7,7 +7,7 @@ from pathlib import Path
 
 import click
 
-from .brew import BrewError, brew_filename, find_brews, load_brew, resolve_brew, save_brew
+from .brew import BrewError, brew_filename, find_brews, lint_brew, load_brew, resolve_brew, save_brew
 from .progress import StepProgress
 from .registry import RegistryError, submit_brew
 from .transform import TransformError, run_transform
@@ -53,6 +53,13 @@ def install(brew: str, registry: str, check: bool, yes: bool) -> None:
         brew = load_brew(brew_file)
     except BrewError as exc:
         raise click.ClickException(str(exc)) from exc
+
+    # Fail fast on formatting problems before touching wine / the prefix.
+    problems = lint_brew(brew_file)
+    if problems:
+        raise click.ClickException(
+            f"brew {brew_file} fails lint:\n  " + "\n  ".join(problems)
+        )
 
     if not check and not yes:
         raise click.ClickException(

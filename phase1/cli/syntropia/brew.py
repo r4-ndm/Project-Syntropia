@@ -218,6 +218,44 @@ def parse_brew(data: dict[str, Any], path: Path | str = "<string>") -> Brew:
     )
 
 
+def lint_brew(path: Path | str) -> list[str]:
+    """Lint a .brew file for style problems; returns a list of messages.
+
+    An empty list means the file is clean. Unlike ``load_brew`` (which
+    validates semantics), this checks *formatting* conventions that the
+    parser tolerates but humans shouldn't ship — e.g. two install commands
+    jammed onto one line (``"cmd one", "cmd two",``).
+
+    The jam signature is an unescaped ``", "`` inside the commands block:
+    TOML requires internal quotes to be escaped as ``\"``, so an unescaped
+    string-close followed by comma and the next string-open can only mean
+    two string literals sharing a line.
+    """
+    path = Path(path).expanduser()
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        return [f"cannot read file: {exc}"]
+
+    problems: list[str] = []
+    in_commands = False
+    for lineno, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if "commands = [" in stripped:
+            in_commands = True
+            continue
+        if in_commands and stripped == "]":
+            break
+        if not in_commands or not stripped or stripped.startswith("#"):
+            continue
+        if '", "' in line:
+            problems.append(
+                f"line {lineno}: multiple install commands on one line — "
+                "split them so each command is on its own line"
+            )
+    return problems
+
+
 def load_brew(path: Path | str) -> Brew:
     """Read a .brew file from disk, parse, and validate it."""
     path = Path(path).expanduser()

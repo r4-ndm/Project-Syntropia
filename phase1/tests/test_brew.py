@@ -9,6 +9,7 @@ from syntropia.brew import (
     BrewError,
     brew_filename,
     find_brews,
+    lint_brew,
     load_brew,
     parse_brew,
     resolve_brew,
@@ -258,22 +259,64 @@ def test_no_jammed_install_commands():
     next-string-start: exactly the jam signature.
     """
     brews_dir = Path(__file__).resolve().parents[1] / "brews"
-    for path in sorted(brews_dir.glob("*.brew")):
-        lines = path.read_text(encoding="utf-8").splitlines()
-        in_commands = False
-        for lineno, line in enumerate(lines, start=1):
-            stripped = line.strip()
-            if "commands = [" in stripped:
-                in_commands = True
-                continue
-            if in_commands and stripped == "]":
-                break
-            if not in_commands or not stripped or stripped.startswith("#"):
-                continue
-            assert '", "' not in line, (
-                f"{path.name}:{lineno}: multiple install commands on one line "
-                "— split them so each command is on its own line"
-            )
+    shipped = sorted(brews_dir.glob("*.brew"))
+    assert shipped
+    for path in shipped:
+        problems = lint_brew(path)
+        assert problems == [], f"{path.name}: {problems}"
+
+
+def test_lint_brew_flags_jammed_line(tmp_path: Path):
+    """lint_brew reports a line holding two commands, with a line number."""
+    path = tmp_path / "jammed.brew"
+    path.write_text(
+        "[brew]\n"
+        "name = \"X\"\nversion = \"1\"\ncategory = \"vst\"\nmaintainer = \"T\"\n\n"
+        "[wine]\nversion = \"w\"\nprefix = \"~/p\"\narch = \"win64\"\n\n"
+        "[install]\n"
+        "commands = [\n"
+        '  "echo one", "echo two",\n'
+        "]\n",
+        encoding="utf-8",
+    )
+    problems = lint_brew(path)
+    assert len(problems) == 1
+    assert "line 14" in problems[0]
+    assert "multiple install commands on one line" in problems[0]
+
+
+def test_lint_brew_clean_file(tmp_path: Path):
+    """A one-command-per-line brew lints clean, even with quotes inside."""
+    path = tmp_path / "clean.brew"
+    path.write_text(
+        "[brew]\n"
+        "name = \"X\"\nversion = \"1\"\ncategory = \"vst\"\nmaintainer = \"T\"\n\n"
+        "[wine]\nversion = \"w\"\nprefix = \"~/p\"\narch = \"win64\"\n\n"
+        "[install]\n"
+        "commands = [\n"
+        '  "echo \\\"hi\\\" one",\n'
+        '  "echo two",\n'
+        "]\n",
+        encoding="utf-8",
+    )
+    assert lint_brew(path) == []
+
+
+def test_lint_brew_ignores_comments(tmp_path: Path):
+    """A comment containing `", "` must not trip the lint."""
+    path = tmp_path / "comment.brew"
+    path.write_text(
+        "[brew]\n"
+        "name = \"X\"\nversion = \"1\"\ncategory = \"vst\"\nmaintainer = \"T\"\n\n"
+        "[wine]\nversion = \"w\"\nprefix = \"~/p\"\narch = \"win64\"\n\n"
+        "[install]\n"
+        "commands = [\n"
+        '  # try "a", "b" together here\n'
+        '  "echo one",\n'
+        "]\n",
+        encoding="utf-8",
+    )
+    assert lint_brew(path) == []
 
 
 def test_find_brews_only_matches_extension(tmp_path: Path):
