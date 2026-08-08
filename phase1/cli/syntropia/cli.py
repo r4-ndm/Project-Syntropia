@@ -210,7 +210,8 @@ def save(brew_file: str, registry: str) -> None:
 @click.option("--registry", default=DEFAULT_REGISTRY, show_default=True, help="Registry directory to resolve brew names against.")
 @click.option("--yes", is_flag=True, help="Confirm: actually delete the prefix and files.")
 def uninstall(name: str, registry: str, yes: bool) -> None:
-    """Uninstall a brew: kill wineserver, remove prefix, desktop file, icon."""
+    """Uninstall a brew: kill wineserver, remove prefix, desktop file, icon,
+    and any straggler frames/leftovers from a previous install."""
     brew_file = resolve_brew(name, registry)
     if brew_file is None:
         raise click.ClickException(f"no brew named '{name}' in {_registry_path(registry)}")
@@ -224,43 +225,71 @@ def uninstall(name: str, registry: str, yes: bool) -> None:
             f"and all associated files -- pass --yes to confirm"
         )
 
+    import glob as _glob
     import shutil
     import subprocess
 
-    prefix = Path(brew.wine_prefix).expanduser()
-    removed = []
+    from .brew import slugify_name
 
-    # Kill wineserver
-    wine_bin = "/opt/syntropia-wine/bin/wineserver"
-    subprocess.run([wine_bin, "-k"], env={"WINEPREFIX": str(prefix)}, capture_output=True)
+    slug = slugify_name(brew.name)
+    prefix = Path(brew.wine_prefix).expanduser()
+    removed: list[str] = []
+
+    # --- Kill wineserver (use the right binary for this brew) ---
+    if brew.wine_version == "ableton-wine":
+        wineserver_path = "/opt/ableton-wine/bin/wineserver"
+    else:
+        wineserver_path = "/opt/syntropia-wine/bin/wineserver"
+    subprocess.run(
+        [wineserver_path, "-k"],
+        env={"WINEPREFIX": str(prefix)},
+        capture_output=True,
+    )
     click.echo(f"  killed wineserver for {prefix}")
 
-    # Remove prefix
+    # --- Remove prefix ---
     if prefix.exists():
         shutil.rmtree(prefix, ignore_errors=True)
         removed.append(str(prefix))
         click.echo(f"  removed prefix {prefix}")
+    else:
+        click.echo(f"  prefix already absent: {prefix}")
 
-    # Remove desktop file
-    desktop = Path.home() / ".local/share/applications/ableton-live-12.desktop"
-    if desktop.exists():
-        desktop.unlink()
-        removed.append(str(desktop))
-        click.echo(f"  removed {desktop}")
+    # --- Remove desktop file ---
+    desktop_dir = Path.home() / ".local/share/applications"
+    for cand in (
+        desktop_dir / f"{slug}.desktop",
+        desktop_dir / "ableton-live-12.desktop",  # legacy hard-coded name
+    ):
+        if cand.exists():
+            cand.unlink()
+            removed.append(str(cand))
+            click.echo(f"  removed {cand}")
 
-    # Remove kill script
-    kill_script = Path.home() / ".local/bin/ableton-kill"
-    if kill_script.exists():
-        kill_script.unlink()
-        removed.append(str(kill_script))
-        click.echo(f"  removed {kill_script}")
+    # --- Remove kill script ---
+    for cand in (
+        Path.home() / ".local/bin" / f"{slug}-kill",
+        Path.home() / ".local/bin" / "ableton-kill",  # legacy
+    ):
+        if cand.exists():
+            cand.unlink()
+            removed.append(str(cand))
+            click.echo(f"  removed {cand}")
 
-    # Remove icon
-    icon = Path.home() / ".local/share/icons/hicolor/256x256/apps/ableton-live-12.png"
-    if icon.exists():
-        icon.unlink()
-        removed.append(str(icon))
-        click.echo(f"  removed {icon}")
+    # --- Remove icons (base + straggler frames from ICO extraction) ---
+    icon_dir = Path.home() / ".local/share/icons/hicolor/256x256/apps"
+    for pattern in (f"{slug}.png", f"{slug}-*.png"):
+        for icon in sorted(_glob.glob(str(icon_dir / pattern))):
+            Path(icon).unlink()
+            removed.append(icon)
+            click.echo(f"  removed icon straggler {icon}")
+
+    # --- Legacy icon sweep (pre-slugify era) ---
+    for legacy_pattern in ("ableton-live-12.png", "ableton-live-12-*.png"):
+        for icon in sorted(_glob.glob(str(icon_dir / legacy_pattern))):
+            Path(icon).unlink()
+            removed.append(icon)
+            click.echo(f"  removed legacy icon {icon}")
 
     if removed:
         click.echo(click.style(f"Uninstalled {brew.name} -- {len(removed)} items removed", fg="green"))
