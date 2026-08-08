@@ -1,7 +1,7 @@
 # Ableton Live 12 Suite — version 12.2 (latest as of 2026-08).
 #
-# Uses the shibco/ableton-linux patched Wine (which fixes embedded
-# Python stdlib resolution, DPI scaling, native dialogs, theming).
+# Installs via syntropia-wine (our patched Wine build).
+# /SILENT flag used — /VERYSILENT hangs on wixstdba.
 #
 # ═══ PREREQUISITES ═══
 # 1. Download the installer from your Ableton account:
