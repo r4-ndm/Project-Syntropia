@@ -95,6 +95,8 @@ class WineInstaller:
         """
         if self.brew.wine_version == "syntropia-wine":
             return "/opt/syntropia-wine/bin"
+        if self.brew.wine_version == "ableton-wine":
+            return "/opt/ableton-wine/bin"
         return None
 
     def toolchain_missing(self) -> list[str]:
