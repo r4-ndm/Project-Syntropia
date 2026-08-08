@@ -26,8 +26,12 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .brew import Brew, DEFAULT_SOURCE_LOOK_IN
+
+if TYPE_CHECKING:
+    from .progress import StepProgress
 
 DLL_OVERRIDES_REGKEY = r"HKCU\Software\Wine\DllOverrides"
 
@@ -125,6 +129,12 @@ class WineInstaller:
             env["SYNTROPIA_SOURCE"] = str(self._source_path)
         return env
 
+    _progress_detail: str = ""
+
+    def _detail(self, text: str) -> None:
+        """Set the progress detail for the current step (used by run_all)."""
+        self._progress_detail = text
+
     def log(self, action: str, message: str) -> None:
         prefix = "[CHECK]" if self.dry_run else "[APPLY]"
         print(f"{prefix} {action}: {message}")
@@ -145,6 +155,7 @@ class WineInstaller:
                 + ", ".join(missing)
                 + " (run 'sudo syntropia transform' to install the audio stack)",
             )
+            self._detail("run 'sudo syntropia transform' first")
             if not self.dry_run:
                 raise WineHelperError(
                     "missing tools: "
@@ -153,6 +164,7 @@ class WineInstaller:
                 )
             return
         self.log("toolchain", "wine, winetricks, yabridge, yabridgectl all present")
+        self._detail("wine, winetricks, yabridge present")
 
     def _ensure_prefix_ownership(self) -> None:
         """Chown the prefix to the current user if it's owned by someone else.
@@ -177,9 +189,11 @@ class WineInstaller:
         if self.prefix_is_provisioned():
             self._ensure_prefix_ownership()
             self.log("prefix", f"{self.prefix} already provisioned, skipping")
+            self._detail("already provisioned")
             return
         self._would("prefix", f"provision Wine prefix at {self.prefix} (wineboot -u)")
         if self.dry_run:
+            self._detail(f"would provision {self.prefix}")
             return
         self.prefix.parent.mkdir(parents=True, exist_ok=True)
         result = run_command(["wineboot", "-u"], env=self.build_env())
@@ -187,16 +201,19 @@ class WineInstaller:
             raise WineHelperError(
                 f"wineboot failed: {result.stdout.strip() or result.stderr.strip()}"
             )
+        self._detail("provisioned")
 
     def step_overrides(self) -> None:
         if not self.brew.wine_overrides:
             self.log("overrides", "no DLL overrides declared in manifest")
+            self._detail("none declared")
             return
         self._would(
             "overrides",
             f"persist {len(self.brew.wine_overrides)} DLL override(s) into prefix registry",
         )
         if self.dry_run:
+            self._detail(f"would apply {len(self.brew.wine_overrides)} overrides")
             return
         for dll, mode in self.brew.wine_overrides.items():
             result = run_command(
@@ -217,15 +234,18 @@ class WineInstaller:
                 raise WineHelperError(
                     f"wine reg add {dll} failed: {result.stdout.strip() or result.stderr.strip()}"
                 )
+        self._detail(f"{len(self.brew.wine_overrides)} applied")
 
     def step_winetricks(self) -> None:
         if not self.brew.winetricks_packages:
             self.log("winetricks", "no winetricks packages declared in manifest")
+            self._detail("none declared")
             return
         self._would(
             "winetricks", "install: " + ", ".join(self.brew.winetricks_packages)
         )
         if self.dry_run:
+            self._detail(", ".join(self.brew.winetricks_packages) + " (dry-run)")
             return
         result = run_command(
             ["winetricks", "-q", *self.brew.winetricks_packages], env=self.build_env()
@@ -234,10 +254,12 @@ class WineInstaller:
             raise WineHelperError(
                 f"winetricks failed: {result.stdout.strip() or result.stderr.strip()}"
             )
+        self._detail(", ".join(self.brew.winetricks_packages))
 
     def step_yabridge(self) -> None:
         if not self.brew.yabridge_enabled:
             self.log("yabridge", "disabled in manifest")
+            self._detail("disabled")
             return
         for plugin_dir in self.brew.plugin_dirs:
             # yabridgectl is a Rust binary — it does not expand ``~`` itself,
@@ -254,6 +276,7 @@ class WineInstaller:
                         f"yabridgectl add {resolved} failed: "
                         f"{result.stdout.strip() or result.stderr.strip()}"
                     )
+        self._detail(f"{len(self.brew.plugin_dirs)} dirs")
 
     def step_yabridge_sync(self) -> None:
         """Bridge everything currently in the registered plugin dirs.
@@ -263,15 +286,18 @@ class WineInstaller:
         ``yabridgectl sync``.
         """
         if not self.brew.yabridge_enabled:
+            self._detail("disabled")
             return
         self._would("yabridge", "sync registered plugin dirs")
         if self.dry_run:
+            self._detail("would sync")
             return
         result = run_command(["yabridgectl", "sync"], env=self.build_env())
         if result.returncode != 0:
             raise WineHelperError(
                 f"yabridgectl sync failed: {result.stdout.strip() or result.stderr.strip()}"
             )
+        self._detail("synced")
 
     def step_source(self) -> None:
         """Find (or download) the installer file declared in [source].
@@ -283,6 +309,7 @@ class WineInstaller:
         """
         if not self.brew.source_filename:
             self.log("source", "no [source] section in manifest, install commands use their own paths")
+            self._detail("not needed")
             return
 
         look_in = self.brew.source_look_in or DEFAULT_SOURCE_LOOK_IN
@@ -290,6 +317,7 @@ class WineInstaller:
 
         self._would("source", f"looking for {pattern} in {', '.join(look_in)}")
         if self.dry_run:
+            self._detail(f"would search {pattern}")
             return
 
         # Search for the file.
@@ -307,6 +335,7 @@ class WineInstaller:
             found = max(matches, key=lambda p: p.stat().st_size)
             self.log("source", f"found: {found}")
             self._source_path = found
+            self._detail(f"{found.name}")
             return
 
         # Not found — can we download?
@@ -322,6 +351,7 @@ class WineInstaller:
                 )
             self.log("source", f"downloaded to {dest}")
             self._source_path = dest
+            self._detail("downloaded")
             return
 
         # Neither found nor downloadable.
@@ -339,6 +369,7 @@ class WineInstaller:
         if self.dry_run:
             for command in self.brew.install_commands:
                 self.log("install", command)
+            self._detail(f"{len(self.brew.install_commands)} commands (dry-run)")
             return
         env = self.build_env()
         for command in self.brew.install_commands:
@@ -348,18 +379,38 @@ class WineInstaller:
                     f"install command failed ({result.returncode}): {command}\n"
                     f"{result.stdout.strip() or result.stderr.strip()}"
                 )
+        self._detail(f"{len(self.brew.install_commands)} commands")
 
     # -- runner -----------------------------------------------------------
 
-    def run_all(self) -> None:
-        self.step_toolchain()
-        self.step_prefix()
-        self.step_overrides()
-        self.step_winetricks()
-        self.step_yabridge()
-        self.step_source()
-        self.step_install()
-        self.step_yabridge_sync()
+    def run_all(self, progress: "StepProgress | None" = None) -> None:
+        """Run every install step in order.
+
+        When *progress* is given, each step reports through the animated
+        step tracker instead of plain ``log()`` calls.
+        """
+        steps: list[tuple[int, str, object]] = [
+            (0, "Toolchain", self.step_toolchain),
+            (1, "Prefix", self.step_prefix),
+            (2, "Overrides", self.step_overrides),
+            (3, "Winetricks", self.step_winetricks),
+            (4, "Yabridge", self.step_yabridge),
+            (5, "Source", self.step_source),
+            (6, "Install", self.step_install),
+            (7, "Sync", self.step_yabridge_sync),
+        ]
+
+        details: dict[int, str] = {}
+
+        for idx, label, method in steps:
+            if progress is not None:
+                progress.step(idx)
+            method()
+            if progress is not None:
+                # Each method sets a detail via _progress_detail
+                progress.done(idx, getattr(self, "_progress_detail", ""))
+                self._progress_detail = ""
+
         if self.dry_run:
             print(
                 f"\nDry-run complete: install plan for '{self.brew.name} {self.brew.version}' "
@@ -367,4 +418,4 @@ class WineInstaller:
             )
             print("Nothing was changed. Re-run with --yes to actually install.")
         else:
-            print(f"\n✅ '{self.brew.name} {self.brew.version}' installed into {self.prefix}")
+            print(f"\n✨ '{self.brew.name} {self.brew.version}' installed into {self.prefix}")

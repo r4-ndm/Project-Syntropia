@@ -118,7 +118,7 @@ def test_install_resolves_name_from_registry(tmp_path: Path):
     result = _run("install", "surge-xt", "--registry", str(registry), "--check")
     # Dry-run still requires the Wine toolchain on this host; the point is
     # that name resolution succeeds and we get past validation to the plan.
-    assert "Validated: Surge XT" in result.output
+    assert "Surge XT" in result.output
 
 
 def test_info_by_name(tmp_path: Path):

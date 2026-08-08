@@ -8,6 +8,7 @@ from pathlib import Path
 import click
 
 from .brew import BrewError, brew_filename, find_brews, load_brew, resolve_brew, save_brew
+from .progress import StepProgress
 from .registry import RegistryError, submit_brew
 from .transform import TransformError, run_transform
 from .update import UpdateError, run_update
@@ -52,25 +53,30 @@ def install(brew: str, registry: str, check: bool, yes: bool) -> None:
         brew = load_brew(brew_file)
     except BrewError as exc:
         raise click.ClickException(str(exc)) from exc
-    click.echo(click.style(f"✅ Validated: {brew.name} {brew.version}", fg="green"))
-    click.echo(f"   category:   {brew.category}")
-    click.echo(f"   wine:       {brew.wine_version} ({brew.wine_arch})")
-    click.echo(f"   prefix:     {brew.wine_prefix}")
-    if brew.winetricks_packages:
-        click.echo(f"   winetricks: {', '.join(brew.winetricks_packages)}")
-    if brew.yabridge_enabled:
-        click.echo(f"   yabridge:   enabled -> {', '.join(brew.plugin_dirs)}")
-    if brew.source_filename:
-        click.echo(f"   source:     looking for {brew.source_filename}")
-        if brew.source_url:
-            click.echo(f"   download:   {brew.source_url}")
+
     if not check and not yes:
         raise click.ClickException(
             "install provisions Wine prefixes — pass --yes to confirm "
             "(read agent-rules/transform-safety.md first)"
         )
+
+    steps: list[tuple[str, str]] = [
+        ("Toolchain",  "Checking wine, winetricks, yabridge"),
+        ("Prefix",     "Provisioning Wine prefix"),
+        ("Overrides",  "Applying DLL overrides"),
+        ("Winetricks", "Installing winetricks packages"),
+        ("Yabridge",   "Registering plugin directories"),
+        ("Source",     "Finding installer file"),
+        ("Install",    "Running install commands"),
+        ("Sync",       "Syncing yabridge plugins"),
+    ]
+
+    title = f"😈 Installing {brew.name} {brew.version}"
+
     try:
-        WineInstaller(brew, dry_run=check).run_all()
+        installer = WineInstaller(brew, dry_run=check)
+        with StepProgress(title, steps) as prog:
+            installer.run_all(progress=prog)
     except WineHelperError as exc:
         raise click.ClickException(str(exc)) from exc
 
