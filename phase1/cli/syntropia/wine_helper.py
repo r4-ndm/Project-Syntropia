@@ -24,6 +24,8 @@ import glob
 import os
 import shutil
 import subprocess
+import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -31,7 +33,7 @@ from typing import TYPE_CHECKING
 from .brew import Brew, DEFAULT_SOURCE_LOOK_IN
 
 if TYPE_CHECKING:
-    from .progress import StepProgress
+    from .progress import ProgressBar, StepProgress
 
 DLL_OVERRIDES_REGKEY = r"HKCU\Software\Wine\DllOverrides"
 
@@ -130,10 +132,22 @@ class WineInstaller:
         return env
 
     _progress_detail: str = ""
+    _progress: "StepProgress | None" = None
 
     def _detail(self, text: str) -> None:
         """Set the progress detail for the current step (used by run_all)."""
         self._progress_detail = text
+
+    def _elapsed(self) -> None:
+        """Background timer that updates the progress label with elapsed time."""
+        start = time.monotonic()
+        while getattr(self, "_elapsed_running", True):
+            elapsed = int(time.monotonic() - start)
+            mins, secs = divmod(elapsed, 60)
+            label = f"Running ({mins}m {secs}s elapsed)"
+            if self._progress is not None:
+                self._progress.update_label(label)
+            time.sleep(5)
 
     _quiet: bool = False
 
@@ -303,13 +317,13 @@ class WineInstaller:
             )
         self._detail("synced")
 
-    def step_source(self) -> None:
+    def step_source(self, progress: "StepProgress | None" = None) -> None:
         """Find (or download) the installer file declared in [source].
 
         Searches ``look_in`` directories for a file matching the glob
         pattern. If found, sets ``$SYNTROPIA_SOURCE`` in the install
         environment. If not found but ``url`` is set, downloads it to
-        ``/tmp/``.
+        ``/tmp/`` with a determinate progress bar.
         """
         if not self.brew.source_filename:
             self.log("source", "no [source] section in manifest, install commands use their own paths")
@@ -346,13 +360,7 @@ class WineInstaller:
         if self.brew.source_url:
             dest = Path("/tmp") / Path(self.brew.source_url).name
             self.log("source", f"not found locally, downloading from {self.brew.source_url}")
-            result = run_command(
-                ["curl", "-L", "--max-time", "900", "-o", str(dest), self.brew.source_url]
-            )
-            if result.returncode != 0:
-                raise WineHelperError(
-                    f"download failed: {result.stdout.strip() or result.stderr.strip()}"
-                )
+            self._download_with_progress(self.brew.source_url, dest)
             self.log("source", f"downloaded to {dest}")
             self._source_path = dest
             self._detail("downloaded")
@@ -365,6 +373,44 @@ class WineInstaller:
             f"then re-run."
         )
 
+    def _download_with_progress(self, url: str, dest: Path) -> None:
+        """Download *url* to *dest* with a determinate progress bar."""
+        from .progress import ProgressBar
+
+        # Get content-length first.
+        import urllib.request
+        try:
+            req = urllib.request.Request(url, method="HEAD")
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                total = int(resp.headers.get("Content-Length", 0))
+        except Exception:
+            total = 0
+
+        if total:
+            bar = ProgressBar(total, desc="Downloading")
+            bar.__enter__()
+            try:
+                with urllib.request.urlopen(url, timeout=900) as resp:
+                    with dest.open("wb") as f:
+                        while True:
+                            chunk = resp.read(8192)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            bar.update(len(chunk))
+                bar.done()
+            finally:
+                bar.__exit__(None, None, None)
+        else:
+            # Fallback to curl if we can't get content-length.
+            result = run_command(
+                ["curl", "-L", "--max-time", "900", "-o", str(dest), url]
+            )
+            if result.returncode != 0:
+                raise WineHelperError(
+                    f"download failed: {result.stdout.strip() or result.stderr.strip()}"
+                )
+
     def step_install(self) -> None:
         self._would(
             "install",
@@ -375,15 +421,25 @@ class WineInstaller:
                 self.log("install", command)
             self._detail(f"{len(self.brew.install_commands)} commands (dry-run)")
             return
-        env = self.build_env()
-        for command in self.brew.install_commands:
-            result = run_command(["bash", "-lc", command], env=env)
-            if result.returncode != 0:
-                raise WineHelperError(
-                    f"install command failed ({result.returncode}): {command}\n"
-                    f"{result.stdout.strip() or result.stderr.strip()}"
-                )
-        self._detail(f"{len(self.brew.install_commands)} commands")
+
+        # Start elapsed-time timer that updates the spinner label.
+        self._elapsed_running = True
+        timer = threading.Thread(target=self._elapsed, daemon=True)
+        timer.start()
+
+        try:
+            env = self.build_env()
+            for command in self.brew.install_commands:
+                result = run_command(["bash", "-lc", command], env=env)
+                if result.returncode != 0:
+                    raise WineHelperError(
+                        f"install command failed ({result.returncode}): {command}\n"
+                        f"{result.stdout.strip() or result.stderr.strip()}"
+                    )
+            self._detail(f"{len(self.brew.install_commands)} commands")
+        finally:
+            self._elapsed_running = False
+            timer.join(timeout=1)
 
     # -- runner -----------------------------------------------------------
 
@@ -406,6 +462,7 @@ class WineInstaller:
 
         if progress is not None:
             self._quiet = True
+            self._progress = progress
 
         for idx, label, method in steps:
             if progress is not None:

@@ -75,6 +75,11 @@ class StepProgress:
         if not self._tty:
             sys.stderr.write(f"  ⠋ {desc}\n")
 
+    def update_label(self, label: str) -> None:
+        """Change the spinner text mid-step (e.g. elapsed time)."""
+        with self._lock:
+            self._current_label = label
+
     def done(self, index: int, detail: str = "") -> None:
         """Print a permanent checkmark for the completed step."""
         if index >= self._n:
