@@ -1,31 +1,31 @@
-"""Terminal progress: npm-style spinner + step tracker + progress bar.
+"""Terminal progress: npm-style single-line spinner + checkmarks + progress bar.
 
-Uses ANSI escape sequences for in-place line updates. Falls back to
-plain ``print()`` output when stderr is not a TTY (piped, redirected,
-or running under test).
+Uses ``\r`` carriage-return for the spinner (works in every terminal).
+Falls back to plain ``print()`` when stderr is not a TTY.
 
 Usage inside an installer::
 
     from .progress import StepProgress
 
     steps = [
-        ("Toolchain",     "Checking wine, winetricks, …"),
+        ("Toolchain",     "Checking wine, winetricks"),
         ("Prefix",        "Provisioning Wine prefix"),
         ("Overrides",     "Applying DLL overrides"),
         ("Winetricks",    "Installing winetricks packages"),
+        ("Yabridge",      "Registering plugin dirs"),
         ("Source",        "Finding installer file"),
         ("Install",       "Running install commands"),
         ("Sync",          "Syncing yabridge plugins"),
     ]
 
-    with StepProgress("😈 Installing Abelton Live 12 (12.1.10)", steps) as p:
+    with StepProgress("😈 Installing Ableton Live 12 (12.1.10)", steps) as p:
         p.step(0)
-        # … do toolchain check …
-        p.done(0, "wine, winetricks, yabridge all present")
+        # … do work …
+        p.done(0, "wine, winetricks present")
 
         p.step(1)
-        # … provision prefix …
-        p.done(1, "prefix provisioned")
+        # … do work …
+        p.done(1, "provisioned")
 
         # … etc …
 """
@@ -40,11 +40,10 @@ SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇",
 
 
 class StepProgress:
-    """Draws a step list with an animated spinner on the current step.
+    """Single-line spinner with permanent ✅ lines as each step completes.
 
-    Uses ANSI escape codes to update lines in-place.  When *stderr* is
-    not a TTY (pipe, redirect, test harness) the spinner is suppressed
-    and steps are printed as plain lines — safe for pytest output.
+    When stderr is a TTY the spinner animates in-place via ``\r``.
+    Otherwise each step prints a plain line — safe for pipes and pytest.
     """
 
     def __init__(
@@ -55,8 +54,7 @@ class StepProgress:
         self.title = title
         self.steps = steps  # [(name, description), …]
         self._n = len(steps)
-        self._current: int = -1
-        self._results: dict[int, tuple[str, str]] = {}  # idx → (status, detail)
+        self._current_label: str = ""
         self._spinner_idx = 0
         self._running = False
         self._thread: threading.Thread | None = None
@@ -68,35 +66,42 @@ class StepProgress:
     # ------------------------------------------------------------------
 
     def step(self, index: int) -> None:
-        """Move the spinner to *index* (0-based)."""
+        """Update the spinner message to show this step."""
         if index >= self._n:
             return
+        _name, desc = self.steps[index]
         with self._lock:
-            self._current = index
+            self._current_label = desc
+        if not self._tty:
+            sys.stderr.write(f"  ⠋ {desc}\n")
 
     def done(self, index: int, detail: str = "") -> None:
-        """Mark step *index* as completed, optionally with a short detail."""
+        """Print a permanent checkmark for the completed step."""
         if index >= self._n:
             return
-        with self._lock:
-            self._results[index] = ("done", detail)
-            self._current = index + 1
+        label, _desc = self.steps[index]
+        msg = f"  ✅ {label}"
+        if detail:
+            msg += f"  \033[2m{detail}\033[0m"
         if self._tty:
-            self._render_one(index)
+            sys.stderr.write(f"\r\033[K{msg}\n")
         else:
-            label, _desc = self.steps[index]
-            msg = f"  ✅ {label}"
-            if detail:
-                msg += f"  {detail}"
             sys.stderr.write(msg + "\n")
+        sys.stderr.flush()
 
     def error(self, index: int, detail: str = "") -> None:
-        """Mark step *index* as failed."""
+        """Print a ❌ for a failed step."""
         if index >= self._n:
             return
-        with self._lock:
-            self._results[index] = ("error", detail)
-        self._render_one(index)
+        label, _desc = self.steps[index]
+        msg = f"  ❌ {label}"
+        if detail:
+            msg += f"  \033[2m{detail}\033[0m"
+        if self._tty:
+            sys.stderr.write(f"\r\033[K{msg}\n")
+        else:
+            sys.stderr.write(msg + "\n")
+        sys.stderr.flush()
 
     # ------------------------------------------------------------------
     # context manager
@@ -106,17 +111,7 @@ class StepProgress:
         if self._tty:
             sys.stderr.write("\033[?25l")  # hide cursor
         if self.title:
-            sys.stderr.write(f"\033[1m{self.title}\033[0m\n\n")
-        if self._tty:
-            # Print the initial step list with labels so they're visible
-            # immediately (the spinner will overwrite in place).
-            sys.stderr.write("\033[s")  # save cursor
-            for name, _desc in self.steps:
-                sys.stderr.write(f"  ⬜ {name}\n")
-            sys.stderr.write(f"\033[{self._n}A")  # jump back to first step line
-        else:
-            for name, desc in self.steps:
-                sys.stderr.write(f"  ⬜ {name}: {desc}\n")
+            sys.stderr.write(f"\033[1m{self.title}\033[0m\n")
 
         self._running = True
         if self._tty:
@@ -129,80 +124,24 @@ class StepProgress:
         if self._thread is not None:
             self._thread.join(timeout=1)
         if self._tty:
-            with self._lock:
-                for i in range(self._n):
-                    if i not in self._results:
-                        self._results[i] = ("done", "")
-                self._current = self._n
-            self._render_all()
-            sys.stderr.write("\033[?25h\n")  # show cursor + final newline
+            sys.stderr.write("\r\033[K")  # clear spinner line
+            sys.stderr.write("\033[?25h\n")  # show cursor
         sys.stderr.flush()
 
     # ------------------------------------------------------------------
-    # internal rendering (all under self._lock for thread safety)
+    # internal
     # ------------------------------------------------------------------
 
     def _spin(self) -> None:
         while self._running:
             with self._lock:
                 self._spinner_idx += 1
-                self._render_current_locked()
+                frame = SPINNER_FRAMES[self._spinner_idx % len(SPINNER_FRAMES)]
+                label = self._current_label
+            if label:
+                sys.stderr.write(f"\r\033[K  {frame} {label}...")
+                sys.stderr.flush()
             time.sleep(0.08)
-
-    def _render_one(self, index: int) -> None:
-        if not self._tty:
-            return
-        with self._lock:
-            self._emit_line(index)
-            cur = self._current
-            if 0 <= cur < self._n and cur != index:
-                self._emit_line(cur)
-            sys.stderr.flush()
-
-    def _render_current_locked(self) -> None:
-        """Render the spinner line (caller must hold lock)."""
-        cur = self._current
-        if 0 <= cur < self._n:
-            self._emit_line(cur, locked=True)
-            sys.stderr.flush()
-
-    def _render_all(self) -> None:
-        if not self._tty:
-            return
-        with self._lock:
-            for i in range(self._n):
-                self._emit_line(i)
-            sys.stderr.flush()
-
-    def _emit_line(self, index: int, *, locked: bool = False) -> None:
-        """Write one step line at its absolute position, then restore cursor.
-
-        When *locked* is True the caller already holds ``self._lock``.
-        """
-        sys.stderr.write("\033[s")  # save cursor
-        row = self._row_for(index)
-        sys.stderr.write(f"\033[{row};1H\033[K")  # move + clear
-        label, _desc = self.steps[index]
-
-        if index in self._results:
-            status, detail = self._results[index]
-            icon = "✅" if status == "done" else "❌"
-            line = f"  {icon} {label}"
-            if detail:
-                line += f"  \033[2m{detail}\033[0m"
-        elif index == self._current:
-            frame = SPINNER_FRAMES[self._spinner_idx % len(SPINNER_FRAMES)]
-            line = f"  {frame} {label}"
-        else:
-            line = f"  ⬜ {label}"
-
-        sys.stderr.write(line)
-        sys.stderr.write("\033[u")  # restore cursor
-
-    def _row_for(self, index: int) -> int:
-        """Absolute terminal row for step <index> (1-based)."""
-        title_rows = 2 if self.title else 0
-        return title_rows + index + 1
 
 
 # ------------------------------------------------------------------
@@ -261,7 +200,6 @@ class ProgressBar:
             )
             sys.stderr.flush()
         else:
-            # Non-TTY: print a line every 10 %.
             tick = pct // 10 * 10
             if tick != self._last_tick_pct:
                 self._last_tick_pct = tick
