@@ -248,6 +248,34 @@ def test_every_shipped_brew_parses():
         assert brew.wine_prefix, f"{path.name}: missing wine prefix"
 
 
+def test_no_jammed_install_commands():
+    """Lint: no two install commands may share a single line.
+
+    A jammed line looks like ``"cmd one", "cmd two",`` — the second
+    command's opening quote appears right after the first command's closing
+    quote. TOML escapes internal quotes as ``\"``, so an *unescaped*
+    ``", "`` in the commands block can only be end-of-string + comma +
+    next-string-start: exactly the jam signature.
+    """
+    brews_dir = Path(__file__).resolve().parents[1] / "brews"
+    for path in sorted(brews_dir.glob("*.brew")):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        in_commands = False
+        for lineno, line in enumerate(lines, start=1):
+            stripped = line.strip()
+            if "commands = [" in stripped:
+                in_commands = True
+                continue
+            if in_commands and stripped == "]":
+                break
+            if not in_commands or not stripped or stripped.startswith("#"):
+                continue
+            assert '", "' not in line, (
+                f"{path.name}:{lineno}: multiple install commands on one line "
+                "— split them so each command is on its own line"
+            )
+
+
 def test_find_brews_only_matches_extension(tmp_path: Path):
     (tmp_path / "a.brew").write_text("", encoding="utf-8")
     (tmp_path / "b.brew").write_text("", encoding="utf-8")
