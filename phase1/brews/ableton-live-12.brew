@@ -56,10 +56,7 @@ plugin_dirs = []
 LANG = "en_US.UTF-8"
 WINE_D3D_CONFIG = "csmt=0x1"
 WINED3D_DCOMP_FORCE_FULL_REDRAW = "1"
-# Patched Wine (giang17/wine d2d1-dcomp-11.11 + sashaduke redraw fixes)
-# uses OpenGL renderer with native D2D1/DComp. No DXVK needed.
-# Install patched Wine first: syntropia transform --yes (via PKGBUILD)
-# or manual: /opt/syntropia-wine/bin/wine
+WINE_DISABLE_CRASH_DIALOG = "1"
 
 [install]
 commands = [
@@ -70,28 +67,7 @@ commands = [
   "printf '%s\\n' '-_Feature.UseGpuRenderer' '-DontLoadMaxForLiveAtStartup' '-DontCombineAPCs' > \"$WINEPREFIX/drive_c/users/$USER/AppData/Roaming/Ableton/Live 12.2/Preferences/Options.txt\"",
   "wine reg add 'HKCU\\\\Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Themes\\\\Personalize' /v AppsUseLightTheme /t REG_DWORD /d 1 /f && wine reg add 'HKCU\\\\Software\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Themes\\\\Personalize' /v SystemUsesLightTheme /t REG_DWORD /d 1 /f",
   "mkdir -p ~/.local/share/applications ~/.local/bin",
-  """cat > ~/.local/bin/ableton-kill << SCRIPT_EOF
-#!/bin/sh
-WINEPREFIX=$WINEPREFIX /opt/syntropia-wine/bin/wineserver -k 2>/dev/null
-pkill -9 -f "Ableton Live 12 Suite.exe" 2>/dev/null
-notify-send "Ableton" "Force quit complete" 2>/dev/null
-SCRIPT_EOF
-chmod +x ~/.local/bin/ableton-kill""",
-  """cat > ~/.local/share/applications/ableton-live-12.desktop << DESKEOF
-[Desktop Entry]
-Name=Ableton Live 12
-Comment=Digital Audio Workstation (Syntropia Wine)
-Icon=ableton-live-12
-Exec=env WINEPREFIX=$WINEPREFIX WINEDLLOVERRIDES="d3d11=b,dxgi=b,d3d10core=b,d2d1=b,dcomp=b,dwrite=b,d3d9=b,d3d8=b,winemenubuilder.exe=d" WINE_D3D_CONFIG=csmt=0x1 WINED3D_DCOMP_FORCE_FULL_REDRAW=1 WINE_DISABLE_CRASH_DIALOG=1 /opt/syntropia-wine/bin/wine 'C:/ProgramData/Ableton/Live 12 Suite/Program/Ableton Live 12 Suite.exe'
-Type=Application
-Categories=Audio;AudioVideo;
-StartupWMClass=ableton live 12 suite.exe
-Actions=quit-wine
-
-[Desktop Action quit-wine]
-Name=Force Quit
-Exec=$HOME/.local/bin/ableton-kill
-Icon=process-stop
-DESKEOF""",
+  "printf '#!/bin/sh\\nWINEPREFIX=%s /opt/syntropia-wine/bin/wineserver -k 2>/dev/null\\npkill -9 -f \"Ableton Live 12 Suite.exe\" 2>/dev/null\\nnotify-send \"Ableton\" \"Force quit complete\" 2>/dev/null\\n' \"$WINEPREFIX\" > ~/.local/bin/ableton-kill && chmod +x ~/.local/bin/ableton-kill",
+  "printf '[Desktop Entry]\\nName=Ableton Live 12\\nComment=Digital Audio Workstation (Syntropia Wine)\\nIcon=ableton-live-12\\nExec=env WINEPREFIX=%s WINEDLLOVERRIDES=\"d3d11=b,dxgi=b,d3d10core=b,d2d1=b,dcomp=b,dwrite=b,d3d9=b,d3d8=b,winemenubuilder.exe=d\" WINE_D3D_CONFIG=csmt=0x1 WINED3D_DCOMP_FORCE_FULL_REDRAW=1 WINE_DISABLE_CRASH_DIALOG=1 /opt/syntropia-wine/bin/wine \"'\"'\"C:/ProgramData/Ableton/Live 12 Suite/Program/Ableton Live 12 Suite.exe\"'\"'\"\\nType=Application\\nCategories=Audio;AudioVideo;\\nStartupWMClass=ableton live 12 suite.exe\\nActions=quit-wine\\n\\n[Desktop Action quit-wine]\\nName=Force Quit\\nExec=%s/.local/bin/ableton-kill\\nIcon=process-stop\\n' \"$WINEPREFIX\" \"$HOME\" > ~/.local/share/applications/ableton-live-12.desktop",
   "mkdir -p ~/.local/share/icons/hicolor/256x256/apps && ICOSRC=\"$WINEPREFIX/drive_c/ProgramData/Ableton/Live 12 Suite/Resources/Icons/live_suite.ico\" && ICODST=~/.local/share/icons/hicolor/256x256/apps/ableton-live-12 && if command -v magick >/dev/null 2>&1 && [ -f \"$ICOSRC\" ]; then magick \"$ICOSRC\" -resize 256x256 \"$ICODST.png\" 2>/dev/null; [ -f \"$ICODST-0.png\" ] && cp \"$(ls -S $ICODST-*.png 2>/dev/null | head -1)\" \"$ICODST.png\" && rm -f \"$ICODST-\"*.png; fi; echo 'icon done'",
 ]
