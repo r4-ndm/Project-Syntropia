@@ -119,11 +119,13 @@ def test_missing_install_commands():
         parse_brew(data)
 
 
-def test_empty_install_commands_rejected():
+def test_empty_install_commands_allowed():
+    # A template brew ships with a commented-out command block, so an empty
+    # command list must parse (the install engine treats it as a no-op).
     data = make_valid_brew()
     data["install"]["commands"] = []
-    with pytest.raises(BrewError, match=r"must not be empty"):
-        parse_brew(data)
+    brew = parse_brew(data)
+    assert brew.install_commands == []
 
 
 # --- type checks ---------------------------------------------------------
@@ -227,6 +229,23 @@ def test_load_brew_invalid_toml(tmp_path: Path):
 def test_load_brew_missing_file(tmp_path: Path):
     with pytest.raises(BrewError, match=r"file not found"):
         load_brew(tmp_path / "nope.brew")
+
+
+def test_every_shipped_brew_parses():
+    """Regression net: every .brew shipped in phase1/brews must load.
+
+    A brew that stops parsing breaks `find_brews`, `resolve_brew` (name
+    lookups), and any tooling that scans the registry — so a new or edited
+    manifest is caught here before it ships.
+    """
+    brews_dir = Path(__file__).resolve().parents[1] / "brews"
+    shipped = sorted(brews_dir.glob("*.brew"))
+    assert shipped, f"no .brew files found under {brews_dir}"
+    for path in shipped:
+        brew = load_brew(path)
+        assert brew.name.strip(), f"{path.name}: empty brew name"
+        assert brew.wine_version, f"{path.name}: missing wine version"
+        assert brew.wine_prefix, f"{path.name}: missing wine prefix"
 
 
 def test_find_brews_only_matches_extension(tmp_path: Path):

@@ -177,9 +177,10 @@ def parse_brew(data: dict[str, Any], path: Path | str = "<string>") -> Brew:
     unknown_install = set(install) - KNOWN_INSTALL_FIELDS
     if unknown_install:
         _fail(path, f"unknown field(s) in [install]: {', '.join(sorted(unknown_install))}")
+    # Empty command lists are valid: template.brew ships with a commented-out
+    # command block, and a brew whose install is a no-op is a legitimate
+    # (if unusual) manifest. The install engine handles zero commands fine.
     install_commands = _require_str_list(install, path, "install", "commands")
-    if not install_commands:
-        _fail(path, "field 'commands' in [install] must not be empty")
 
     # --- [source] section (optional) ------------------------------------
     source_table = data.get("source", {})
