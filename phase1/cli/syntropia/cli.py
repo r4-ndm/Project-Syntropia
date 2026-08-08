@@ -207,6 +207,69 @@ def save(brew_file: str, registry: str) -> None:
 
 @cli.command()
 @click.argument("name")
+@click.option("--registry", default=DEFAULT_REGISTRY, show_default=True, help="Registry directory to resolve brew names against.")
+@click.option("--yes", is_flag=True, help="Confirm: actually delete the prefix and files.")
+def uninstall(name: str, registry: str, yes: bool) -> None:
+    """Uninstall a brew: kill wineserver, remove prefix, desktop file, icon."""
+    brew_file = resolve_brew(name, registry)
+    if brew_file is None:
+        raise click.ClickException(f"no brew named '{name}' in {_registry_path(registry)}")
+    try:
+        brew = load_brew(brew_file)
+    except BrewError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if not yes:
+        raise click.ClickException(
+            f"this will DELETE the Wine prefix at {brew.wine_prefix} "
+            f"and all associated files -- pass --yes to confirm"
+        )
+
+    import shutil
+    import subprocess
+
+    prefix = Path(brew.wine_prefix).expanduser()
+    removed = []
+
+    # Kill wineserver
+    wine_bin = "/opt/syntropia-wine/bin/wineserver"
+    subprocess.run([wine_bin, "-k"], env={"WINEPREFIX": str(prefix)}, capture_output=True)
+    click.echo(f"  killed wineserver for {prefix}")
+
+    # Remove prefix
+    if prefix.exists():
+        shutil.rmtree(prefix, ignore_errors=True)
+        removed.append(str(prefix))
+        click.echo(f"  removed prefix {prefix}")
+
+    # Remove desktop file
+    desktop = Path.home() / ".local/share/applications/ableton-live-12.desktop"
+    if desktop.exists():
+        desktop.unlink()
+        removed.append(str(desktop))
+        click.echo(f"  removed {desktop}")
+
+    # Remove kill script
+    kill_script = Path.home() / ".local/bin/ableton-kill"
+    if kill_script.exists():
+        kill_script.unlink()
+        removed.append(str(kill_script))
+        click.echo(f"  removed {kill_script}")
+
+    # Remove icon
+    icon = Path.home() / ".local/share/icons/hicolor/256x256/apps/ableton-live-12.png"
+    if icon.exists():
+        icon.unlink()
+        removed.append(str(icon))
+        click.echo(f"  removed {icon}")
+
+    if removed:
+        click.echo(click.style(f"Uninstalled {brew.name} -- {len(removed)} items removed", fg="green"))
+    else:
+        click.echo("Nothing to remove -- already clean.")
+
+
+@cli.command()
+@click.argument("name")
 @click.option("--registry", default=DEFAULT_REGISTRY, show_default=True, help="Registry directory to remove from.")
 def remove(name: str, registry: str) -> None:
     """Remove a brew from the local registry by name."""
