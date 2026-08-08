@@ -89,7 +89,26 @@ FASTFETCH_CONF_TEMPLATE = """{{
   // Syntropia branding (managed by syntropia transform)
   "logo": {{
     "source": "/usr/share/syntropia/logo.txt"{colors}
-  }}
+  }},
+  "modules": [
+    "title",
+    "separator",
+    "os",
+    "kernel",
+    "uptime",
+    "packages",
+    "shell",
+    "display",
+    "de",
+    "wm",
+    "terminal",
+    "cpu",
+    "gpu",
+    "memory",
+    "disk",
+    "separator",
+    "colors"
+  ]
 }}
 """
 

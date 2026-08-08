@@ -186,7 +186,8 @@ def test_logo_dry_run_reports_source(tmp_path: Path, monkeypatch: pytest.MonkeyP
 def test_fastfetch_conf_without_colors_has_no_color_key():
     conf = T.build_fastfetch_conf(None)
     assert '"source": "/usr/share/syntropia/logo.txt"' in conf
-    assert "color" not in conf
+    # The logo.color key must be absent; "colors" module name is fine
+    assert '"color":' not in conf
 
 
 def test_fastfetch_conf_merges_color_map():
