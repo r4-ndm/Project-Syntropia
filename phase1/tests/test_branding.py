@@ -36,7 +36,7 @@ def make_grub_default(tmp_path: Path, *, theme: Path | None = None) -> Path:
     """Write a fake /etc/default/grub; uses a temp theme if given."""
     path = tmp_path / "etc" / "default" / "grub"
     path.parent.mkdir(parents=True, exist_ok=True)
-    lines = ["GRUB_DEFAULT=0", "GRUB_TIMEOUT='5'"]
+    lines = ["GRUB_DEFAULT=0", "GRUB_TIMEOUT='5'", "GRUB_CMDLINE_LINUX_DEFAULT='quiet splash'"]
     if theme is not None:
         lines.append(f"GRUB_THEME='{theme}'")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -117,28 +117,26 @@ def test_plymouth_skips_without_assets(tmp_path: Path):
 # --- GRUB ---------------------------------------------------------------
 
 
-def test_grub_comments_out_background_sets_gfxmode(
+def test_grub_comments_out_background_sets_gfxmode_bgrt(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """New behaviour: GRUB gets a clean black background + GFXMODE=1920x1080."""
+    """GRUB gets clean background + GFXMODE=1920x1080 + bgrt_disable."""
     calls: list = []
     monkeypatch.setattr(B, "run_command", noop_run(calls))
     paths = make_paths(tmp_path)
     grub_default = make_grub_default(tmp_path, theme=None)
-    # Add a GRUB_BACKGROUND line so we can verify it gets commented out.
     grub_default.write_text(
-        grub_default.read_text(encoding="utf-8") + 'GRUB_BACKGROUND="/boot/grub/splash.png"\nGRUB_GFXMODE=auto\n',
+        grub_default.read_text(encoding="utf-8")
+        + 'GRUB_BACKGROUND="/boot/grub/splash.png"\nGRUB_GFXMODE=auto\n',
         encoding="utf-8",
     )
     B.Branding(paths, dry_run=False).apply_grub()
     content = grub_default.read_text(encoding="utf-8")
-    # Old GRUB_BACKGROUND must be commented out.
     assert "#GRUB_BACKGROUND commented out" in content
     assert 'GRUB_BACKGROUND="/boot/grub/splash.png"' not in content
-    # GFXMODE pinned to 1920x1080.
     assert "GRUB_GFXMODE=1920x1080" in content
     assert "GRUB_GFXMODE=auto" not in content
-    # grub-mkconfig regenerated.
+    assert "bgrt_disable" in content
     assert any(
         str(c[0]).endswith("grub-mkconfig") and str(c[-1]).endswith("grub.cfg")
         for c in calls
@@ -148,17 +146,14 @@ def test_grub_comments_out_background_sets_gfxmode(
 def test_grub_already_clean_is_noop(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    """When GRUB_BACKGROUND is absent and GFXMODE is already 1920x1080, do nothing."""
+    """When already clean, do nothing."""
     calls: list = []
     monkeypatch.setattr(B, "run_command", noop_run(calls))
     paths = make_paths(tmp_path)
     make_grub_default(tmp_path, theme=None)
-    # Default has no GRUB_BACKGROUND and no GFXMODE, so apply_grub will add GFXMODE.
     B.Branding(paths, dry_run=False).apply_grub()
-    # Second run: already clean -> no-op (no grub-mkconfig call).
     first_calls = len(calls)
     B.Branding(paths, dry_run=False).apply_grub()
-    # No new calls — already clean.
     assert len(calls) == first_calls
 
 
@@ -166,9 +161,7 @@ def test_grub_skips_without_default_file(tmp_path: Path, monkeypatch: pytest.Mon
     """If /etc/default/grub doesn't exist, skip gracefully."""
     monkeypatch.setattr(B, "run_command", noop_run([]))
     paths = make_paths(tmp_path)
-    # Don't call make_grub_default — leave the file absent.
     B.Branding(paths, dry_run=False).apply_grub()
-    # No crash, no writes.
 
 
 def test_grub_dry_run_changes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -183,7 +176,8 @@ def test_grub_dry_run_changes_nothing(tmp_path: Path, monkeypatch: pytest.Monkey
     paths = make_paths(tmp_path)
     grub_default = make_grub_default(tmp_path, theme=None)
     grub_default.write_text(
-        grub_default.read_text(encoding="utf-8") + 'GRUB_BACKGROUND="/boot/grub/splash.png"\n',
+        grub_default.read_text(encoding="utf-8")
+        + 'GRUB_BACKGROUND="/boot/grub/splash.png"\n',
         encoding="utf-8",
     )
     original = grub_default.read_text(encoding="utf-8")

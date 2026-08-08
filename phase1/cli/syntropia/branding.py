@@ -178,11 +178,12 @@ class Branding:
         self.log("grub", f"regenerated {cfg}")
 
     def apply_grub(self) -> None:
-        """Ensure a clean black GRUB background and explicit native resolution.
+        """Ensure clean GRUB: no splash, native resolution, BGRT disabled.
 
-        GRUB's 16-bit framebuffer posterizes dark gradients — the splash
-        lives in Plymouth instead.  This step comments out GRUB_BACKGROUND
-        and pins GFXMODE so the menu text is crisp.
+        * Comments out GRUB_BACKGROUND (Plymouth handles branding).
+        * Pins GFXMODE=1920x1080 so menu text is crisp.
+        * Adds bgrt_disable to kernel cmdline so the motherboard's firmware
+          logo never appears — Plymouth shows our wallpaper from frame one.
         """
         default_cfg = self.paths.grub_default
         if not default_cfg.is_file():
@@ -202,7 +203,7 @@ class Branding:
             stripped = line.strip()
             # Comment out any active GRUB_BACKGROUND (Plymouth has the splash).
             if stripped.startswith("GRUB_BACKGROUND=") and not stripped.startswith("#"):
-                new_lines.append(f"#GRUB_BACKGROUND commented out — Plymouth handles branding")
+                new_lines.append("#GRUB_BACKGROUND commented out — Plymouth handles branding")
                 changed = True
             # Pin GFXMODE to native resolution.
             elif stripped.startswith("GRUB_GFXMODE=") and not stripped.startswith("#"):
@@ -211,16 +212,23 @@ class Branding:
                     changed = True
                 else:
                     new_lines.append(line)
+            # Ensure bgrt_disable is in kernel cmdline (suppresses firmware logo).
+            elif stripped.startswith("GRUB_CMDLINE_LINUX_DEFAULT=") and not stripped.startswith("#"):
+                if "bgrt_disable" not in stripped:
+                    new_lines.append(stripped.rstrip("'\"") + " bgrt_disable'")
+                    changed = True
+                else:
+                    new_lines.append(line)
             else:
                 new_lines.append(line)
 
         if changed:
-            self._would("grub", "clean GRUB background + GFXMODE=1920x1080")
+            self._would("grub", "clean GRUB + GFXMODE=1920x1080 + bgrt_disable")
             if not self.dry_run:
                 default_cfg.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
                 self._regenerate_grub_config()
         else:
-            self.log("grub", "already clean (no splash, GFXMODE=1920x1080)")
+            self.log("grub", "already clean (no splash, GFXMODE=1920x1080, bgrt_disable)")
 
     # -- Wallpaper --------------------------------------------------------
 
