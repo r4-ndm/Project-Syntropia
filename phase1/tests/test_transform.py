@@ -318,6 +318,8 @@ def test_autologin_skips_without_sudo(
 ):
     monkeypatch.setattr(T, "run_command", noop_run([]))
     monkeypatch.delenv("SUDO_USER", raising=False)
+    # Simulate no controlling terminal so os.getlogin() raises OSError
+    monkeypatch.setattr(os, "getlogin", lambda: (_ for _ in ()).throw(OSError("no tty")))
     paths = make_paths(tmp_path)
     sddm_dir = tmp_path / "sddm.conf.d"
     monkeypatch.setattr(T.TransformPaths, "sddm_conf_dir", property(lambda self: sddm_dir))

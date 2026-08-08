@@ -164,12 +164,41 @@ class TransformPaths:
 
     @classmethod
     def for_user(cls) -> "TransformPaths":
-        """Paths for the real user even when transform runs under sudo."""
-        sudo_user = os.environ.get("SUDO_USER")
-        home = Path(os.environ.get("HOME", "/root"))
-        if sudo_user and sudo_user != "root":
-            home = Path("/home") / sudo_user
+        """Paths for the real user even when transform runs under sudo/pkexec."""
+        home = cls._resolve_real_home()
         return cls(home=home)
+
+    @staticmethod
+    def _resolve_real_home() -> Path:
+        """Resolve the real user's home even when running as root via sudo/pkexec."""
+        real_user = TransformPaths._resolve_real_user()
+        if real_user:
+            return Path("/home") / real_user
+        return Path(os.environ.get("HOME", "/root"))
+
+    @staticmethod
+    def _resolve_real_user() -> str | None:
+        """Resolve the real login user even when elevated via sudo/pkexec/polkit."""
+        # sudo sets SUDO_USER
+        sudo_user = os.environ.get("SUDO_USER")
+        if sudo_user and sudo_user != "root":
+            return sudo_user
+        # pkexec often sets PKEXEC_UID
+        pkexec_uid = os.environ.get("PKEXEC_UID")
+        if pkexec_uid:
+            try:
+                import pwd
+                return pwd.getpwuid(int(pkexec_uid)).pw_name
+            except (ValueError, KeyError):
+                pass
+        # os.getlogin() works under both sudo and pkexec
+        try:
+            login = os.getlogin()
+            if login and login != "root":
+                return login
+        except OSError:
+            pass
+        return None
 
 
 def run_command(cmd: list[str]) -> subprocess.CompletedProcess:
@@ -347,9 +376,8 @@ class Transform:
     # -- runner -----------------------------------------------------------
 
     def _target_user(self) -> str | None:
-        """The real user when running under sudo, else None (running as them)."""
-        sudo_user = os.environ.get("SUDO_USER")
-        return sudo_user if sudo_user and sudo_user != "root" else None
+        """The real user when running under sudo/pkexec, else None."""
+        return TransformPaths._resolve_real_user()
 
     def _fix_user_ownership(self) -> None:
         """Return home-dir files to the real user after a root transform.
