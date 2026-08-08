@@ -108,10 +108,11 @@ class StepProgress:
         if self.title:
             sys.stderr.write(f"\033[1m{self.title}\033[0m\n\n")
         if self._tty:
-            # Print the initial (empty) step list and remember its position.
+            # Print the initial step list with labels so they're visible
+            # immediately (the spinner will overwrite in place).
             sys.stderr.write("\033[s")  # save cursor
-            for _ in self.steps:
-                sys.stderr.write("  ⬜ \n")
+            for name, _desc in self.steps:
+                sys.stderr.write(f"  ⬜ {name}\n")
             sys.stderr.write(f"\033[{self._n}A")  # jump back to first step line
         else:
             for name, desc in self.steps:

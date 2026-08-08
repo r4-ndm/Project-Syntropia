@@ -135,7 +135,11 @@ class WineInstaller:
         """Set the progress detail for the current step (used by run_all)."""
         self._progress_detail = text
 
+    _quiet: bool = False
+
     def log(self, action: str, message: str) -> None:
+        if self._quiet:
+            return  # progress tracker is active — detail goes via _detail()
         prefix = "[CHECK]" if self.dry_run else "[APPLY]"
         print(f"{prefix} {action}: {message}")
 
@@ -400,7 +404,8 @@ class WineInstaller:
             (7, "Sync", self.step_yabridge_sync),
         ]
 
-        details: dict[int, str] = {}
+        if progress is not None:
+            self._quiet = True
 
         for idx, label, method in steps:
             if progress is not None:
