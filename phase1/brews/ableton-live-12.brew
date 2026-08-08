@@ -1,12 +1,17 @@
 # Ableton Live 12 — version 12.2 (latest as of 2026-08).
 #
-# Uses the shibco/ableton-linux patched Wine which fixes embedded
-# Python stdlib resolution and works with both Suite and Trial installers.
+# Uses the syntropia-wine (giang17/wine d2d1-dcomp) patched Wine. This is the
+# stack that is proven to launch on this machine: giang17's d2d1-dcomp build
+# plus WINE_D3D_CONFIG=csmt=0x1 and WINED3D_DCOMP_FORCE_FULL_REDRAW=1 in the
+# launcher. The shibco/ableton-linux runtime was tried (08-08) but Live exits
+# silently right after "Options: initialization done" with it — reverted.
 #
 # ═══ PREREQUISITES ═══
 # 1. Download the installer from your Ableton account:
 #      https://www.ableton.com/account/
 #    Place it in ~/Downloads/ (the brew auto-discovers it).
+#    NOTE: the public CDN link serves the Trial installer even though the
+#    filename says "suite" — the real Suite installer comes from your account.
 # 2. You need a valid Ableton license to activate after install.
 
 [brew]
@@ -21,7 +26,7 @@ url = "https://cdn-downloads.ableton.com/channels/12.2/ableton_live_suite_12.2_6
 look_in = ["~/Downloads", "/tmp"]
 
 [wine]
-version = "ableton-wine"
+version = "syntropia-wine"
 prefix = "~/.local/share/syntropia/prefixes/ableton"
 arch = "win64"
 
@@ -57,13 +62,12 @@ WINE_DISABLE_CRASH_DIALOG = "1"
 commands = [
   "mkdir -p \"$WINEPREFIX/drive_c/ableton_installer\"",
   "unzip -o \"$SYNTROPIA_SOURCE\" -d \"$WINEPREFIX/drive_c/ableton_installer/\"",
-"if [ ! -x /opt/ableton-wine/bin/wine ]; then echo 'ERROR: /opt/ableton-wine/bin/wine not found — install it first:'; echo '  curl -L -o /tmp/syntropia-ableton-wine.run https://github.com/shibco/ableton-linux/releases/latest/download/install-ableton-latest.run'; echo '  sudo bash /tmp/syntropia-ableton-wine.run --runtime-only'; echo '  sudo cp -a /root/.local/opt/wine-d2d1-nspa-*/* /opt/ableton-wine/'; exit 1; else echo 'Shibco wine ready'; fi",
-  "INSTALLER=$(find \"$WINEPREFIX/drive_c/ableton_installer\" -maxdepth 1 -name 'Ableton Live*.exe' ! -name 'unins*' | head -1); echo \"Installer: $INSTALLER\"; /opt/ableton-wine/bin/wine \"$INSTALLER\" /SILENT /SUPPRESSMSGBOXES /NORESTART & WINE_PID=$!; for i in $(seq 1 60); do sleep 10; if find \"$WINEPREFIX/drive_c/ProgramData/Ableton\" -name 'Ableton Live*.exe' ! -name '*Install*' ! -name 'unins*' 2>/dev/null | grep -q .; then echo 'Ableton files detected, finishing install...'; /opt/ableton-wine/bin/wineserver -k 2>/dev/null; break; fi; done; wait $WINE_PID 2>/dev/null; /opt/ableton-wine/bin/wineserver -k 2>/dev/null; echo 'Installer step complete'",
+  "INSTALLER=$(find \"$WINEPREFIX/drive_c/ableton_installer\" -maxdepth 1 -name 'Ableton Live*.exe' ! -name 'unins*' | head -1); echo \"Installer: $INSTALLER\"; /opt/syntropia-wine/bin/wine \"$INSTALLER\" /SILENT /SUPPRESSMSGBOXES /NORESTART & WINE_PID=$!; for i in $(seq 1 60); do sleep 10; if find \"$WINEPREFIX/drive_c/ProgramData/Ableton\" -name 'Ableton Live*.exe' ! -name '*Install*' ! -name 'unins*' 2>/dev/null | grep -q .; then echo 'Ableton files detected, finishing install...'; /opt/syntropia-wine/bin/wineserver -k 2>/dev/null; break; fi; done; wait $WINE_PID 2>/dev/null; /opt/syntropia-wine/bin/wineserver -k 2>/dev/null; echo 'Installer step complete'",
   "ABLEX=$(find \"$WINEPREFIX/drive_c/ProgramData/Ableton\" -name 'Ableton Live*.exe' ! -name '*Install*' ! -name 'unins*' 2>/dev/null | head -1); PROGDIR=$(dirname \"$ABLEX\"); echo \"Ableton at: $ABLEX\"; if [ ! -f \"$PROGDIR/python311.zip\" ]; then echo 'Downloading Python 3.11 stdlib for embedded interpreter...'; curl -L -o /tmp/python311-embed.zip 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip' && unzip -o /tmp/python311-embed.zip python311.zip -d \"$PROGDIR/\" && echo 'Python stdlib installed'; else echo 'Python stdlib already present'; fi",
   "LIVEVER=$(find \"$WINEPREFIX/drive_c/users/$USER/AppData/Roaming/Ableton\" -maxdepth 1 -name 'Live *' -type d 2>/dev/null | head -1); if [ -n \"$LIVEVER\" ]; then mkdir -p \"$LIVEVER/Preferences\" && printf '%s\\n' '-_Feature.UseGpuRenderer' '-DontLoadMaxForLiveAtStartup' '-DontCombineAPCs' > \"$LIVEVER/Preferences/Options.txt\"; else echo 'No AppData/Ableton dir yet — Options.txt skipped (will be created on first launch)'; fi",
-  "/opt/ableton-wine/bin/wine reg add 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize' /v AppsUseLightTheme /t REG_DWORD /d 1 /f && /opt/ableton-wine/bin/wine reg add 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize' /v SystemUsesLightTheme /t REG_DWORD /d 1 /f",
+  "/opt/syntropia-wine/bin/wine reg add 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize' /v AppsUseLightTheme /t REG_DWORD /d 1 /f && /opt/syntropia-wine/bin/wine reg add 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize' /v SystemUsesLightTheme /t REG_DWORD /d 1 /f",
   "mkdir -p ~/.local/share/applications ~/.local/bin",
-  "ABLEX=$(find \"$WINEPREFIX/drive_c/ProgramData/Ableton\" -name 'Ableton Live*.exe' ! -name '*Install*' ! -name 'unins*' 2>/dev/null | head -1); ABLENAME=$(basename \"$ABLEX\" .exe); printf '#!/bin/sh\\nWINEPREFIX=%s /opt/ableton-wine/bin/wineserver -k 2>/dev/null\\npkill -9 -f \"%s\" 2>/dev/null\\nnotify-send \"Ableton\" \"Force quit complete\" 2>/dev/null\\n' \"$WINEPREFIX\" \"$ABLENAME\" > ~/.local/bin/ableton-kill && chmod +x ~/.local/bin/ableton-kill",
-  "ABLEX=$(find \"$WINEPREFIX/drive_c/ProgramData/Ableton\" -name 'Ableton Live*.exe' ! -name '*Install*' ! -name 'unins*' 2>/dev/null | head -1); ABLENAME=$(basename \"$ABLEX\"); ABLEDIR=$(dirname \"$ABLEX\"); WINDIR=$(echo \"$ABLEDIR\" | sed \"s|$WINEPREFIX/drive_c/|C:/|\"); WMCLASS=$(echo \"$ABLENAME\" | tr '[:upper:]' '[:lower:]' | sed 's/ .exe/.exe/'); printf '[Desktop Entry]\\nName=Ableton Live 12\\nComment=Digital Audio Workstation (Ableton-Wine)\\nIcon=ableton-live-12\\nExec=env WINEPREFIX=%s WINE_DISABLE_CRASH_DIALOG=1 /opt/ableton-wine/bin/wine start /d \"%s\" \"%s\"\\nType=Application\\nCategories=Audio;AudioVideo;\\nStartupWMClass=%s\\nActions=quit-wine\\n\\n[Desktop Action quit-wine]\\nName=Force Quit\\nExec=%s/.local/bin/ableton-kill\\nIcon=process-stop\\n' \"$WINEPREFIX\" \"$WINDIR\" \"$ABLENAME\" \"$WMCLASS\" \"$HOME\" > ~/.local/share/applications/ableton-live-12.desktop",
+  "ABLEX=$(find \"$WINEPREFIX/drive_c/ProgramData/Ableton\" -name 'Ableton Live*.exe' ! -name '*Install*' ! -name 'unins*' 2>/dev/null | head -1); ABLENAME=$(basename \"$ABLEX\" .exe); printf '#!/bin/sh\\nWINEPREFIX=%s /opt/syntropia-wine/bin/wineserver -k 2>/dev/null\\npkill -9 -f \"%s\" 2>/dev/null\\nnotify-send \"Ableton\" \"Force quit complete\" 2>/dev/null\\n' \"$WINEPREFIX\" \"$ABLENAME\" > ~/.local/bin/ableton-kill && chmod +x ~/.local/bin/ableton-kill",
+  "ABLEX=$(find \"$WINEPREFIX/drive_c/ProgramData/Ableton\" -name 'Ableton Live*.exe' ! -name '*Install*' ! -name 'unins*' 2>/dev/null | head -1); ABLENAME=$(basename \"$ABLEX\"); ABLEDIR=$(dirname \"$ABLEX\"); WINDIR=$(echo \"$ABLEDIR\" | sed \"s|$WINEPREFIX/drive_c/|C:/|\"); WMCLASS=$(echo \"$ABLENAME\" | tr '[:upper:]' '[:lower:]' | sed 's/ .exe/.exe/'); printf '[Desktop Entry]\\nName=Ableton Live 12\\nComment=Digital Audio Workstation (Syntropia Wine)\\nIcon=ableton-live-12\\nExec=env WINEPREFIX=%s WINEDLLOVERRIDES=\"d3d11=b,dxgi=b,d3d10core=b,d2d1=b,dcomp=b,dwrite=b,d3d9=b,d3d8=b,winemenubuilder.exe=d\" WINE_D3D_CONFIG=csmt=0x1 WINED3D_DCOMP_FORCE_FULL_REDRAW=1 WINE_DISABLE_CRASH_DIALOG=1 /opt/syntropia-wine/bin/wine start /d \"%s\" \"%s\"\\nType=Application\\nCategories=Audio;AudioVideo;\\nStartupWMClass=%s\\nActions=quit-wine\\n\\n[Desktop Action quit-wine]\\nName=Force Quit\\nExec=%s/.local/bin/ableton-kill\\nIcon=process-stop\\n' \"$WINEPREFIX\" \"$WINDIR\" \"$ABLENAME\" \"$WMCLASS\" \"$HOME\" > ~/.local/share/applications/ableton-live-12.desktop",
   "mkdir -p ~/.local/share/icons/hicolor/256x256/apps && ICOSRC=$(find \"$WINEPREFIX/drive_c/ProgramData/Ableton\" -name '*.ico' 2>/dev/null | head -1) && ICODST=~/.local/share/icons/hicolor/256x256/apps/ableton-live-12 && if command -v magick >/dev/null 2>&1 && [ -f \"$ICOSRC\" ]; then magick \"$ICOSRC\" -resize 256x256 \"$ICODST.png\" 2>/dev/null; [ -f \"$ICODST-0.png\" ] && cp \"$(ls -S $ICODST-*.png 2>/dev/null | head -1)\" \"$ICODST.png\" && rm -f \"$ICODST-\"*.png; fi; echo 'icon done'",
 ]
