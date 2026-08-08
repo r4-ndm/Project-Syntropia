@@ -218,13 +218,27 @@ class Branding:
                 new_lines.append(line)
         if not replaced:
             new_lines.append(f'GRUB_BACKGROUND="{target}"')
-        if "\n".join(new_lines) == content:
+        # Also ensure GFXMODE is explicit (not "auto") so the splash renders
+        # at native resolution instead of a blurry upscale.
+        gfx_replaced = False
+        final_lines: list[str] = []
+        for line in new_lines:
+            if line.strip().startswith("GRUB_GFXMODE="):
+                final_lines.append("GRUB_GFXMODE=1920x1080")
+                gfx_replaced = True
+            else:
+                final_lines.append(line)
+        if not gfx_replaced:
+            final_lines.append("GRUB_GFXMODE=1920x1080")
+
+        if "\n".join(final_lines) == content:
             self.log("grub", "GRUB_BACKGROUND already points at the splash")
             return
-        self._would("grub", f"set GRUB_BACKGROUND={target} in {default_cfg}")
+        gfx_note = " (+ GFXMODE=1920x1080)" if not gfx_replaced else ""
+        self._would("grub", f"set GRUB_BACKGROUND={target} in {default_cfg}{gfx_note}")
         if self.dry_run:
             return
-        default_cfg.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+        default_cfg.write_text("\n".join(final_lines) + "\n", encoding="utf-8")
 
     def _regenerate_grub_config(self) -> None:
         """Run ``grub-mkconfig`` so the new background actually takes effect."""
