@@ -3,12 +3,14 @@
 Consumes the asset set produced from the CachyOS official branding
 (see ``Branding/`` and the extracted reference set) and installs it:
 
-* **Plymouth boot splash** — a complete theme (``plymouth/`` dir with
-  ``animation-*.png`` frames, a ``*.plymouth`` theme file, etc.) installed
-  as the ``syntropia`` theme and selected as default.
-* **GRUB splash** — ``grub/splash.png`` (1920x1080 boot menu background),
-  wired into the active theme's ``desktop-image`` (or ``GRUB_BACKGROUND``),
-  followed by a ``grub-mkconfig`` regeneration so it actually displays.
+* **Plymouth boot splash** — the main branding surface. A complete theme
+  (``plymouth/`` dir with ``animation-*.png`` frames, a ``*.plymouth`` theme
+  file, etc.) installed as the ``syntropia`` theme and selected as default.
+  ``wallpaper.png`` is also copied as the Plymouth background image so the
+  full-color splash renders during boot (unlike GRUB's 16-bit framebuffer).
+* **GRUB** — the boot menu keeps a clean dark background (no custom splash)
+  because GRUB's 16-bit colour depth posterizes subtle gradients. Plymouth
+  handles the branding at full 24-bit colour later in the boot chain.
 * **Wallpaper** — ``wallpaper.png`` copied to the user's backgrounds dir
   and applied best-effort on GNOME/KDE.
 
@@ -120,128 +122,43 @@ class Branding:
         target_descriptor = theme_dir / f"{PLYMOUTH_THEME_NAME}.plymouth"
         if descriptor != target_descriptor:
             content = descriptor.read_text(encoding="utf-8")
-            # Rewrite the theme's display name whatever the original was.
+            # Rewrite the theme name and fix inherited CachyOS paths.
             content = re.sub(r"(?m)^\s*Name=.*$", "Name=Syntropia", content)
+            content = re.sub(
+                r"(?m)^\s*ImageDir=.*$",
+                f"ImageDir={theme_dir}",
+                content,
+            )
+            # Disable firmware background so our wallpaper shows instead.
+            content = re.sub(
+                r"(?m)^\s*UseFirmwareBackground=.*$",
+                "UseFirmwareBackground=false",
+                content,
+            )
             target_descriptor.write_text(content, encoding="utf-8")
             descriptor.unlink()
+        # Copy wallpaper as the Plymouth background image (full 24-bit colour
+        # — unlike GRUB's 16-bit framebuffer which posterizes dark gradients).
+        wallpaper = self._wallpaper_asset()
+        if wallpaper:
+            bg = theme_dir / "background.png"
+            if not bg.exists():
+                shutil.copy2(wallpaper, bg)
+                self.log("plymouth", f"installed background from {wallpaper.name}")
         (theme_dir / MARKER).write_text("branded by syntropia\n", encoding="utf-8")
         if shutil.which("plymouth-set-default-theme"):
-            # Best-effort: installing the theme is the asset work; selecting it
-            # as default can fail on non-root/broken initramfs — warn, don't abort.
             result = run_command(["plymouth-set-default-theme", PLYMOUTH_THEME_NAME])
             if result.returncode != 0:
                 self.log(
                     "plymouth",
-                    f"warning: could not set default theme: "
+                    "warning: could not set default theme: "
                     f"{result.stdout.strip() or result.stderr.strip()}",
                 )
 
-    # -- GRUB splash ------------------------------------------------------
-
-    def _grub_asset(self) -> Path | None:
-        candidate = self.paths.assets_dir / "grub" / "splash.png"
-        if candidate.is_file():
-            return candidate
-        candidate = self.paths.assets_dir / "grub-splash.png"
-        return candidate if candidate.is_file() else None
-
-    def _grub_theme_background(self) -> Path | None:
-        """Where the active GRUB theme loads its background from, if any.
-
-        Reads ``GRUB_THEME=`` from ``/etc/default/grub`` and then the theme's
-        ``theme.txt`` ``desktop-image`` directive. On themed setups (CachyOS
-        ships a theme by default) this file — not ``/boot/grub/splash.png`` —
-        is what actually renders as the GRUB menu background.
-        """
-        default_cfg = self.paths.grub_default
-        if not default_cfg.is_file():
-            return None
-        theme_line: str | None = None
-        try:
-            for line in default_cfg.read_text(encoding="utf-8").splitlines():
-                stripped = line.strip()
-                if stripped.startswith("GRUB_THEME=") and not stripped.startswith("#"):
-                    theme_line = stripped
-                    break
-        except OSError:
-            return None
-        if theme_line is None:
-            return None
-        theme_txt = Path(theme_line.split("=", 1)[1].strip().strip('\"\''))
-        if not theme_txt.is_file():
-            return None
-        try:
-            for line in theme_txt.read_text(encoding="utf-8").splitlines():
-                if line.strip().startswith("desktop-image:"):
-                    image = line.split(":", 1)[1].strip().strip('\"\'')
-                    return theme_txt.parent / image
-        except OSError:
-            return None
-        return None
-
-    def _wire_grub_background(self, asset: Path, target: Path) -> None:
-        """Point GRUB at the new splash image.
-
-        If a theme is active, replace the file the theme's ``desktop-image``
-        references. Otherwise ensure ``GRUB_BACKGROUND`` points at ``target``
-        in ``/etc/default/grub``.
-        """
-        theme_bg = self._grub_theme_background()
-        if theme_bg is not None and theme_bg.resolve() != target.resolve():
-            bg_backup = theme_bg.with_name(theme_bg.name + ".syntropia.bak")
-            self._would("grub", f"point theme background {theme_bg.name} -> {asset.name}")
-            if self.dry_run:
-                return
-            if theme_bg.exists():
-                shutil.copy2(theme_bg, bg_backup)
-            shutil.copy2(asset, theme_bg)
-            return
-        default_cfg = self.paths.grub_default
-        if not default_cfg.is_file():
-            self.log(
-                "grub",
-                "no GRUB_THEME and no /etc/default/grub — skipping background wiring",
-            )
-            return
-        try:
-            content = default_cfg.read_text(encoding="utf-8")
-        except OSError:
-            return
-        lines = content.splitlines()
-        replaced = False
-        new_lines: list[str] = []
-        for line in lines:
-            if line.strip().startswith("GRUB_BACKGROUND="):
-                new_lines.append(f'GRUB_BACKGROUND="{target}"')
-                replaced = True
-            else:
-                new_lines.append(line)
-        if not replaced:
-            new_lines.append(f'GRUB_BACKGROUND="{target}"')
-        # Also ensure GFXMODE is explicit (not "auto") so the splash renders
-        # at native resolution instead of a blurry upscale.
-        gfx_replaced = False
-        final_lines: list[str] = []
-        for line in new_lines:
-            if line.strip().startswith("GRUB_GFXMODE="):
-                final_lines.append("GRUB_GFXMODE=1920x1080")
-                gfx_replaced = True
-            else:
-                final_lines.append(line)
-        if not gfx_replaced:
-            final_lines.append("GRUB_GFXMODE=1920x1080")
-
-        if "\n".join(final_lines) == content:
-            self.log("grub", "GRUB_BACKGROUND already points at the splash")
-            return
-        gfx_note = " (+ GFXMODE=1920x1080)" if not gfx_replaced else ""
-        self._would("grub", f"set GRUB_BACKGROUND={target} in {default_cfg}{gfx_note}")
-        if self.dry_run:
-            return
-        default_cfg.write_text("\n".join(final_lines) + "\n", encoding="utf-8")
+    # -- GRUB (clean background, no splash) -------------------------------
 
     def _regenerate_grub_config(self) -> None:
-        """Run ``grub-mkconfig`` so the new background actually takes effect."""
+        """Run ``grub-mkconfig`` so any /etc/default/grub edits take effect."""
         grub_mkconfig = shutil.which("grub-mkconfig")
         if grub_mkconfig is None:
             self.log("grub", "grub-mkconfig not found, skipping config regeneration")
@@ -261,31 +178,49 @@ class Branding:
         self.log("grub", f"regenerated {cfg}")
 
     def apply_grub(self) -> None:
-        asset = self._grub_asset()
-        if asset is None:
-            self.log("grub", "no grub splash asset found, skipping")
+        """Ensure a clean black GRUB background and explicit native resolution.
+
+        GRUB's 16-bit framebuffer posterizes dark gradients — the splash
+        lives in Plymouth instead.  This step comments out GRUB_BACKGROUND
+        and pins GFXMODE so the menu text is crisp.
+        """
+        default_cfg = self.paths.grub_default
+        if not default_cfg.is_file():
+            self.log("grub", "/etc/default/grub not found, skipping")
             return
-        target = self.paths.grub_splash
-        backup = target.with_name(target.name + ".syntropia.bak")
-        marker = target.with_name(target.name + MARKER)
-        if marker.exists():
-            self.log("grub", "already branded (marker present), skipping")
+
+        try:
+            content = default_cfg.read_text(encoding="utf-8")
+        except OSError:
             return
-        self._would("grub", f"install {asset.name} -> {target}")
-        if not self.dry_run:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            if target.exists():
-                # First branding run: preserve whatever was there (e.g. stock splash).
-                shutil.copy2(target, backup)
-            shutil.copy2(asset, target)
-            marker.write_text("branded by syntropia\n", encoding="utf-8")
-            self.log(
-                "grub",
-                f"installed {target}"
-                + (f" (original preserved as {backup.name})" if backup.exists() else ""),
-            )
-        self._wire_grub_background(asset, target)
-        self._regenerate_grub_config()
+
+        lines = content.splitlines()
+        new_lines: list[str] = []
+        changed = False
+
+        for line in lines:
+            stripped = line.strip()
+            # Comment out any active GRUB_BACKGROUND (Plymouth has the splash).
+            if stripped.startswith("GRUB_BACKGROUND=") and not stripped.startswith("#"):
+                new_lines.append(f"#GRUB_BACKGROUND commented out — Plymouth handles branding")
+                changed = True
+            # Pin GFXMODE to native resolution.
+            elif stripped.startswith("GRUB_GFXMODE=") and not stripped.startswith("#"):
+                if stripped != "GRUB_GFXMODE=1920x1080":
+                    new_lines.append("GRUB_GFXMODE=1920x1080")
+                    changed = True
+                else:
+                    new_lines.append(line)
+            else:
+                new_lines.append(line)
+
+        if changed:
+            self._would("grub", "clean GRUB background + GFXMODE=1920x1080")
+            if not self.dry_run:
+                default_cfg.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+                self._regenerate_grub_config()
+        else:
+            self.log("grub", "already clean (no splash, GFXMODE=1920x1080)")
 
     # -- Wallpaper --------------------------------------------------------
 

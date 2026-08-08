@@ -117,28 +117,62 @@ def test_plymouth_skips_without_assets(tmp_path: Path):
 # --- GRUB ---------------------------------------------------------------
 
 
-def test_grub_installs_and_backs_up_existing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_grub_comments_out_background_sets_gfxmode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """New behaviour: GRUB gets a clean black background + GFXMODE=1920x1080."""
+    calls: list = []
+    monkeypatch.setattr(B, "run_command", noop_run(calls))
+    paths = make_paths(tmp_path)
+    grub_default = make_grub_default(tmp_path, theme=None)
+    # Add a GRUB_BACKGROUND line so we can verify it gets commented out.
+    grub_default.write_text(
+        grub_default.read_text(encoding="utf-8") + 'GRUB_BACKGROUND="/boot/grub/splash.png"\nGRUB_GFXMODE=auto\n',
+        encoding="utf-8",
+    )
+    B.Branding(paths, dry_run=False).apply_grub()
+    content = grub_default.read_text(encoding="utf-8")
+    # Old GRUB_BACKGROUND must be commented out.
+    assert "#GRUB_BACKGROUND commented out" in content
+    assert 'GRUB_BACKGROUND="/boot/grub/splash.png"' not in content
+    # GFXMODE pinned to 1920x1080.
+    assert "GRUB_GFXMODE=1920x1080" in content
+    assert "GRUB_GFXMODE=auto" not in content
+    # grub-mkconfig regenerated.
+    assert any(
+        str(c[0]).endswith("grub-mkconfig") and str(c[-1]).endswith("grub.cfg")
+        for c in calls
+    )
+
+
+def test_grub_already_clean_is_noop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """When GRUB_BACKGROUND is absent and GFXMODE is already 1920x1080, do nothing."""
+    calls: list = []
+    monkeypatch.setattr(B, "run_command", noop_run(calls))
+    paths = make_paths(tmp_path)
+    make_grub_default(tmp_path, theme=None)
+    # Default has no GRUB_BACKGROUND and no GFXMODE, so apply_grub will add GFXMODE.
+    B.Branding(paths, dry_run=False).apply_grub()
+    # Second run: already clean -> no-op (no grub-mkconfig call).
+    first_calls = len(calls)
+    B.Branding(paths, dry_run=False).apply_grub()
+    # No new calls — already clean.
+    assert len(calls) == first_calls
+
+
+def test_grub_skips_without_default_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """If /etc/default/grub doesn't exist, skip gracefully."""
     monkeypatch.setattr(B, "run_command", noop_run([]))
     paths = make_paths(tmp_path)
-    paths.grub_splash.parent.mkdir(parents=True)
-    paths.grub_splash.write_bytes(b"stock-cachyos-splash")  # pre-existing
-    branding = B.Branding(paths, dry_run=False)
-    branding.apply_grub()
-    assert paths.grub_splash.read_bytes() == b"grub-splash"
-    backup = paths.grub_splash.with_name("splash.png.syntropia.bak")
-    assert backup.read_bytes() == b"stock-cachyos-splash"
-
-
-def test_grub_idempotent_via_marker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(B, "run_command", noop_run([]))
-    branding = make_branding(tmp_path, dry_run=False)
-    branding.apply_grub()
-    branding.apply_grub()
-    marker = branding.paths.grub_splash.with_name("splash.png" + B.MARKER)
-    assert marker.exists()
+    # Don't call make_grub_default — leave the file absent.
+    B.Branding(paths, dry_run=False).apply_grub()
+    # No crash, no writes.
 
 
 def test_grub_dry_run_changes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Dry-run must not modify /etc/default/grub or call grub-mkconfig."""
     calls: list = []
 
     def boom(cmd: list):
@@ -146,66 +180,16 @@ def test_grub_dry_run_changes_nothing(tmp_path: Path, monkeypatch: pytest.Monkey
         raise AssertionError("dry-run must not execute commands")
 
     monkeypatch.setattr(B, "run_command", boom)
-    branding = make_branding(tmp_path, dry_run=True)
-    branding.apply_grub()
-    assert not branding.paths.grub_splash.exists()
-    assert calls == []  # grub-mkconfig must not run in dry-run
-
-
-def test_grub_replaces_theme_background_and_regenerates(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    calls: list = []
-    monkeypatch.setattr(B, "run_command", noop_run(calls))
-    paths = make_paths(tmp_path)
-    theme_txt = make_theme(tmp_path)
-    make_grub_default(tmp_path, theme=theme_txt)
-    B.Branding(paths, dry_run=False).apply_grub()
-    # The theme's desktop-image file is what GRUB actually renders.
-    theme_bg = theme_txt.parent / "background.png"
-    assert theme_bg.read_bytes() == b"grub-splash"
-    assert (theme_bg.with_name("background.png.syntropia.bak")).read_bytes() == b"stock-theme-bg"
-    # grub-mkconfig ran against our grub.cfg.
-    assert any(
-        str(c[0]).endswith("grub-mkconfig") and c[-1].endswith("grub.cfg") for c in calls
-    )
-
-
-def test_grub_sets_grub_background_when_no_theme(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    monkeypatch.setattr(B, "run_command", noop_run([]))
     paths = make_paths(tmp_path)
     grub_default = make_grub_default(tmp_path, theme=None)
-    B.Branding(paths, dry_run=False).apply_grub()
-    content = grub_default.read_text(encoding="utf-8")
-    assert f'GRUB_BACKGROUND="{paths.grub_splash}"' in content
-
-
-def test_grub_background_wiring_idempotent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(B, "run_command", noop_run([]))
-    paths = make_paths(tmp_path)
-    make_grub_default(tmp_path, theme=None)
-    branding = B.Branding(paths, dry_run=False)
-    branding.apply_grub()
-    content = paths.grub_default.read_text(encoding="utf-8")
-    assert content.count("GRUB_BACKGROUND=") == 1  # second wiring must not duplicate
-
-
-def test_grub_dry_run_reports_steps_without_writing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    def boom(cmd: list):
-        raise AssertionError("dry-run must not execute commands")
-
-    monkeypatch.setattr(B, "run_command", boom)
-    paths = make_paths(tmp_path)
-    theme_txt = make_theme(tmp_path)
-    make_grub_default(tmp_path, theme=theme_txt)
+    grub_default.write_text(
+        grub_default.read_text(encoding="utf-8") + 'GRUB_BACKGROUND="/boot/grub/splash.png"\n',
+        encoding="utf-8",
+    )
+    original = grub_default.read_text(encoding="utf-8")
     B.Branding(paths, dry_run=True).apply_grub()
-    # Nothing written, theme background untouched.
-    assert (theme_txt.parent / "background.png").read_bytes() == b"stock-theme-bg"
-    assert not paths.grub_splash.exists()
+    assert grub_default.read_text(encoding="utf-8") == original
+    assert calls == []
 
 
 # --- Wallpaper ----------------------------------------------------------
