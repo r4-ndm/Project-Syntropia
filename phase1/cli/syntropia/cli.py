@@ -291,6 +291,49 @@ def uninstall(name: str, registry: str, yes: bool) -> None:
             removed.append(icon)
             click.echo(f"  removed legacy icon {icon}")
 
+    # --- Wine menu stragglers (winemenubuilder entries) ---
+    # winemenubuilder.exe drops .desktop entries under applications/wine/ that
+    # reference the brew's prefix directly (Exec=/Path= point inside it) plus a
+    # wine-protocol-<name>.desktop and hashed icons under hicolor. Sweep any
+    # desktop file whose contents mention the prefix, then remove the icons it
+    # referenced and prune now-empty directories.
+    wine_apps = Path.home() / ".local/share/applications/wine"
+    removed_desktops: list[Path] = []
+    if wine_apps.exists():
+        for cand in sorted(wine_apps.rglob("*.desktop")):
+            try:
+                text = cand.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if str(prefix) in text or f"{slug}.desktop" in text:
+                cand.unlink(missing_ok=True)
+                removed.append(str(cand))
+                removed_desktops.append(cand)
+                click.echo(f"  removed wine menu entry {cand}")
+                # Remove icons referenced by this entry (hashed wine icon names)
+                for line in text.splitlines():
+                    if line.startswith("Icon=") and line.strip() != "Icon=":
+                        icon_name = line[5:].strip().rstrip("\r")
+                        for icon_hit in _glob.glob(
+                            str(Path.home() / ".local/share/icons/hicolor" / "*" / "apps" / f"{icon_name}.png")
+                        ):
+                            Path(icon_hit).unlink(missing_ok=True)
+                            removed.append(icon_hit)
+                            click.echo(f"  removed wine icon {icon_hit}")
+        # Prune empty dirs left behind by the sweep
+        for empty in sorted(
+            (d for d in wine_apps.rglob("*") if d.is_dir() and not any(d.iterdir())),
+            key=lambda p: -len(p.parts),
+        ):
+            empty.rmdir()
+
+    # --- wine-protocol-<name>.desktop (MIME handler) ---
+    protocol_file = Path.home() / ".local/share/applications" / f"wine-protocol-{slug}.desktop"
+    if protocol_file.exists():
+        protocol_file.unlink()
+        removed.append(str(protocol_file))
+        click.echo(f"  removed {protocol_file}")
+
     if removed:
         click.echo(click.style(f"Uninstalled {brew.name} -- {len(removed)} items removed", fg="green"))
     else:
