@@ -295,12 +295,17 @@ PYEOF
     mkdir -p "rootfs/etc/skel/.config/fastfetch"
     # Run from the remaster dir (cwd) but import the repo's config builder
     # via PYTHONPATH — same single source of truth as `syntropia transform`.
-    PYTHONPATH="$REPO_ROOT/phase1/cli" python3 -c \
-        "import json; from syntropia.transform import build_fastfetch_conf;" \
-        "cm = json.load(open('$REPO_ROOT/Branding/syntropia/fastfetch-color.json'));" \
-        "print(build_fastfetch_conf(cm), end='')" \
-      > rootfs/etc/skel/.config/fastfetch/config.jsonc 2>/dev/null \
-      || warn "could not generate fastfetch config from repo — skel will fall back to stock"
+    # NOTE: python3 -c only runs the FIRST argument; later args become
+    # sys.argv and silently produce empty output. Use a heredoc instead so
+    # the whole program is one stdin stream.
+    PYTHONPATH="$REPO_ROOT/phase1/cli" python3 - \
+        "$REPO_ROOT/Branding/syntropia/fastfetch-color.json" \
+      > rootfs/etc/skel/.config/fastfetch/config.jsonc 2>/dev/null << 'PYEOF' || true
+import json, sys
+from syntropia.transform import build_fastfetch_conf
+cm = json.load(open(sys.argv[1]))
+print(build_fastfetch_conf(cm), end="")
+PYEOF
     if [[ -s rootfs/etc/skel/.config/fastfetch/config.jsonc ]]; then
         ok "ASCII art shipped (/usr/share/syntropia/ + skel fastfetch config)"
     else
