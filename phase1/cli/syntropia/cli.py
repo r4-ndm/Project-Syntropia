@@ -7,13 +7,15 @@ from pathlib import Path
 
 import click
 
+from . import __version__
 from .brew import BrewError, brew_filename, find_brews, lint_brew, load_brew, registry_brew_is_stale, resolve_brew, save_brew
-from .plugins import DEFAULT_PLUGIN_DIR, PluginsError, drop_folder, ensure_drop_folder, find_plugins, link_vendor_data, stub_for, sync_plugins
+from .plugins import PluginsError, drop_folder, ensure_drop_folder, stub_for, sync_plugins
+from .vendor import VendorError, link_vendor_data
 from .progress import StepProgress
 from .registry import RegistryError, submit_brew
 from .transform import TransformError, run_transform
 from .update import UpdateError, run_update
-from .wine_helper import WineHelperError, WineInstaller
+from .wine_helper import STEP_LABELS, WineHelperError, WineInstaller
 
 DEFAULT_REGISTRY = "~/.config/syntropia/brews"
 
@@ -25,7 +27,7 @@ def _registry_path(registry: str) -> str:
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="syntropia")
+@click.version_option(version=__version__, prog_name="syntropia")
 def cli() -> None:
     """Syntropia — install Windows DAWs and VSTs on CachyOS via Wine and yabridge."""
 
@@ -82,17 +84,7 @@ def install(brew: str, registry: str, check: bool, yes: bool) -> None:
             "(read agent-rules/transform-safety.md first)"
         )
 
-    steps: list[tuple[str, str]] = [
-        ("Toolchain",  "Checking wine, winetricks, yabridge"),
-        ("Prefix",     "Provisioning Wine prefix"),
-        ("Overrides",  "Applying DLL overrides"),
-        ("Winetricks", "Installing winetricks packages"),
-        ("Yabridge",   "Registering plugin directories"),
-        ("Source",     "Finding installer file"),
-        ("Install",    "Running install commands"),
-        ("Vendor",     "Linking vendor data (Arturia etc.)"),
-        ("Sync",       "Syncing yabridge plugins"),
-    ]
+    steps: list[tuple[str, str]] = STEP_LABELS
 
     title = f"😈 Installing {brew.name} {brew.version}"
 
@@ -528,7 +520,7 @@ def plugins_link(vendor: str, source: str, prefixes: tuple[str, ...], check: boo
             target_prefixes=target_prefixes,
             dry_run=check,
         )
-    except PluginsError as exc:
+    except VendorError as exc:
         raise click.ClickException(str(exc)) from exc
 
     click.echo(f"Linking {result.vendor} data from {result.source_prefix}:")

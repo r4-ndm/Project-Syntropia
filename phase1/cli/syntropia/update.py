@@ -18,16 +18,13 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
 from pathlib import Path
+
+from .process import run_command
 
 
 class UpdateError(Exception):
     """An update step failed."""
-
-
-def run_command(cmd: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
 
 
 def _repo_root() -> Path | None:

@@ -132,6 +132,14 @@ version = "1.368"
 category = "vst3_synth"
 maintainer = "Syntropia Team <hello@project-syntropia.io>"
 
+# OPTIONAL — installer discovery. filename glob searched in look_in dirs;
+# url is the download fallback when the file isn't found locally; the
+# resolved path is exposed to install commands as $SYNTROPIA_SOURCE.
+[source]
+filename = "Serum_Setup_*.exe"
+url = "https://example.com/Serum_Setup.exe"
+look_in = ["~/Downloads"]
+
 [wine]
 version = "cachyos-wine"
 prefix = "~/.local/share/syntropia/prefixes/serum"

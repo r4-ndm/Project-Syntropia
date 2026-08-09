@@ -200,6 +200,20 @@ def test_dry_run_plans_post_install_sync_without_running(
     assert calls == []  # dry-run never syncs
 
 
+# --- pipeline definition ------------------------------------------------
+
+
+def test_step_labels_and_methods_stay_in_sync():
+    """STEP_LABELS (shown by the CLI) and _STEP_METHODS (run by run_all)
+    must name the same steps — a step added to one but not the other
+    silently breaks the install pipeline."""
+    assert set(WH._STEP_METHODS) == {label for label, _desc in WH.STEP_LABELS}
+    # every mapped method must exist on the installer
+    installer = make_installer(Path("/tmp/unused-home"))
+    for label, method_name in WH._STEP_METHODS.items():
+        assert hasattr(installer, method_name), f"{label} -> {method_name} missing"
+
+
 # --- vendor data linking ------------------------------------------------
 
 
@@ -222,7 +236,7 @@ def test_step_vendor_data_links_into_own_prefix(tmp_path: Path, monkeypatch: pyt
     seen: dict = {}
 
     def fake_link(vendor, source_prefix, target_prefixes=None, home=None, dry_run=False):
-        from syntropia.plugins import LinkResult
+        from syntropia.vendor import LinkResult
 
         seen.update(
             vendor=vendor,
@@ -239,7 +253,7 @@ def test_step_vendor_data_links_into_own_prefix(tmp_path: Path, monkeypatch: pyt
             dry_run=dry_run,
         )
 
-    monkeypatch.setattr("syntropia.plugins.link_vendor_data", fake_link)
+    monkeypatch.setattr("syntropia.wine_helper.link_vendor_data", fake_link)
     installer.step_vendor_data()
 
     assert seen["vendor"] == "Arturia"
@@ -258,12 +272,12 @@ def test_step_vendor_data_dry_run_plans_without_linking(
     seen: dict = {}
 
     def fake_link(vendor, source_prefix, target_prefixes=None, home=None, dry_run=False):
-        from syntropia.plugins import LinkResult
+        from syntropia.vendor import LinkResult
 
         seen["dry_run"] = dry_run
         return LinkResult(vendor, Path(source_prefix), target_prefixes or [], dry_run=dry_run)
 
-    monkeypatch.setattr("syntropia.plugins.link_vendor_data", fake_link)
+    monkeypatch.setattr("syntropia.wine_helper.link_vendor_data", fake_link)
     installer.step_vendor_data()
 
     assert seen["dry_run"] is True
@@ -276,10 +290,10 @@ def test_step_vendor_data_missing_vendor_warns_not_fails(
     installer = WH.WineInstaller(
         parse_brew(_manifest_with_vendor(["Arturia"]), "x.brew"), home=tmp_path
     )
-    from syntropia.plugins import PluginsError
+    from syntropia.vendor import VendorError
 
     def fake_link(vendor, source_prefix, target_prefixes=None, home=None, dry_run=False):
-        raise PluginsError("no 'Arturia' data or registry keys found")
+        raise VendorError("no 'Arturia' data or registry keys found")
 
-    monkeypatch.setattr("syntropia.plugins.link_vendor_data", fake_link)
+    monkeypatch.setattr("syntropia.wine_helper.link_vendor_data", fake_link)
     installer.step_vendor_data()  # must not raise

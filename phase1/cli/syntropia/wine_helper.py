@@ -20,17 +20,17 @@ Safety contract (see agent-rules/transform-safety.md):
 
 from __future__ import annotations
 
-import glob
 import os
 import shutil
-import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .brew import Brew, DEFAULT_SOURCE_LOOK_IN
+from .brew import Brew, DEFAULT_SOURCE_LOOK_IN, WINE_BUILD_BIN_DIRS
+from .process import expand_path, run_command
+from .vendor import VendorError, link_vendor_data
 
 if TYPE_CHECKING:
     from .progress import ProgressBar, StepProgress
@@ -42,29 +42,38 @@ DLL_OVERRIDES_REGKEY = r"HKCU\Software\Wine\DllOverrides"
 # `yabridge` daemon binary — a packaging quirk, not required to install VST3s).
 TOOLCHAIN = ("wine", "winetricks", "yabridgectl", "yabridge-host.exe")
 
+# The install pipeline, in order: (display label, progress description).
+# This is the single source of truth — the CLI derives its progress display
+# from it, and run_all maps each label to its step method via _STEP_METHODS.
+# Add a new step here and in _STEP_METHODS; never in cli.py.
+STEP_LABELS: list[tuple[str, str]] = [
+    ("Toolchain", "Checking wine, winetricks, yabridge"),
+    ("Prefix", "Provisioning Wine prefix"),
+    ("Overrides", "Applying DLL overrides"),
+    ("Winetricks", "Installing winetricks packages"),
+    ("Yabridge", "Registering plugin directories"),
+    ("Source", "Finding installer file"),
+    ("Install", "Running install commands"),
+    ("Vendor", "Linking vendor data (Arturia etc.)"),
+    ("Sync", "Syncing yabridge plugins"),
+]
+
+# STEP_LABELS label -> WineInstaller method that performs the step.
+_STEP_METHODS: dict[str, str] = {
+    "Toolchain": "step_toolchain",
+    "Prefix": "step_prefix",
+    "Overrides": "step_overrides",
+    "Winetricks": "step_winetricks",
+    "Yabridge": "step_yabridge",
+    "Source": "step_source",
+    "Install": "step_install",
+    "Vendor": "step_vendor_data",
+    "Sync": "step_yabridge_sync",
+}
+
 
 class WineHelperError(Exception):
     """An install step failed or the install was refused."""
-
-
-def run_command(cmd: list[str], env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
-    """Run a command and capture output. Wrapped for test mocking."""
-    return subprocess.run(cmd, capture_output=True, text=True, env=env)
-
-
-def expand_path(value: str, home: Path) -> Path:
-    """Expand ``$VAR`` and ``~`` in a manifest path, anchoring to the given home.
-
-    ``~`` resolves against the injected home (not the process HOME) so the
-    install target stays testable and predictable.
-    """
-    value = os.path.expandvars(value)
-    if value.startswith("~"):
-        value = str(home) + value[1:] if value != "~" else str(home)
-    path = Path(value)
-    if not path.is_absolute():
-        path = home / path
-    return path
 
 
 @dataclass
@@ -92,12 +101,9 @@ class WineInstaller:
         """Resolve a custom Wine build path from the brew's wine_version.
 
         Returns a directory to prepend to PATH, or None to use system Wine.
+        The known-build table lives in brew.WINE_BUILD_BIN_DIRS.
         """
-        if self.brew.wine_version == "syntropia-wine":
-            return "/opt/syntropia-wine/bin"
-        if self.brew.wine_version == "ableton-wine":
-            return "/opt/ableton-wine/bin"
-        return None
+        return WINE_BUILD_BIN_DIRS.get(self.brew.wine_version)
 
     def toolchain_missing(self) -> list[str]:
         wine_dir = self._wine_bin_dir()
@@ -427,8 +433,6 @@ class WineInstaller:
         installed, and the user can link later with
         ``syntropia plugins link --data <Vendor>``.
         """
-        from .plugins import PluginsError, link_vendor_data
-
         vendors = self.brew.vendor_names or []
         if not vendors:
             self.log("vendor", "no vendor data declared in manifest")
@@ -446,7 +450,7 @@ class WineInstaller:
                     home=self.home,
                     dry_run=self.dry_run,
                 )
-            except PluginsError as exc:
+            except VendorError as exc:
                 # Benign when the vendor's plugins aren't in the source
                 # prefix (e.g. no Arturia installed yet) — don't fail the
                 # DAW install over it.
@@ -503,16 +507,9 @@ class WineInstaller:
         When *progress* is given, each step reports through the animated
         step tracker instead of plain ``log()`` calls.
         """
-        steps: list[tuple[int, str, object]] = [
-            (0, "Toolchain", self.step_toolchain),
-            (1, "Prefix", self.step_prefix),
-            (2, "Overrides", self.step_overrides),
-            (3, "Winetricks", self.step_winetricks),
-            (4, "Yabridge", self.step_yabridge),
-            (5, "Source", self.step_source),
-            (6, "Install", self.step_install),
-            (7, "Vendor", self.step_vendor_data),
-            (8, "Sync", self.step_yabridge_sync),
+        steps = [
+            (idx, label, getattr(self, _STEP_METHODS[label]))
+            for idx, (label, _desc) in enumerate(STEP_LABELS)
         ]
 
         if progress is not None:

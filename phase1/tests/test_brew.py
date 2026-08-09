@@ -1,5 +1,6 @@
 """Tests for syntropia.brew — the .brew manifest parser and validator."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,9 @@ import pytest
 from syntropia.brew import (
     Brew,
     BrewError,
+    KNOWN_SECTIONS,
+    REQUIRED_SECTIONS,
+    _SECTION_FIELDS,
     brew_filename,
     find_brews,
     find_repo_brew,
@@ -265,6 +269,48 @@ def test_load_brew_missing_file(tmp_path: Path):
         load_brew(tmp_path / "nope.brew")
 
 
+def test_section_schema_is_self_describing():
+    """Section-level metadata must come from _SECTION_FIELDS, never be
+    duplicated — a section added to the table without the right flags can't
+    silently change what parse_brew enforces."""
+    # The known/required section sets are derived from the schema itself.
+    assert KNOWN_SECTIONS == frozenset(_SECTION_FIELDS)
+    assert REQUIRED_SECTIONS == ("brew", "wine", "install")
+    # Every section is either free-form or has field specs (never both empty
+    # in a way that would make it unparseable), and free-form sections must
+    # have no field rules.
+    for name, spec in _SECTION_FIELDS.items():
+        assert spec.free_form or spec.fields, f"{name}: no fields and not free-form"
+        if spec.free_form:
+            assert not spec.fields, f"{name}: free-form sections must not declare fields"
+        if spec.required:
+            assert not spec.free_form, f"{name}: required sections must be field-driven"
+
+
+def test_plan_md_documents_all_sections():
+    """plan.md's schema block and brew.KNOWN_SECTIONS must agree.
+
+    plan.md is the public schema doc; brew.py enforces it. If one gains a
+    section the other doesn't know, agents get confused (or manifests
+    break silently) — fail loudly instead.
+    """
+    plan_md = Path(__file__).resolve().parents[1] / "plan.md"
+    text = plan_md.read_text(encoding="utf-8")
+    match = re.search(r"```toml\n(.*?)\n```", text, re.DOTALL)
+    assert match, "plan.md must contain a ```toml schema block"
+    documented = {
+        # [wine.overrides] counts as [wine]; sub-sections are part of it.
+        line.strip()[1:-1].split(".", 1)[0]
+        for line in match.group(1).splitlines()
+        if line.strip().startswith("[") and line.strip().endswith("]")
+    }
+    assert documented == set(KNOWN_SECTIONS), (
+        f"plan.md documents {sorted(documented)} but brew.py knows "
+        f"{sorted(KNOWN_SECTIONS)} — update plan.md's schema block and/or "
+        f"brew.KNOWN_SECTIONS"
+    )
+
+
 def test_every_shipped_brew_parses():
     """Regression net: every .brew shipped in phase1/brews must load.
 
@@ -280,6 +326,17 @@ def test_every_shipped_brew_parses():
         assert brew.name.strip(), f"{path.name}: empty brew name"
         assert brew.wine_version, f"{path.name}: missing wine version"
         assert brew.wine_prefix, f"{path.name}: missing wine prefix"
+
+
+def test_engine_smoke_brew_stays_parseable():
+    """The committed smoke-test brew (phase1/tests/engine-smoke.brew) must
+    keep parsing, or smoke_engine.sh silently tests a broken manifest."""
+    smoke = Path(__file__).resolve().parent / "engine-smoke.brew"
+    assert smoke.is_file(), f"missing {smoke}"
+    brew = load_brew(smoke)
+    assert brew.name == "Syntropia Engine Smoke Test"
+    assert brew.wine_prefix.endswith("engine-smoke-test")
+    assert brew.install_commands, "smoke brew needs at least one install command"
 
 
 def test_no_jammed_install_commands():

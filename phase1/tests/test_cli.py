@@ -379,10 +379,10 @@ def test_plugins_link_reports_summary(tmp_path: Path, monkeypatch):
 
 
 def test_plugins_link_missing_vendor_data(tmp_path: Path, monkeypatch):
-    from syntropia.plugins import PluginsError
+    from syntropia.vendor import VendorError
 
     def boom(vendor, source, target_prefixes=None, dry_run=False):
-        raise PluginsError(f"no '{vendor}' data or registry keys found in {source}")
+        raise VendorError(f"no '{vendor}' data or registry keys found in {source}")
     monkeypatch.setattr("syntropia.cli.link_vendor_data", boom)
     result = _run("plugins", "link", "--data", "GhostVendor")
     assert result.exit_code != 0

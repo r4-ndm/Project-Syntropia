@@ -20,16 +20,109 @@ from typing import Any
 
 BREW_EXTENSION = ".brew"
 
-REQUIRED_BREW_FIELDS = ("name", "version", "category", "maintainer")
 VALID_WINE_ARCHS = ("win32", "win64")
-KNOWN_SECTIONS = {"brew", "wine", "winetricks", "yabridge", "environment", "install", "source", "vendor_data"}
-KNOWN_WINE_FIELDS = {"version", "prefix", "arch", "overrides"}
-KNOWN_WINETRICKS_FIELDS = {"packages"}
-KNOWN_YABRIDGE_FIELDS = {"enabled", "plugin_dirs"}
-KNOWN_INSTALL_FIELDS = {"commands"}
-KNOWN_SOURCE_FIELDS = {"filename", "url", "look_in"}
-KNOWN_VENDOR_DATA_FIELDS = {"source", "vendors"}
 DEFAULT_SOURCE_LOOK_IN = ["~/Downloads"]
+
+# Known wine builds: brew [wine] version → bin directory to prepend to PATH.
+# Adding a wine build is one row here — the install engine and the vendor
+# linker both derive their binaries from this table.
+WINE_BUILD_BIN_DIRS: dict[str, str] = {
+    "syntropia-wine": "/opt/syntropia-wine/bin",
+    "ableton-wine": "/opt/ableton-wine/bin",
+}
+
+@dataclass(frozen=True)
+class FieldSpec:
+    """One field in a brew section: name, kind, and whether it's required.
+
+    ``kind`` is one of ``"str"``, ``"str_list"``, ``"str_dict"``, or
+    ``"bool"``. ``default`` is used when the field is absent (required
+    fields have no default).
+    """
+
+    name: str
+    kind: str
+    required: bool = False
+    default: object = None
+
+
+@dataclass(frozen=True)
+class SectionSpec:
+    """Schema for one brew section: its fields and section-level rules.
+
+    ``fields``   — the section's FieldSpecs (empty for free-form sections).
+    ``required`` — the manifest must declare this section.
+    ``free_form``— accepts any string→string pairs (no per-field rules;
+                   e.g. [environment]).
+    ``skip_empty``— only validated when the section is non-empty
+                   (historical [source] leniency).
+    """
+
+    fields: tuple[FieldSpec, ...] = ()
+    required: bool = False
+    free_form: bool = False
+    skip_empty: bool = False
+
+
+# Section schema: section name → its spec, in declaration order.
+# This is the single source of truth — the section set (KNOWN_SECTIONS),
+# the required sections (REQUIRED_SECTIONS), and every validation rule in
+# parse_brew are derived from it. Adding a section is one row here plus
+# wiring its extracted values into the Brew constructor.
+_SECTION_FIELDS: dict[str, SectionSpec] = {
+    "brew": SectionSpec(
+        fields=(
+            FieldSpec("name", "str", required=True),
+            FieldSpec("version", "str", required=True),
+            FieldSpec("category", "str", required=True),
+            FieldSpec("maintainer", "str", required=True),
+        ),
+        required=True,
+    ),
+    "wine": SectionSpec(
+        fields=(
+            FieldSpec("version", "str", required=True),
+            FieldSpec("prefix", "str", required=True),
+            FieldSpec("arch", "str", required=True),
+            FieldSpec("overrides", "str_dict", default={}),
+        ),
+        required=True,
+    ),
+    "winetricks": SectionSpec(fields=(FieldSpec("packages", "str_list", default=[]),)),
+    "yabridge": SectionSpec(
+        fields=(
+            FieldSpec("enabled", "bool", default=False),
+            FieldSpec("plugin_dirs", "str_list", default=[]),
+        ),
+    ),
+    "install": SectionSpec(fields=(FieldSpec("commands", "str_list", required=True),), required=True),
+    "source": SectionSpec(
+        fields=(
+            FieldSpec("filename", "str", required=True),
+            FieldSpec("url", "str"),
+            FieldSpec("look_in", "str_list", default=[]),
+        ),
+        skip_empty=True,
+    ),
+    "environment": SectionSpec(free_form=True),
+    "vendor_data": SectionSpec(
+        fields=(
+            FieldSpec("source", "str"),
+            FieldSpec("vendors", "str_list", default=[]),
+        ),
+    ),
+}
+
+# Every top-level section a .brew may declare — derived from the schema so
+# the parser and the doc never disagree about what exists. plan.md
+# documents the same set (a test keeps the two in sync).
+KNOWN_SECTIONS = frozenset(_SECTION_FIELDS)
+
+# Sections a manifest must declare — derived so a section added without
+# ``required=True`` can't silently become mandatory (or vice versa).
+REQUIRED_SECTIONS: tuple[str, ...] = tuple(
+    name for name, spec in _SECTION_FIELDS.items() if spec.required
+)
 
 
 class BrewError(Exception):
@@ -79,51 +172,52 @@ def _require_table(data: dict[str, Any], path: Path, section: str) -> dict[str, 
     return value
 
 
-def _require_str(
-    table: dict[str, Any], path: Path, section: str, field_name: str, *, optional: bool = False
-) -> str | None:
-    if field_name not in table:
-        if optional:
-            return None
-        _fail(path, f"missing required field '{field_name}' in section [{section}]")
-    value = table[field_name]
-    if not isinstance(value, str) or not value.strip():
-        _fail(path, f"field '{field_name}' in section [{section}] must be a non-empty string, got {type(value).__name__}")
-    return value
+def _extract_fields(
+    table: dict[str, Any], path: Path, section: str, specs: tuple[FieldSpec, ...]
+) -> dict[str, Any]:
+    """Extract and validate *specs* from *table*, failing on the first problem.
 
-
-def _require_str_list(
-    table: dict[str, Any], path: Path, section: str, field_name: str, *, optional: bool = False
-) -> list[str]:
-    if field_name not in table:
-        if optional:
-            return []
-        _fail(path, f"missing required field '{field_name}' in section [{section}]")
-    value = table[field_name]
-    if not isinstance(value, list) or not all(isinstance(item, str) and item.strip() for item in value):
-        _fail(path, f"field '{field_name}' in section [{section}] must be a list of strings")
-    return list(value)
-
-
-def _require_str_dict(
-    table: dict[str, Any], path: Path, section: str, field_name: str, *, optional: bool = False
-) -> dict[str, str]:
-    if field_name not in table:
-        if optional:
-            return {}
-        _fail(path, f"missing required field '{field_name}' in section [{section}]")
-    value = table[field_name]
-    if not isinstance(value, dict) or not all(
-        isinstance(k, str) and isinstance(v, str) for k, v in value.items()
-    ):
-        _fail(path, f"field '{field_name}' in section [{section}] must be a table of string -> string")
-    return dict(value)
+    Error messages are stable and precise (field + section named) so
+    manifests are easy to fix from the CLI output.
+    """
+    unknown = set(table) - {spec.name for spec in specs}
+    if unknown:
+        _fail(path, f"unknown field(s) in [{section}]: {', '.join(sorted(unknown))}")
+    out: dict[str, Any] = {}
+    for spec in specs:
+        if spec.name not in table:
+            if spec.required:
+                _fail(path, f"missing required field '{spec.name}' in section [{section}]")
+            out[spec.name] = spec.default
+            continue
+        value = table[spec.name]
+        if spec.kind == "str":
+            if not isinstance(value, str) or not value.strip():
+                _fail(path, f"field '{spec.name}' in section [{section}] must be a non-empty string, got {type(value).__name__}")
+            out[spec.name] = value
+        elif spec.kind == "str_list":
+            if not isinstance(value, list) or not all(isinstance(item, str) and item.strip() for item in value):
+                _fail(path, f"field '{spec.name}' in section [{section}] must be a list of strings")
+            out[spec.name] = list(value)
+        elif spec.kind == "str_dict":
+            if not isinstance(value, dict) or not all(
+                isinstance(k, str) and isinstance(v, str) for k, v in value.items()
+            ):
+                _fail(path, f"field '{spec.name}' in section [{section}] must be a table of string -> string")
+            out[spec.name] = dict(value)
+        elif spec.kind == "bool":
+            if not isinstance(value, bool):
+                _fail(path, f"field '{spec.name}' in [{section}] must be a boolean")
+            out[spec.name] = value
+    return out
 
 
 def parse_brew(data: dict[str, Any], path: Path | str = "<string>") -> Brew:
     """Parse and validate a loaded .brew TOML document.
 
     Raises BrewError with a precise message on the first problem found.
+    The section schema lives in ``_SECTION_FIELDS``; adding a section is a
+    row there plus wiring its extracted values into the Brew constructor.
     """
     path = Path(path)
     if not isinstance(data, dict):
@@ -133,106 +227,78 @@ def parse_brew(data: dict[str, Any], path: Path | str = "<string>") -> Brew:
     if unknown:
         _fail(path, f"unknown section(s): {', '.join(sorted(unknown))}")
 
-    brew_table = _require_table(data, path, "brew")
-    unknown_brew = set(brew_table) - set(REQUIRED_BREW_FIELDS)
-    if unknown_brew:
-        _fail(path, f"unknown field(s) in [brew]: {', '.join(sorted(unknown_brew))}")
+    # Required sections must be present and be tables.
+    required: dict[str, dict[str, Any]] = {}
+    for name in REQUIRED_SECTIONS:
+        required[name] = _require_table(data, path, name)
+    brew_table = required["brew"]
+    wine = required["wine"]
+    install = required["install"]
 
-    wine = _require_table(data, path, "wine")
-    unknown_wine = set(wine) - KNOWN_WINE_FIELDS
-    if unknown_wine:
-        _fail(path, f"unknown field(s) in [wine]: {', '.join(sorted(unknown_wine))}")
+    # Optional sections: validate type + shape straight from the schema.
+    # Free-form sections (environment) get the combined table/string→string
+    # message; everything else just must be a table. [source] keeps its
+    # historical leniency via skip_empty: only checked when non-empty.
+    for name, spec in _SECTION_FIELDS.items():
+        if spec.required:
+            continue
+        value = data.get(name)
+        if value is None or (spec.skip_empty and not value):
+            continue
+        if spec.free_form:
+            if not isinstance(value, dict) or not all(
+                isinstance(k, str) and isinstance(v, str) for k, v in value.items()
+            ):
+                _fail(path, f"section [{name}] must be a table of string -> string")
+        elif not isinstance(value, dict):
+            _fail(path, f"section [{name}] must be a table")
 
-    wine_overrides = _require_str_dict(wine, path, "wine", "overrides", optional=True)
+    # Extract fields per section from the schema.
+    brew_fields = _extract_fields(brew_table, path, "brew", _SECTION_FIELDS["brew"].fields)
+    wine_fields = _extract_fields(wine, path, "wine", _SECTION_FIELDS["wine"].fields)
+    winetricks = _extract_fields(data.get("winetricks", {}), path, "winetricks", _SECTION_FIELDS["winetricks"].fields)
+    yabridge = _extract_fields(data.get("yabridge", {}), path, "yabridge", _SECTION_FIELDS["yabridge"].fields)
+    vendor_data = _extract_fields(data.get("vendor_data", {}), path, "vendor_data", _SECTION_FIELDS["vendor_data"].fields)
+    install_fields = _extract_fields(install, path, "install", _SECTION_FIELDS["install"].fields)
 
-    winetricks = data.get("winetricks", {})
-    if not isinstance(winetricks, dict):
-        _fail(path, "section [winetricks] must be a table")
-    unknown_winetricks = set(winetricks) - KNOWN_WINETRICKS_FIELDS
-    if unknown_winetricks:
-        _fail(path, f"unknown field(s) in [winetricks]: {', '.join(sorted(unknown_winetricks))}")
-    winetricks_packages = _require_str_list(winetricks, path, "winetricks", "packages", optional=True)
+    environment = data.get("environment", {})  # validated by the loop above
 
-    yabridge = data.get("yabridge", {})
-    if not isinstance(yabridge, dict):
-        _fail(path, "section [yabridge] must be a table")
-    unknown_yabridge = set(yabridge) - KNOWN_YABRIDGE_FIELDS
-    if unknown_yabridge:
-        _fail(path, f"unknown field(s) in [yabridge]: {', '.join(sorted(unknown_yabridge))}")
-    yabridge_enabled = yabridge.get("enabled", False)
-    if not isinstance(yabridge_enabled, bool):
-        _fail(path, "field 'enabled' in [yabridge] must be a boolean")
-    plugin_dirs = _require_str_list(yabridge, path, "yabridge", "plugin_dirs", optional=True)
-
-    environment = data.get("environment", {})
-    if not isinstance(environment, dict) or not all(
-        isinstance(k, str) and isinstance(v, str) for k, v in environment.items()
-    ):
-        _fail(path, "section [environment] must be a table of string -> string")
-
-    wine_version = _require_str(wine, path, "wine", "version")  # type: ignore[arg-type]
-    wine_prefix = _require_str(wine, path, "wine", "prefix")  # type: ignore[arg-type]
-    wine_arch = _require_str(wine, path, "wine", "arch")  # type: ignore[arg-type]
-    if wine_arch not in VALID_WINE_ARCHS:
-        _fail(path, f"field 'arch' in [wine] must be one of {', '.join(VALID_WINE_ARCHS)}, got '{wine_arch}'")
-
-    install = _require_table(data, path, "install")
-    unknown_install = set(install) - KNOWN_INSTALL_FIELDS
-    if unknown_install:
-        _fail(path, f"unknown field(s) in [install]: {', '.join(sorted(unknown_install))}")
-    # Empty command lists are valid: template.brew ships with a commented-out
-    # command block, and a brew whose install is a no-op is a legitimate
-    # (if unusual) manifest. The install engine handles zero commands fine.
-    install_commands = _require_str_list(install, path, "install", "commands")
-
-    # --- [vendor_data] section (optional) --------------------------------
-    # Links a vendor's data dirs + installdir registry keys (Arturia-class
-    # plugins) from another prefix into this brew's prefix, so plugins that
-    # load in Bitwig via yabridge also initialize in wine-hosted DAWs.
-    vendor_data = data.get("vendor_data", {})
-    if not isinstance(vendor_data, dict):
-        _fail(path, "section [vendor_data] must be a table")
-    unknown_vendor_data = set(vendor_data) - KNOWN_VENDOR_DATA_FIELDS
-    if unknown_vendor_data:
-        _fail(path, f"unknown field(s) in [vendor_data]: {', '.join(sorted(unknown_vendor_data))}")
-    vendor_source = _require_str(vendor_data, path, "vendor_data", "source", optional=True)
-    vendor_names = _require_str_list(vendor_data, path, "vendor_data", "vendors", optional=True)
-
-    # --- [source] section (optional) ------------------------------------
+    # [source] only parses when the section is non-empty (historical
+    # behavior: an empty [source] leaves all source fields None).
     source_table = data.get("source", {})
     source_filename: str | None = None
     source_url: str | None = None
     source_look_in: list[str] | None = None
     if source_table:
-        if not isinstance(source_table, dict):
-            _fail(path, "section [source] must be a table")
-        unknown_source = set(source_table) - KNOWN_SOURCE_FIELDS
-        if unknown_source:
-            _fail(path, f"unknown field(s) in [source]: {', '.join(sorted(unknown_source))}")
-        source_filename = _require_str(source_table, path, "source", "filename")
-        source_url = _require_str(source_table, path, "source", "url", optional=True)
-        source_look_in = _require_str_list(source_table, path, "source", "look_in", optional=True) or DEFAULT_SOURCE_LOOK_IN
+        source_fields = _extract_fields(source_table, path, "source", _SECTION_FIELDS["source"].fields)
+        source_filename = source_fields["filename"]
+        source_url = source_fields["url"]
+        source_look_in = source_fields["look_in"] or DEFAULT_SOURCE_LOOK_IN
+
+    wine_arch = wine_fields["arch"]
+    if wine_arch not in VALID_WINE_ARCHS:
+        _fail(path, f"field 'arch' in [wine] must be one of {', '.join(VALID_WINE_ARCHS)}, got '{wine_arch}'")
 
     return Brew(
-        name=_require_str(brew_table, path, "brew", "name"),  # type: ignore[arg-type]
-        version=_require_str(brew_table, path, "brew", "version"),  # type: ignore[arg-type]
-        category=_require_str(brew_table, path, "brew", "category"),  # type: ignore[arg-type]
-        maintainer=_require_str(brew_table, path, "brew", "maintainer"),  # type: ignore[arg-type]
-        wine_version=wine_version,
-        wine_prefix=wine_prefix,
+        name=brew_fields["name"],
+        version=brew_fields["version"],
+        category=brew_fields["category"],
+        maintainer=brew_fields["maintainer"],
+        wine_version=wine_fields["version"],
+        wine_prefix=wine_fields["prefix"],
         wine_arch=wine_arch,
-        wine_overrides=wine_overrides,
-        winetricks_packages=winetricks_packages,
-        yabridge_enabled=yabridge_enabled,
-        plugin_dirs=plugin_dirs,
+        wine_overrides=wine_fields["overrides"],
+        winetricks_packages=winetricks["packages"],
+        yabridge_enabled=yabridge["enabled"],
+        plugin_dirs=yabridge["plugin_dirs"],
         environment=environment,
-        install_commands=install_commands,
+        install_commands=install_fields["commands"],
         source=path,
         source_filename=source_filename,
         source_url=source_url,
         source_look_in=source_look_in,
-        vendor_source=vendor_source,
-        vendor_names=vendor_names,
+        vendor_source=vendor_data["source"],
+        vendor_names=vendor_data["vendors"],
     )
 
 

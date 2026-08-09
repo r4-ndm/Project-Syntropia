@@ -12,10 +12,11 @@ Only ever touches the registry repository — never other repos.
 from __future__ import annotations
 
 import shutil
-import subprocess
+from subprocess import CompletedProcess
 from pathlib import Path
 
 from .brew import BrewError, load_brew
+from .process import run_command
 
 SHARED_REGISTRY_URL = "https://github.com/r4-ndm/syntropia-brews"
 
@@ -24,12 +25,7 @@ class RegistryError(Exception):
     """Raised when the submit flow cannot proceed safely."""
 
 
-def run_command(cmd: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess:
-    """Run a git/gh command, capturing output (no shell)."""
-    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
-
-
-def _check(proc: subprocess.CompletedProcess, context: str) -> None:
+def _check(proc: CompletedProcess, context: str) -> None:
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or "").strip()
         raise RegistryError(f"{context}: {detail or 'command failed'}")

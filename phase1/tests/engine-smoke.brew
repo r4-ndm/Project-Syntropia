@@ -1,0 +1,33 @@
+# Engine smoke-test brew — proves the install pipeline end to end in an
+# isolated scratch prefix. Run via phase1/tests/smoke_engine.sh; the script
+# verifies the artifacts this brew promises to create, then deletes the
+# prefix. Deliberately offline-friendly: no [source] download and no
+# winetricks downloads, so it works on any machine with the toolchain.
+#
+# To also exercise the winetricks step on a networked machine, uncomment:
+#   [winetricks]
+#   packages = ["corefonts"]
+
+[brew]
+name = "Syntropia Engine Smoke Test"
+version = "1.0"
+category = "utility"
+maintainer = "Syntropia Team <hello@project-syntropia.io>"
+
+[wine]
+version = "cachyos-wine"
+prefix = "~/.local/share/syntropia/prefixes/engine-smoke-test"
+arch = "win64"
+
+[wine.overrides]
+d2d1 = "builtin"
+"winemenubuilder.exe" = "d"
+
+[yabridge]
+enabled = false
+
+[install]
+commands = [
+  "wine cmd /c echo smoke-ok",
+  "mkdir -p \"$WINEPREFIX/smoke\" && printf '%s\\n' 'engine works' > \"$WINEPREFIX/smoke/marker.txt\"",
+]

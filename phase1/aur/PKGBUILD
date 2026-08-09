@@ -9,7 +9,8 @@
 # add source=() + sha256sums=(), and submit to the AUR.
 
 pkgname=syntropia
-pkgver=0.1.0
+# pkgver is derived from phase1/cli/syntropia/__init__.py (the single
+# source of truth) via pkgver() below — bump the version there, never here.
 pkgrel=1
 pkgdesc="Transform CachyOS into Syntropia OS — rebranded, audio-optimised, with Wine/yabridge VST3 support"
 arch=('any')
@@ -30,6 +31,11 @@ makedepends=('python-installer' 'python-setuptools' 'python-wheel')
 # When run from the repo root, $startdir IS the repo root.
 source=()
 sha256sums=()
+
+pkgver() {
+    # Read the version from the package itself — the one place it lives.
+    sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$startdir/phase1/cli/syntropia/__init__.py" | head -1
+}
 
 build() {
     _repodir="$startdir"
