@@ -3,8 +3,12 @@
 # One app per line. Format (pipe-separated):
 #   category|display name|package|short description
 #
-# - category: the wizard shows one checklist dialog per category, in file
-#   order (Chat → Browser → DAW → AI → Terminal → Video → Wallet → Web)
+# - category: the wizard shows one grouped dialog with a section per
+#   category, in file order (Chat → Browser → DAW → AI → Terminal → CLI →
+#   Video → Wallet → Web)
+#
+# CLI apps work exactly like any other package line — paru installs them;
+# no launcher or GUI needed (e.g. Freebuff is a CLI app and lives under AI).
 # - display name: shown in the dialog; must be unique
 # - package:
 #     * a pacman repo OR AUR package name — installed via paru, OR
@@ -38,6 +42,14 @@ AI|Kiro IDE|kiro-ide|Agentic AI code editor
 AI|Freebuff|freebuff-bin|AI coding agent for the terminal
 AI|Ollama|ollama|Run local LLMs
 Terminal|Wezterm|wezterm|GPU-accelerated terminal emulator
+CLI|ripgrep|ripgrep|Blazingly fast grep
+CLI|fzf|fzf|Fuzzy finder for the shell
+CLI|zoxide|zoxide|Smarter cd
+CLI|eza|eza|Modern ls replacement
+CLI|bat|bat|cat with syntax highlighting
+CLI|yazi|yazi|Terminal file manager
+CLI|btop|btop|System monitor
+CLI|tmux|tmux|Terminal multiplexer
 Video|mpv|mpv|Minimal video player
 Video|OBS Studio|obs-studio|Screen recording and streaming
 Wallet|Electrum|electrum|Bitcoin wallet

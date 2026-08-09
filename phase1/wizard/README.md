@@ -1,10 +1,10 @@
 # 😈 Syntropia Apps Wizard
 
-A first-boot "pick your favorites" installer: a series of checkbox dialogs —
-one per category (Chat, Browser, DAW, AI, Terminal, Video, Wallet…) — that
-install whatever you check via **paru**, which handles both official-repo and
-AUR packages, with live output in a terminal window. All picks across every
-category install in one `paru -S` transaction.
+A first-boot "pick your favorites" installer: **one grouped checkbox dialog**
+with category sections (Chat, Browser, DAW, AI, Terminal, CLI, Video, Wallet, Web)
+that installs whatever you check via **paru** — which handles both
+official-repo and AUR packages — with live output in a terminal window. All
+picks across every category install in one `paru -S` transaction.
 
 It's intentionally a *wrapper around `paru`*: no baked packages, no ISO
 rebuilds, no Calamares surgery. The app list is just a text file, so adding
@@ -20,16 +20,24 @@ an app is a one-line edit.
 | "Paste this paru command" | Works, but paru isn't guaranteed on a fresh install and a terminal-first ask is weak UX for new users |
 
 The wizard's dependencies are the **dialog tool**, **paru** (installs;
-bootstrapped automatically if missing), and a terminal emulator:
+bootstrapped automatically if missing), and a terminal emulator. Dialog
+tiers, best first (auto-detected, override with `--dialog`):
 
-- **kdialog** (the `kdialog` package — it moved out of `kde-cli-tools` in
-  KF6) — preferred; renders as a **native Plasma window** with the
-  CachyOS/Breeze theme on the default CachyOS desktop
-- **zenity** — GTK fallback for non-KDE desktops (Cinnamon, GNOME)
-- override with `--dialog kdialog|zenity`
+1. **Qt grid dialog** (`syntropia-apps-dialog.py`, PySide6) — a native Qt
+   window styled like **Windows 98** (gray canvas, beveled 3D borders) with
+   a **4-column checkbox grid per category**; each category in its own
+   outlined group box, padded with empty placeholder cells so every
+   category fills a full row and the columns stay aligned. Cells are
+   **sunken when checked, raised when unchecked**, and play a synthesized
+   click sound when checked (no audio asset needed — the WAV is generated
+   at first use). Needs `python-pyside6`.
+2. **kdialog** (the `kdialog` package — it moved out of `kde-cli-tools` in
+   KF6) — one grouped dialog with category separator rows; renders as a
+   **native Plasma window** on the default CachyOS desktop
+3. **zenity** — GTK fallback for non-KDE desktops (Cinnamon, GNOME)
 
-On non-Plasma desktops the wizard forces the **Breeze widget style** for the
-kdialog call (`QT_STYLE_OVERRIDE=breeze`), because GTK platform themes paint
+On non-Plasma desktops the wizard forces the **Breeze widget style** for
+Qt/kdialog (`QT_STYLE_OVERRIDE=breeze`), because GTK platform themes paint
 checklist checkboxes invisibly. On a Plasma session the native style is
 already active and nothing is overridden.
 
@@ -46,14 +54,17 @@ category|display name|package|short description
 ```
 
 - `package` is a pacman repo **or** AUR package name — paru resolves either.
+  CLI apps work exactly the same (e.g. ripgrep, fzf — or Freebuff, a CLI
+  agent under AI): paru installs them, no launcher needed.
 - **Web apps:** if `package` is an `https://` URL, the wizard creates a
   PWA-style desktop launcher (dedicated window, taskbar icon) that opens the
   site — no `paru` needed. It uses Brave/Chromium `--app=URL` if present,
   else Firefox. Launchers land in `~/.local/share/applications/` as
   `syntropia-<slug>.desktop`.
-- **Category = one dialog.** The wizard walks the categories in file order
-  and shows a checklist per category; cancelling a category skips just that
-  one, so the walk always finishes.
+- **Category = a section.** One dialog shows every category in file order,
+  with plain `— Chat —` separator rows between the apps — no window
+  respawn between categories, everything installs together. (Earlier
+  per-category dialogs were dropped for this smoother single dialog.)
 - Prefer binary / `.deb`-repackage AUR packages so installs stay fast.
 - The wizard loads the catalog in this order:
   1. `--config FILE`

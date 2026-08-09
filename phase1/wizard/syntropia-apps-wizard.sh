@@ -111,12 +111,27 @@ EOF
 
 # kdialog is the native Plasma dialog (renders with the CachyOS/Breeze
 # theme); zenity is the GTK fallback for non-KDE desktops.
+have_qt_dialog() {
+    # the native grid dialog needs python3 + PySide6
+    have python3 || return 1
+    python3 -c "import PySide6" 2>/dev/null
+}
+
 find_dialog() {
     if [[ -n "$DIALOG_TOOL" ]]; then
-        have "$DIALOG_TOOL" || die "dialog tool not found: $DIALOG_TOOL (use kdialog or zenity)"
-        echo "$DIALOG_TOOL"
-        return
+        case "$DIALOG_TOOL" in
+            qt)
+                have_qt_dialog || die "qt dialog needs python3 + PySide6 (sudo pacman -S pyside6)"
+                echo "qt"; return
+                ;;
+            kdialog|zenity)
+                have "$DIALOG_TOOL" || die "dialog tool not found: $DIALOG_TOOL (use qt, kdialog or zenity)"
+                echo "$DIALOG_TOOL"; return
+                ;;
+            *) die "unknown dialog tool: $DIALOG_TOOL (use qt, kdialog or zenity)" ;;
+        esac
     fi
+    have_qt_dialog && { echo "qt"; return; }
     have kdialog && { echo "kdialog"; return; }
     have zenity && { echo "zenity"; return; }
     return 1
@@ -192,16 +207,26 @@ ensure_paru() {
     have paru && return 0
     echo "paru (the AUR helper) is not installed."
     if [[ "$MODE" == "check" ]]; then return 1; fi
-    if [[ "$dialog" == "kdialog" ]]; then
-        kdialog --title "😈 Syntropia" \
-            --yesno "paru (the AUR helper) is not installed yet.\n\nInstall it first? (a password prompt will appear)" \
-            --yes-label "Install paru" --no-label "Cancel"
+    local ask
+    if [[ "$dialog" == "kdialog" || "$dialog" == "qt" ]]; then
+        if have kdialog; then
+            kdialog --title "😈 Syntropia" \
+                --yesno "paru (the AUR helper) is not installed yet.\n\nInstall it first? (a password prompt will appear)" \
+                --yes-label "Install paru" --no-label "Cancel"
+            ask=$?
+        else
+            zenity --question --title="😈 Syntropia" \
+                --text="paru (the AUR helper) is not installed yet.\n\nInstall it first? (a password prompt will appear)" \
+                --ok-label="Install paru" --cancel-label="Cancel"
+            ask=$?
+        fi
     else
         zenity --question --title="😈 Syntropia" \
             --text="paru (the AUR helper) is not installed yet.\n\nInstall it first? (a password prompt will appear)" \
             --ok-label="Install paru" --cancel-label="Cancel"
+        ask=$?
     fi
-    if [[ $? -eq 0 ]]; then
+    if [[ $ask -eq 0 ]]; then
         pkexec pacman -S --noconfirm paru
     fi
     have paru || die "paru is required to install apps"
@@ -258,20 +283,20 @@ check_mode() {
 
 run_dialog() {
     local dialog
-    dialog="$(find_dialog)" || die "neither kdialog nor zenity is installed — the wizard needs one (sudo pacman -S kdialog zenity)"
+    dialog="$(find_dialog)" || die "no dialog available — install one of: pyside6 (qt grid), kdialog, or zenity"
     ensure_paru "$dialog"
 
-    # Force the Breeze widget style for kdialog on non-Plasma desktops so
-    # checkboxes render with the KDE look (their GTK platform theme paints
+    # Force the Breeze widget style for the Qt dialogs on non-Plasma desktops
+    # so checkboxes render with the KDE look (their GTK platform theme paints
     # them invisibly). On a Plasma session the native style is already active.
-    if [[ "$dialog" == "kdialog" && -z "${KDE_FULL_SESSION:-}" ]]; then
+    if [[ "$dialog" != "zenity" && -z "${KDE_FULL_SESSION:-}" ]]; then
         export QT_STYLE_OVERRIDE=breeze
     fi
 
-    # Unique categories, in catalog order — one checklist dialog per category
-    # (kdialog checklists are flat lists; a dialog per category is the native
-    # way to show sections).
-    local cat_order=() c cc seen i idx args out row name
+    # Unique categories, in catalog order — all shown in ONE grouped dialog:
+    # category separator rows (unchecked, tags prefixed __hdr__) between the
+    # app rows, so there is no window respawn between categories.
+    local cat_order=() c cc seen i args out row name
     for i in "${!names[@]}"; do
         c="${cats[$i]}"
         seen=0
@@ -281,55 +306,63 @@ run_dialog() {
         (( seen )) || cat_order+=("$c")
     done
 
-    local selected=()
-    for c in "${cat_order[@]}"; do
-        idx=()
-        for i in "${!names[@]}"; do
-            [[ "${cats[$i]}" == "$c" ]] && idx+=("$i")
+    if [[ "$dialog" == "qt" ]]; then
+        # native grid dialog — reads the catalog itself, prints checked
+        # package tags (one per line) like kdialog --separate-output
+        args=(python3 "$SCRIPT_DIR/syntropia-apps-dialog.py" "$CAT_FILE")
+    elif [[ "$dialog" == "kdialog" ]]; then
+        # per item: tag (returned), label (displayed), state —
+        # so tag=package, label=display name
+        args=(kdialog --title "😈 Syntropia — Pick your apps"
+            --geometry "$(dialog_geometry 640x560)" --separate-output
+            --checklist "Check the apps to install — everything installs together.\nCancel skips this permanently.")
+        for c in "${cat_order[@]}"; do
+            args+=("__hdr__$c" "— $c —" off)
+            for i in "${!names[@]}"; do
+                [[ "${cats[$i]}" == "$c" ]] && args+=("${pkgs[$i]}" "${names[$i]}" on)
+            done
         done
-        (( ${#idx[@]} )) || continue
-
-        if [[ "$dialog" == "kdialog" ]]; then
-            # per item: tag (returned), label (displayed), state —
-            # so tag=package, label=display name
-            args=(kdialog --title "😈 Syntropia — $c" --geometry "$(dialog_geometry 600x420)" --separate-output
-                --checklist "Pick your $c apps.\nCancel skips this category.")
-            for i in "${idx[@]}"; do
-                args+=("${pkgs[$i]}" "${names[$i]}" on)
+    else
+        args=(zenity --list --checklist --separator='|'
+            --title="😈 Syntropia — Pick your apps"
+            --text="Check the apps to install — everything installs together.\nCancel skips this permanently."
+            --width=640 --height=560
+            --column="Install" --column="App")
+        for c in "${cat_order[@]}"; do
+            args+=(FALSE "__hdr__$c")
+            for i in "${!names[@]}"; do
+                [[ "${cats[$i]}" == "$c" ]] && args+=(TRUE "${names[$i]}")
             done
+        done
+    fi
+
+    local selected=()
+    if ! out="$("${args[@]}")"; then
+        # user cancelled — treat as "skip permanently" in --once mode
+        if [[ "$MODE" == "once" ]]; then mark_done; fi
+        echo "Skipped — nothing installed."
+        exit 0
+    fi
+
+    while IFS= read -r row; do
+        [[ -z "$row" ]] && continue
+        if [[ "$dialog" == "qt" || "$dialog" == "kdialog" ]]; then
+            # each returned line is the package tag directly
+            [[ "$dialog" == "kdialog" && "$row" == __hdr__* ]] && continue  # skip category separators
+            selected+=("$row")
         else
-            args=(zenity --list --checklist --separator='|'
-                --title="😈 Syntropia — $c"
-                --text="Pick your $c apps.\nCancel skips this category."
-                --geometry="$(dialog_geometry 520x400)"
-                --column="Install" --column="App")
-            for i in "${idx[@]}"; do
-                args+=(TRUE "${names[$i]}")
+            # zenity: strip the checkbox state, then map display name → package
+            [[ "$row" == TRUE\|* || "$row" == FALSE\|* ]] && row="${row#*|}"
+            name="${row%%|*}"
+            [[ "$name" == __hdr__* ]] && continue   # skip category separators
+            for i in "${!names[@]}"; do
+                if [[ "${names[$i]}" == "$name" ]]; then
+                    selected+=("${pkgs[$i]}")
+                    break
+                fi
             done
         fi
-
-        if ! out="$("${args[@]}")"; then
-            continue   # cancelled this category — move to the next
-        fi
-
-        while IFS= read -r row; do
-            [[ -z "$row" ]] && continue
-            if [[ "$dialog" == "kdialog" ]]; then
-                # each returned line is the package tag directly
-                selected+=("$row")
-            else
-                # zenity: strip the checkbox state, then map name → package
-                [[ "$row" == TRUE\|* || "$row" == FALSE\|* ]] && row="${row#*|}"
-                name="${row%%|*}"
-                for i in "${!names[@]}"; do
-                    if [[ "${names[$i]}" == "$name" ]]; then
-                        selected+=("${pkgs[$i]}")
-                        break
-                    fi
-                done
-            fi
-        done <<< "$out"
-    done
+    done <<< "$out"
 
     if [[ ${#selected[@]} -eq 0 ]]; then
         echo "Nothing selected — nothing installed."
