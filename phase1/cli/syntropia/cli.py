@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 import click
 
-from . import __version__
 from .brew import BrewError, brew_filename, find_brews, lint_brew, load_brew, registry_brew_is_stale, resolve_brew, save_brew
 from .plugins import PluginsError, drop_folder, ensure_drop_folder, stub_for, sync_plugins
 from .vendor import VendorError, link_vendor_data
@@ -26,8 +26,25 @@ def _registry_path(registry: str) -> str:
     return os.path.expanduser(registry)
 
 
+def _cli_version() -> str:
+    """Resolve the package version in any install context.
+
+    A PEP 660 editable install loads ``syntropia`` through a finder that
+    does not execute ``__init__.py``, so ``from . import __version__``
+    fails there (the root module has no attributes). Read the source file
+    instead — the same mechanism the PKGBUILD's ``pkgver()`` uses — which
+    works for editable installs, site-packages, and bare checkouts alike.
+    """
+    try:
+        text = Path(__file__).resolve().with_name("__init__.py").read_text(encoding="utf-8")
+    except OSError:
+        return "0.0.0"
+    match = re.search(r'^__version__ = "([^"]+)"', text, re.MULTILINE)
+    return match.group(1) if match else "0.0.0"
+
+
 @click.group()
-@click.version_option(version=__version__, prog_name="syntropia")
+@click.version_option(version=_cli_version(), prog_name="syntropia")
 def cli() -> None:
     """Syntropia — install Windows DAWs and VSTs on CachyOS via Wine and yabridge."""
 

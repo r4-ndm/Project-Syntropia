@@ -30,6 +30,26 @@ def _write_brew(tmp_path: Path, name: str = "surge.brew", content: str = VALID_B
     return path
 
 
+def test_cli_version_reads_init_py():
+    """The CLI version must come from __init__.py even under a PEP 660
+    editable install, where the package loads through a finder that never
+    executes __init__.py (regression: `from . import __version__` blew up
+    only in the installed console script, not in pytest)."""
+    import re
+
+    from syntropia.cli import _cli_version
+
+    init_text = (
+        Path(__file__).resolve().parents[1] / "cli" / "syntropia" / "__init__.py"
+    ).read_text(encoding="utf-8")
+    expected = re.search(r'__version__ = "([^"]+)"', init_text).group(1)
+    assert _cli_version() == expected
+    # And the click version_option must expose it end to end.
+    result = CliRunner().invoke(cli, ["--version"])
+    assert result.exit_code == 0
+    assert result.output.strip() == f"syntropia, version {expected}"
+
+
 def _run(*args: str):
     return CliRunner().invoke(cli, list(args))
 
