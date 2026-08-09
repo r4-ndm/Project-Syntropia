@@ -124,6 +124,12 @@ first if missing (`pkexec pacman -S paru`).
   (`syntropia install ableton-live-12`). This wizard is for native apps.
 - Cancelling the dialog in `--once` mode writes the done-marker too, so it
   won't nag every login.
-- Ship points: add this wizard (script + `apps.list` + desktop entry) to the
-  ISO's `/etc/syntropia/` or run `--install-autostart` from the transform —
-  same files, no changes needed.
+- **Shipped in the ISO**: `iso/build.sh` phase 2 copies the wizard (script +
+  `apps.list` + `syntropia-apps-dialog.py`) into the rootfs `/etc/syntropia/`
+  and installs a first-boot autostart entry (`/etc/xdg/autostart/`), so fresh
+  installs get the dialog at first login. The transform path (installed
+  systems) is the same files, no changes needed.
+- **Dialog dependency**: the first-boot dialog needs `python-pyside6` (Qt
+  grid), `kdialog`, or `zenity` present on the installed system — none is
+  guaranteed, so until a package dependency is declared the wizard degrades
+  to whichever exists (see the open "Package as dependency-clean unit" task).

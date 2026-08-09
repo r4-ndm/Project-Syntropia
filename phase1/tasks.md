@@ -217,7 +217,8 @@ A first-boot **popup GUI with checkboxes** for popular apps (Telegram, Wezterm, 
 - [x] **Write `syntropia-apps-wizard.sh`** - 3-tier native dialog (Qt PySide6 grid — 4 columns per category — then kdialog grouped dialog, then zenity fallback; Breeze style forced off-Plasma; no window respawn between categories) → bootstrap paru if missing → one `paru -S` for all picks; `--check`/`--list`/`--once`/`--setup`/`--dialog`/`--install-autostart`/`--remove-autostart` modes
 - [x] **Write `syntropia-apps-dialog.py`** - PySide6 dialog rendering each category as a 4-column checkbox grid padded with empty placeholder cells (columns align across categories); Windows 98 theme (beveled borders, sunken-when-checked cells, synthesized click sound on check); prints checked packages to stdout (same contract as `kdialog --checklist --separate-output`)
 - [x] **Autostart-once desktop entry** - `syntropia-apps.desktop` template; `--once` self-disables via done-marker
-- [ ] **Ship it** - Wire into ISO `/etc/syntropia/` and/or `syntropia transform` (same files, no changes)
+- [x] **Ship in ISO** - `iso/build.sh` phase 2 copies wizard + `apps.list` + dialog into rootfs `/etc/syntropia/` and installs a first-boot autostart entry (`/etc/xdg/autostart/`); shipped copy resolves its bundled catalog (verified against a scratch rootfs)
+- [ ] **Ship via transform** - Same files into installed systems (`syntropia transform` + `--install-autostart`)
 - [ ] **Package as dependency-clean unit** - If it ships as a package: declare `python-pyside6` (or `kdialog`, or `zenity`) + `paru` deps (none guaranteed on a fresh install)
 
 ---
@@ -265,7 +266,7 @@ Every Syntropia install ships **intelligence alongside the app**: a `SKILL.md` d
 
 ### New (First-Boot Apps Wizard)
 - [x] Phase 1.9: Wizard built (apps.list catalog + zenity/paru script + autostart-once) in `phase1/wizard/`
-- [ ] Phase 1.9: Wizard shipped via ISO `/etc/syntropia/` or transform
+- [x] Phase 1.9: Wizard shipped via ISO `/etc/syntropia/` (build.sh phase 2); transform path still open
 
 ### Remaining (Week 4 equiv.)
 - [ ] Phase 1.5: AUR PKGBUILD + `syntropia update` subcommand
@@ -274,4 +275,4 @@ Every Syntropia install ships **intelligence alongside the app**: a `SKILL.md` d
 
 ---
 
-**Last Updated**: Added Phase 1.9 First-Boot Apps Wizard (favorites picker) — built in `phase1/wizard/`, pending ship wiring (ISO/transform)
+**Last Updated**: Phase 1.9 First-Boot Apps Wizard — built in `phase1/wizard/` and shipped via ISO `/etc/syntropia/` (build.sh phase 2); transform path + dependency-clean packaging still open

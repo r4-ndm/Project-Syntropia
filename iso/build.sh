@@ -157,6 +157,34 @@ phase2_inject_slides() {
     cp "$BRANDING_SRC"/slide{1,2,3,4,5,6}.jxl "$cal_dir/"
     ok "Slides injected"
 
+    # Step 3.3: Protect our amended slides from the live boot-time package
+    # update. CachyOS's "Launch Installer" (calamares-online.sh) runs
+    # `pacman -Sy --noconfirm cachyos-calamares-next` before starting
+    # Calamares, which force-upgrades the package and re-extracts the STOCK
+    # branding over our injected slides (observed: cachyos-calamares-next
+    # 3.4.2-7 -> 3.4.2-10 at live boot clobbered slides 1-6). NoUpgrade makes
+    # pacman keep our files even when the package updates.
+    if ! grep -q 'Syntropia: keep our amended slides' "rootfs/etc/pacman.conf"; then
+        cat >> "rootfs/etc/pacman.conf" << 'PACEOF'
+
+# Syntropia: keep our amended slides even when cachyos-calamares-next is
+# force-updated at live boot (calamares-online.sh runs pacman -Sy for it).
+NoUpgrade = usr/share/calamares/branding/cachyos/slide1.jxl
+NoUpgrade = usr/share/calamares/branding/cachyos/slide2.jxl
+NoUpgrade = usr/share/calamares/branding/cachyos/slide3.jxl
+NoUpgrade = usr/share/calamares/branding/cachyos/slide4.jxl
+NoUpgrade = usr/share/calamares/branding/cachyos/slide5.jxl
+NoUpgrade = usr/share/calamares/branding/cachyos/slide6.jxl
+# ... and the Calamares settings we patch below (else the update also
+# wipes our install-time wizard-copy hook).
+NoUpgrade = usr/share/calamares/settings_online.conf
+NoUpgrade = usr/share/calamares/settings_offline.conf
+PACEOF
+        ok "NoUpgrade set for slide files (survives live boot package update)"
+    else
+        ok "NoUpgrade already present for slide files"
+    fi
+
     # Step 3.5: Ensure the display manager is wired up so the live desktop
     # auto-starts (the CachyOS profile's dmcheck script creates this symlink,
     # but our mkarchiso build doesn't run it; the original CachyOS ISO ships
@@ -177,6 +205,144 @@ phase2_inject_slides() {
             warn "No display-manager service found; live desktop won't auto-start!"
         fi
     fi
+
+    # Step 3.6: Ship the apps wizard into /etc/syntropia/ so the first-boot
+    # "pick your favorites" dialog is available on freshly-installed systems.
+    # The wizard resolves the catalog as: --config, ~/.config/syntropia/apps.list
+    # (user override), /etc/syntropia/apps.list (shipped here), bundled fallback.
+    info "Shipping apps wizard to /etc/syntropia/..."
+    local wizard_src="$REPO_ROOT/phase1/wizard"
+    local syn_dir="rootfs/etc/syntropia"
+    mkdir -p "$syn_dir"
+    cp "$wizard_src/syntropia-apps-wizard.sh" "$syn_dir/"
+    cp "$wizard_src/syntropia-apps-dialog.py" "$syn_dir/"
+    cp "$wizard_src/apps.list" "$syn_dir/"
+    chmod +x "$syn_dir/syntropia-apps-wizard.sh"
+
+    # First-boot autostart entry → /etc/xdg/autostart/: shows the dialog once
+    # at first login (the wizard self-disables via its --once done-marker).
+    mkdir -p rootfs/etc/xdg/autostart
+    sed "s|@SCRIPT@|/etc/syntropia/syntropia-apps-wizard.sh|" \
+        "$wizard_src/syntropia-apps.desktop" \
+        > rootfs/etc/xdg/autostart/syntropia-apps.desktop
+    ok "Apps wizard shipped (/etc/syntropia/ + first-boot autostart)"
+
+    # Step 3.7: Make the wizard survive the INSTALL — Calamares builds a
+    # fresh /etc for the target and does NOT copy our /etc/syntropia or the
+    # autostart entry (observed: first boot of an installed system had no
+    # wizard). Add a shellprocess step that runs in the live env (not the
+    # chroot) right before umount and copies both into the target root.
+    info "Wiring wizard copy into Calamares install..."
+    cat > "rootfs/etc/calamares/modules/shellprocess_syntropia_wizard.conf" << 'WIZCONF'
+---
+dontChroot: true
+timeout: 120
+script:
+    - command: "mkdir -p ${ROOT}/etc/syntropia && cp -a /etc/syntropia/. ${ROOT}/etc/syntropia/ && mkdir -p ${ROOT}/etc/xdg/autostart && cp -a /etc/xdg/autostart/syntropia-apps.desktop ${ROOT}/etc/xdg/autostart/"
+      timeout: 120
+WIZCONF
+
+    # Register the instance and add it to the exec sequence, in BOTH the
+    # online and offline settings (calamares-online.sh copies settings_online
+    # to /etc/calamares/settings.conf at launch; both are NoUpgrade-protected
+    # above so the boot-time package update can't clobber them).
+    python3 - "rootfs" << 'PYEOF'
+import sys, pathlib
+root = pathlib.Path(sys.argv[1])
+for name in ("settings_online.conf", "settings_offline.conf"):
+    p = root / "usr/share/calamares" / name
+    if not p.exists():
+        continue
+    text = p.read_text()
+    marker = "# Syntropia: copy the apps wizard into the installed system"
+    if marker in text:
+        continue
+    instance = (
+        "\n- id:       syntropia_wizard\n"
+        "  module:   shellprocess\n"
+        "  config:   shellprocess_syntropia_wizard.conf\n"
+    )
+    text = text.replace("\n\nsequence:", instance + "\nsequence:")
+    text = text.replace("- shellprocess@enable_ufw",
+                        "- shellprocess@enable_ufw\n  - shellprocess@syntropia_wizard")
+    p.write_text(text)
+PYEOF
+    # Replace the stock CachyOS first-boot welcome: cachyos-hello auto-opens
+    # for new users via /etc/skel/.config/autostart/. Drop that entry so OUR
+    # wizard (shipped via /etc/xdg/autostart above) is the first-boot picker.
+    # cachyos-hello stays installed and available from the app menu.
+    rm -f rootfs/etc/skel/.config/autostart/cachyos-hello.desktop
+    ok "Wizard copy wired into Calamares; cachyos-hello first-run removed"
+
+    # Step 3.8: Ship the terminal ASCII-art branding so fresh installs show
+    # the Syntropia logo in fastfetch's fish greeting WITHOUT needing
+    # `syntropia transform` first (observed: a fresh install ran stock
+    # fastfetch because /usr/share/syntropia/logo.txt + the fastfetch config
+    # only exist after transform). We ship the same files transform writes:
+    #   /usr/share/syntropia/logo.txt            (the 4* triangle art)
+    #   /usr/share/syntropia/branding/fastfetch-color.json (color map)
+    #   /etc/skel/.config/fastfetch/config.jsonc (fastfetch picks this up
+    #       automatically on login; fish_greeting runs `fastfetch`)
+    # The fastfetch config is generated by the repo's OWN build_fastfetch_conf
+    # (imported from phase1/cli) so the ISO and `syntropia transform` can't
+    # drift apart — same single source of truth.
+    info "Shipping terminal ASCII-art branding (fastfetch logo)..."
+    local brand_src="$REPO_ROOT/Branding/syntropia"
+    local logo_dir="rootfs/usr/share/syntropia"
+    mkdir -p "$logo_dir/branding"
+    cp "$brand_src/logo.txt" "$logo_dir/logo.txt"
+    cp "$brand_src/fastfetch-color.json" "$logo_dir/branding/fastfetch-color.json"
+    mkdir -p "rootfs/etc/skel/.config/fastfetch"
+    # Run from the remaster dir (cwd) but import the repo's config builder
+    # via PYTHONPATH — same single source of truth as `syntropia transform`.
+    PYTHONPATH="$REPO_ROOT/phase1/cli" python3 -c \
+        "import json; from syntropia.transform import build_fastfetch_conf;" \
+        "cm = json.load(open('$REPO_ROOT/Branding/syntropia/fastfetch-color.json'));" \
+        "print(build_fastfetch_conf(cm), end='')" \
+      > rootfs/etc/skel/.config/fastfetch/config.jsonc 2>/dev/null \
+      || warn "could not generate fastfetch config from repo — skel will fall back to stock"
+    if [[ -s rootfs/etc/skel/.config/fastfetch/config.jsonc ]]; then
+        ok "ASCII art shipped (/usr/share/syntropia/ + skel fastfetch config)"
+    else
+        warn "fastfetch config empty — ASCII art not shipped"
+    fi
+
+    # Step 3.9: Make the branding survive the INSTALL too — Calamares builds
+    # the target from packages and does NOT copy unpacakged files like our
+    # /usr/share/syntropia. Extend the existing shellprocess hook (which runs
+    # in the live env, not the chroot) to copy the logo + skel config into the
+    # target root as well.
+    info "Wiring branding copy into Calamares install..."
+    cat > "rootfs/etc/calamares/modules/shellprocess_syntropia_branding.conf" << 'BRANDCONF'
+---
+dontChroot: true
+timeout: 120
+script:
+    - command: "mkdir -p ${ROOT}/usr/share/syntropia/branding && cp -a /usr/share/syntropia/. ${ROOT}/usr/share/syntropia/ && mkdir -p ${ROOT}/etc/skel/.config/fastfetch && cp -a /etc/skel/.config/fastfetch/config.jsonc ${ROOT}/etc/skel/.config/fastfetch/"
+      timeout: 120
+BRANDCONF
+    python3 - "rootfs" << 'PYEOF'
+import sys, pathlib
+root = pathlib.Path(sys.argv[1])
+for name in ("settings_online.conf", "settings_offline.conf"):
+    p = root / "usr/share/calamares" / name
+    if not p.exists():
+        continue
+    text = p.read_text()
+    marker = "# Syntropia: copy the terminal branding into the installed system"
+    if marker in text:
+        continue
+    instance = (
+        "\n- id:       syntropia_branding\n"
+        "  module:   shellprocess\n"
+        "  config:   shellprocess_syntropia_branding.conf\n"
+    )
+    text = text.replace("\n\nsequence:", instance + "\nsequence:")
+    text = text.replace("- shellprocess@syntropia_wizard",
+                        "- shellprocess@syntropia_wizard\n  - shellprocess@syntropia_branding")
+    p.write_text(text)
+PYEOF
+    ok "Branding copy wired into Calamares"
 
     # Step 4: Repack squashfs
     info "Repacking squashfs (this takes ~5 min)..."
