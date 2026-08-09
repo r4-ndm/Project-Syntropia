@@ -81,6 +81,75 @@ def test_expand_path_home_and_var(tmp_path: Path):
 # --- prefix -------------------------------------------------------------
 
 
+def _fake_proc(tmp_path: Path, proc_root: Path, pid: int, cmdline: list[str], wineprefix: str | None):
+    """Create a fake /proc entry for a process."""
+    pdir = proc_root / str(pid)
+    pdir.mkdir(parents=True)
+    (pdir / "cmdline").write_bytes("\0".join(cmdline).encode())
+    if wineprefix is not None:
+        env = f"WINEPREFIX={wineprefix}\0PATH=/usr/bin\0".encode()
+    else:
+        env = b"PATH=/usr/bin\0"
+    (pdir / "environ").write_bytes(env)
+
+
+def test_prefix_holders_empty_when_nothing_running(tmp_path: Path):
+    installer = make_installer(tmp_path)
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    # a process with no WINEPREFIX must not count
+    _fake_proc(tmp_path, proc_root, 100, ["bash"], None)
+    assert installer._prefix_holders(proc_root) == []
+
+
+def test_prefix_holders_detects_wineserver_on_this_prefix(tmp_path: Path):
+    installer = make_installer(tmp_path)
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    _fake_proc(tmp_path, proc_root, 200, ["/usr/bin/wineserver"], str(installer.prefix))
+    assert installer._prefix_holders(proc_root) == ["wineserver"]
+
+
+def test_prefix_holders_ignores_other_prefixes(tmp_path: Path):
+    installer = make_installer(tmp_path)
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    _fake_proc(tmp_path, proc_root, 300, ["/usr/bin/wineserver"], str(tmp_path / "other"))
+    assert installer._prefix_holders(proc_root) == []
+
+
+def test_prefix_holders_names_running_app(tmp_path: Path):
+    installer = make_installer(tmp_path)
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    _fake_proc(
+        tmp_path,
+        proc_root,
+        400,
+        ["C:\\Program Files\\Ableton\\Ableton Live 12 Suite.exe"],
+        str(installer.prefix),
+    )
+    assert installer._prefix_holders(proc_root) == ["Ableton Live 12 Suite.exe"]
+
+
+def test_step_prefix_fails_fast_when_prefix_in_use(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A real install must refuse when an app holds the prefix, so winetricks
+    can't hang on its final `wineserver -w`."""
+    installer = make_installer(tmp_path, dry_run=False)
+    monkeypatch.setattr(installer, "_prefix_holders", lambda proc_root: ["Ableton Live 12 Suite.exe"])
+    with pytest.raises(WH.WineHelperError, match="in use"):
+        installer.step_prefix()
+
+
+def test_step_prefix_dry_run_warns_not_fails_when_in_use(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    installer = make_installer(tmp_path, dry_run=True)
+    monkeypatch.setattr(installer, "_prefix_holders", lambda proc_root: ["wineserver"])
+    installer.step_prefix()  # must not raise in dry-run
+    assert installer._progress_detail == "in use: wineserver"
+
+
 def test_prefix_path_expanded(tmp_path: Path):
     installer = make_installer(tmp_path)
     assert str(installer.prefix).startswith(str(tmp_path))

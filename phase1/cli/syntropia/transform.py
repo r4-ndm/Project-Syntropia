@@ -247,6 +247,50 @@ class Transform:
         if os.geteuid() != 0:
             raise TransformError("transform must be run as root: sudo syntropia transform")
 
+    @staticmethod
+    def _wineservers_running(proc_root: Path = Path("/proc")) -> list[str]:
+        """Names of any live wineserver processes (any prefix).
+
+        Transform is system-wide (it (re)installs the wine stack and
+        restarts pipewire), so a running wine session — a DAW open with
+        its prefix's wineserver up — would be disrupted mid-flight.
+        """
+        servers: list[str] = []
+        try:
+            entries = sorted(proc_root.iterdir(), key=lambda p: p.name)
+        except OSError:
+            return servers
+        for entry in entries:
+            if not entry.name.isdigit():
+                continue
+            try:
+                cmdline = (entry / "cmdline").read_bytes().decode("utf-8", "replace")
+            except OSError:
+                continue
+            argv = cmdline.split("\0")
+            if argv and "wineserver" in argv[0]:
+                servers.append(argv[0])
+        return servers
+
+    def ensure_wine_idle(self) -> None:
+        """Refuse to transform while a wine session is running.
+
+        Reinstalling wine-staging / restarting pipewire under a live DAW
+        would corrupt the running session. Dry-run only warns — it changes
+        nothing, so it cannot disrupt anything.
+        """
+        servers = self._wineservers_running()
+        if not servers:
+            return
+        names = ", ".join(sorted(set(servers)))
+        if not self.dry_run:
+            raise TransformError(
+                "a Wine session is running ("
+                f"{names}) — close your DAW / audio apps and wait for the "
+                "prefixes to shut down, then re-run transform."
+            )
+        self.log("wine", f"⚠ wine session running ({names}) — transform would refuse")
+
     # -- steps ------------------------------------------------------------
 
     def missing_packages(self) -> list[str]:
@@ -424,6 +468,7 @@ class Transform:
                 run_command(["chown", "-R", owner, str(path)])
 
     def run_all(self) -> None:
+        self.ensure_wine_idle()
         self.apply_packages()
         self.apply_os_release()
         self.apply_logo()

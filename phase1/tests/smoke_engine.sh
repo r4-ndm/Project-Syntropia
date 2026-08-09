@@ -19,6 +19,22 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BREW="$REPO_ROOT/phase1/tests/engine-smoke.brew"
 PREFIX="$HOME/.local/share/syntropia/prefixes/engine-smoke-test"
 CLI=(env PYTHONPATH="$REPO_ROOT/phase1/cli" python3 -m syntropia.cli)
+PTY_TS="$(mktemp)"
+
+# Run the CLI under a PTY (via `script`) so the spinner animates on a real
+# terminal, while still capturing the full session for verification.
+# Without the PTY, `2>&1` pipes would make the CLI's stderr.isatty() False
+# and it would fall back to static lines — no animation.
+#
+# `script` echoes the live session to its stdout (the user's terminal sees
+# it), and logs the same bytes to the typescript file.  We must NOT capture
+# script's stdout in $() — that would swallow the live view.  Instead read
+# the typescript file after the run for verification.
+run_cli_pty() {
+    # SHELL=/bin/sh avoids sourcing the user's login profile (which would
+    # print noise like version-manager banners) into the session.
+    SHELL=/bin/sh script -qec "$1" "$PTY_TS" || true
+}
 
 cleanup() {
     # Kill any wineserver for the scratch prefix, then remove it.
@@ -27,6 +43,7 @@ cleanup() {
         sleep 1
         rm -rf "$PREFIX"
     fi
+    rm -f "$PTY_TS"
 }
 trap cleanup EXIT
 
@@ -34,7 +51,7 @@ echo "==> smoke_engine: ${BREW#*phase1/}"
 
 # ── 0. Toolchain pre-check (fail fast with a helpful message) ──────────
 missing=()
-for tool in wine winetricks yabridgectl; do
+for tool in wine winetricks yabridgectl script; do
     command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
 done
 if ((${#missing[@]})); then
@@ -44,8 +61,11 @@ fi
 echo "    toolchain: wine, winetricks, yabridgectl present"
 
 # ── 1. Dry-run: the plan must cover every pipeline step ────────────────
+# The PTY run streams the CLI's own progress to the terminal (spinner and
+# step order visible live) while still capturing for verification.
 echo "==> dry-run (--check)"
-plan="$("${CLI[@]}" install "$BREW" --check 2>&1)"
+run_cli_pty "${CLI[*]} install '$BREW' --check"
+plan="$(cat "$PTY_TS")" || true
 if ! grep -q "Dry-run complete" <<<"$plan"; then
     echo "ERROR: dry-run did not produce an install plan:" >&2
     echo "$plan" >&2
@@ -62,10 +82,10 @@ if [[ -e "$PREFIX" ]]; then
     echo "ERROR: scratch prefix already exists: $PREFIX (remove it first)" >&2
     exit 1
 fi
-out="$("${CLI[@]}" install "$BREW" --yes 2>&1)"
+run_cli_pty "${CLI[*]} install '$BREW' --yes"
+out="$(cat "$PTY_TS")" || true
 if ! grep -q "installed into" <<<"$out"; then
     echo "ERROR: install did not complete:" >&2
-    echo "$out" >&2
     exit 1
 fi
 echo "    install completed"

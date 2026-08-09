@@ -211,7 +211,89 @@ class WineInstaller:
         except OSError:
             pass
 
+    def _prefix_holders(self, proc_root: Path) -> list[str]:
+        """Names of running processes bound to the target Wine prefix.
+
+        Scans *proc_root* (``/proc`` on Linux) for processes whose
+        environment declares ``WINEPREFIX=<self.prefix>`` — the wineserver
+        itself and any wine client it spawned (e.g. the running DAW).  This
+        is the pre-flight check for the install-while-open hang: winetricks
+        ends with ``wineserver -w``, which blocks forever while an app
+        holds the prefix's server alive.
+        """
+        target = os.path.realpath(self.prefix)
+        holders: set[str] = set()
+        try:
+            entries = sorted(proc_root.iterdir(), key=lambda p: p.name)
+        except OSError:
+            return []
+        for entry in entries:
+            if not entry.name.isdigit():
+                continue
+            try:
+                environ = (entry / "environ").read_bytes().decode("utf-8", "replace")
+                cmdline = (entry / "cmdline").read_bytes().decode("utf-8", "replace")
+            except OSError:
+                continue  # not ours to read — can't be our prefix's server
+            has_prefix = False
+            for part in environ.split("\0"):
+                if part.startswith("WINEPREFIX="):
+                    has_prefix = os.path.realpath(part.split("=", 1)[1]) == target
+                    break
+            if not has_prefix:
+                continue
+            argv = cmdline.split("\0")
+            argv0 = argv[0] if argv else ""
+            if "wineserver" in argv0:
+                holders.add("wineserver")
+            elif argv0.lower().endswith(".exe"):
+                # Wine clients show a Windows path (C:\Program Files\…\App.exe)
+                # — split on both separators since Path() won't on POSIX.
+                holders.add(argv0.replace("\\", "/").rsplit("/", 1)[-1])
+        return sorted(holders)
+
+    # Wine's own helper processes run whenever a wineserver is up; they are
+    # NOT the app and shouldn't be reported as one, but their presence still
+    # means the prefix is busy (an orphaned session holds it open).
+    _WINE_INTERNAL = {
+        "wineserver",
+        "conhost.exe",
+        "explorer.exe",
+        "plugplay.exe",
+        "rpcss.exe",
+        "services.exe",
+        "svchost.exe",
+        "winedevice.exe",
+        "wineboot.exe",
+    }
+
     def step_prefix(self) -> None:
+        # Pre-flight: refuse to install while wine processes hold this prefix
+        # open (winetricks' final `wineserver -w` would hang forever — the
+        # same hang occurs whether it's the app itself or an orphaned session).
+        holders = self._prefix_holders(Path("/proc"))
+        if holders:
+            apps = [h for h in holders if h not in self._WINE_INTERNAL]
+            if apps:
+                verb = "is" if len(apps) == 1 else "are"
+                hint = (
+                    f"{', '.join(apps)} {verb} still running — close it "
+                    "(e.g. right-click the app's taskbar icon and choose "
+                    "'Force Quit')"
+                )
+            else:
+                hint = (
+                    "leftover Wine processes are still bound to this prefix "
+                    "(e.g. from a previous session)"
+                )
+            if not self.dry_run:
+                raise WineHelperError(
+                    f"the Wine prefix at {self.prefix} is in use — {hint}, "
+                    "then re-run the install."
+                )
+            self.log("prefix", f"⚠ prefix in use: {hint}")
+            self._detail(f"in use: {', '.join(holders)}")
+            return
         if self.prefix_is_provisioned():
             self._ensure_prefix_ownership()
             self.log("prefix", f"{self.prefix} already provisioned, skipping")

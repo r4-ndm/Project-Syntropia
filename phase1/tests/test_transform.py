@@ -69,6 +69,66 @@ def test_run_transform_check_is_safe(tmp_path: Path, monkeypatch: pytest.MonkeyP
 # --- guards -------------------------------------------------------------
 
 
+def _fake_proc(proc_root: Path, pid: int, cmdline: str):
+    pdir = proc_root / str(pid)
+    pdir.mkdir(parents=True)
+    (pdir / "cmdline").write_bytes(cmdline.encode())
+
+
+def test_wineservers_running_detects_any_prefix(tmp_path: Path):
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    _fake_proc(proc_root, 10, "/usr/bin/wineserver")
+    _fake_proc(proc_root, 11, "/opt/syntropia-wine/bin/wineserver")
+    _fake_proc(proc_root, 12, "/usr/bin/bash")
+    found = T.Transform._wineservers_running(proc_root)
+    assert len(found) == 2
+    assert all("wineserver" in s for s in found)
+
+
+def test_wineservers_running_empty_when_none(tmp_path: Path):
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    _fake_proc(proc_root, 20, "/usr/bin/bash")
+    _fake_proc(proc_root, 21, "/usr/bin/python")
+    assert T.Transform._wineservers_running(proc_root) == []
+
+
+def test_ensure_wine_idle_refuses_real_run_when_busy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    transform = make_transform(tmp_path, dry_run=False)
+    monkeypatch.setattr(
+        T.Transform, "_wineservers_running", staticmethod(lambda proc_root=None: ["/usr/bin/wineserver"])
+    )
+    with pytest.raises(T.TransformError, match="Wine session is running"):
+        transform.ensure_wine_idle()
+
+
+def test_ensure_wine_idle_warns_not_fails_in_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    transform = make_transform(tmp_path, dry_run=True)
+    monkeypatch.setattr(
+        T.Transform, "_wineservers_running", staticmethod(lambda proc_root=None: ["/usr/bin/wineserver"])
+    )
+    transform.ensure_wine_idle()  # must not raise
+
+
+def test_ensure_wine_idle_passes_when_idle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    transform = make_transform(tmp_path, dry_run=False)
+    monkeypatch.setattr(
+        T.Transform, "_wineservers_running", staticmethod(lambda proc_root=None: [])
+    )
+    transform.ensure_wine_idle()  # must not raise
+
+
+def test_run_all_refuses_when_wine_busy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(T, "run_command", noop_run([]))
+    monkeypatch.setattr(
+        T.Transform, "_wineservers_running", staticmethod(lambda proc_root=None: ["/usr/bin/wineserver"])
+    )
+    transform = make_transform(tmp_path, dry_run=False)
+    with pytest.raises(T.TransformError, match="Wine session is running"):
+        transform.run_all()
+
+
 def test_real_run_refuses_without_yes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(T, "run_command", noop_run([]))
     monkeypatch.setattr(
