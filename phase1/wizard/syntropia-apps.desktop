@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Syntropia Apps
+Comment=Pick your favorite apps (first-boot wizard)
+Exec=@SCRIPT@ --once
+Icon=system-software-install
+Terminal=false
+X-GNOME-Autostart-enabled=true

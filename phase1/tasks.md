@@ -207,6 +207,20 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 
 ---
 
+## 🧹 Phase 1.9: First-Boot Apps Wizard (favorites picker) 🆕
+
+A first-boot **popup GUI with checkboxes** for popular apps (Telegram, Wezterm, Bitwig, Kiro, Freebuff…). Checking an app runs `paru -S` for it — paru handles both official-repo and AUR packages in one list, with live output in a terminal window. It's a thin wrapper around `paru`, deliberately **not** a Calamares module, baked repo, or CachyOS-packageinstaller fork (each was investigated and rejected — see `phase1/wizard/README.md`). The app list is a plain text file, so adding an app = one line.
+
+### Implementation (phase1/wizard/)
+- [x] **Write `apps.list` catalog** - Pipe-delimited `category|name|package|description`; user override at `~/.config/syntropia/apps.list`; 8 categories / 18 apps, all repo-verified: Chat (Telegram, Discord), Browser (Brave), DAW (Bitwig, Reaper), AI (Kiro, Freebuff, Ollama), Terminal (Wezterm), Video (mpv, OBS), Wallet (Electrum), Web (WhatsApp, YouTube Music, Spotify, Notion, Figma, Gmail — URL launchers); LibreWolf dropped (left AUR)
+- [x] **Web app support** - URL in the package field = PWA-style launcher (Brave/Chromium `--app=URL`, else Firefox); mixed native+web installs split cleanly
+- [x] **Write `syntropia-apps-wizard.sh`** - one native-look checklist per category (kdialog on Plasma — its own `kdialog` package since KF6, not kde-cli-tools; zenity fallback; Breeze style forced off-Plasma) → bootstrap paru if missing → one `paru -S` for all picks; `--check`/`--list`/`--once`/`--setup`/`--dialog`/`--install-autostart`/`--remove-autostart` modes
+- [x] **Autostart-once desktop entry** - `syntropia-apps.desktop` template; `--once` self-disables via done-marker
+- [ ] **Ship it** - Wire into ISO `/etc/syntropia/` and/or `syntropia transform` (same files, no changes)
+- [ ] **Package as dependency-clean unit** - If it ships as a package: declare `kdialog` (or `zenity`) + `paru` deps (neither is guaranteed on a fresh install)
+
+---
+
 ## 🧠 Phase 1.8: Agent Skill Layer — THE LIVING COMPUTER 🆕
 
 Every Syntropia install ships **intelligence alongside the app**: a `SKILL.md` dropped into `~/.config/syntropia/skills/<brew>/` that any AI agent reads to help with that app — stack, known issues + proven fixes, logs, uninstall. `syntropia transform` installs the machine-level skill so a transformed box knows its own constitution. This is the core Syntropia vision: *the machine becomes legible to any agent that shows up.*
@@ -248,6 +262,10 @@ Every Syntropia install ships **intelligence alongside the app**: a `SKILL.md` d
 - [ ] Phase 1.8: Machine-level skill installed by `syntropia transform` (the OS constitution)
 - [ ] Phase 1.8: Real Ableton skill written from the war diary
 
+### New (First-Boot Apps Wizard)
+- [x] Phase 1.9: Wizard built (apps.list catalog + zenity/paru script + autostart-once) in `phase1/wizard/`
+- [ ] Phase 1.9: Wizard shipped via ISO `/etc/syntropia/` or transform
+
 ### Remaining (Week 4 equiv.)
 - [ ] Phase 1.5: AUR PKGBUILD + `syntropia update` subcommand
 - [ ] Phase 1.6: Git Butler `syn` script
@@ -255,4 +273,4 @@ Every Syntropia install ships **intelligence alongside the app**: a `SKILL.md` d
 
 ---
 
-**Last Updated**: Package-first strategy refocus — AUR delivery, ISO sidelined, Plymouth custom animation needed; added Phase 1.8 Agent Skill Layer (the living computer)
+**Last Updated**: Added Phase 1.9 First-Boot Apps Wizard (favorites picker) — built in `phase1/wizard/`, pending ship wiring (ISO/transform)

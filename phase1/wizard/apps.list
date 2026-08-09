@@ -1,0 +1,49 @@
+# 😈 Syntropia — Favorite Apps catalog for the first-boot wizard
+#
+# One app per line. Format (pipe-separated):
+#   category|display name|package|short description
+#
+# - category: the wizard shows one checklist dialog per category, in file
+#   order (Chat → Browser → DAW → AI → Terminal → Video → Wallet → Web)
+# - display name: shown in the dialog; must be unique
+# - package:
+#     * a pacman repo OR AUR package name — installed via paru, OR
+#     * an https:// URL — a WEB APP: the wizard creates a launcher that
+#       opens the site in its own dedicated window (like a PWA)
+# - description: informational (not shown in the dialog)
+#
+# Lines starting with # are comments. To add your own app, copy this file
+# to ~/.config/syntropia/apps.list and edit it there — the wizard prefers
+# the user copy over the system one. New category = just use a new category
+# name on the line.
+#
+# Rule of thumb: prefer official-repo packages (instant) and binary / .deb
+# repackage AUR packages (fast); source-compiling AUR packages work but slow
+# the wizard down. Use web apps (URL) for services without a good native
+# client (WhatsApp, YouTube Music, Notion…).
+#
+# Notes on picks (verified against the repos/AUR):
+# - Firefox ships with CachyOS by default, so the browser slot offers Brave
+#   (AUR -bin) instead; LibreWolf left the AUR.
+# - Reaper is in the official extra repo since 7.x; Bitwig is AUR (.deb
+#   repackage). Both are native Linux DAWs.
+# - Ollama (official repo) powers local LLMs for the AI agents.
+
+Chat|Telegram|telegram-desktop|Messaging app
+Chat|Discord|discord|Voice, video and text chat
+Browser|Brave|brave-bin|Ad-blocking Chromium browser
+DAW|Bitwig Studio|bitwig-studio|Digital audio workstation
+DAW|Reaper|reaper|Digital audio workstation (native Linux)
+AI|Kiro IDE|kiro-ide|Agentic AI code editor
+AI|Freebuff|freebuff-bin|AI coding agent for the terminal
+AI|Ollama|ollama|Run local LLMs
+Terminal|Wezterm|wezterm|GPU-accelerated terminal emulator
+Video|mpv|mpv|Minimal video player
+Video|OBS Studio|obs-studio|Screen recording and streaming
+Wallet|Electrum|electrum|Bitcoin wallet
+Web|WhatsApp|https://web.whatsapp.com|WhatsApp Web
+Web|YouTube Music|https://music.youtube.com|Music streaming
+Web|Spotify|https://open.spotify.com|Music streaming
+Web|Notion|https://www.notion.so|Notes and docs
+Web|Figma|https://www.figma.com|Design tool
+Web|Gmail|https://mail.google.com|Email
