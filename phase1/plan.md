@@ -120,6 +120,14 @@ HKLM\Software\Arturia           InstallVST364Dir = "C:\Program Files\Common File
 ### 6. Seed ISO (SIDELINED — working, deferred to Phase 2)
 * **ISO build pipeline**: mkarchiso profile in `iso/`, fully working and tested. Builds a bootable 3 GB hybrid ISO with Syntropia branding baked into Calamares, GRUB, and Plymouth. Kept as a battle-tested artifact for when a "download one ISO" experience is desired.
 
+### 7. Agent Skill Layer — THE LIVING COMPUTER (🆕)
+Syntropia ships **intelligence alongside installs**. Every brew install drops a `SKILL.md` into `~/.config/syntropia/skills/<brew>/` so any AI agent (Freebuff, Hermes, the future swarm) can read how to help with that app — without rediscovering tribal knowledge. This is the core Syntropia vision made concrete: *the machine becomes legible to any agent that shows up.*
+
+* **Per-brew skills**: `syntropia install` writes `~/.config/syntropia/skills/<brew>/SKILL.md` — the app's stack (wine build, prefix path, launchers), known issues with their **proven fixes**, log locations, and the uninstall procedure. Brews become *app + intelligence* bundles.
+* **Machine skill**: `syntropia transform` installs `~/.config/syntropia/skills/syntropia/SKILL.md` — the OS awareness layer: brew registry location, `~/VST3` shared-folder convention, transform-safety rules, update flow.
+* **Brew schema**: optional `skill` field in the `.brew` manifest (path to a bundled `SKILL.md`, or auto-generated skeleton from the brew's metadata when absent).
+* **Example — Ableton skill captures the whole war**: wine stack = giang17 d2d1-dcomp (NOT stock, NOT shibco), "serious program error" box workaround, D3D env incantations, busy-prefix hang rule, newest-Live-dir log gotcha, `syntropia uninstall` straggler search.
+
 ---
 
 ## 🍺 `.brew` Specification Schema
@@ -186,6 +194,19 @@ directories are symlinked (never copied) and missing `installdir` registry
 keys are added with the prefix's own wine — existing keys are never
 clobbered. When the vendor isn't present in the source prefix the step
 warns and continues rather than failing the DAW install.
+
+**`[skill]`** (optional, 🆕) — ships the agent-readable intelligence for
+this brew. `source` is a path to a bundled `SKILL.md`; when absent, a
+skeleton is auto-generated from the brew's metadata (name, wine stack,
+prefix, known-issues template). Either way the install engine writes
+`~/.config/syntropia/skills/<name>/SKILL.md` so any agent can read how to
+help with this app — its stack, proven fixes for known issues, log paths,
+and uninstall procedure.
+
+```toml
+[skill]
+source = "brews/ableton-live-12.SKILL.md"   # optional; else auto-generate
+```
 
 ---
 

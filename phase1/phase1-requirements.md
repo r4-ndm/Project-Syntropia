@@ -82,6 +82,14 @@ Application and plugin manifests called **brews** (`.brew` TOML format) — the 
 - **Calamares slides**: 6 slides baked in, single source of truth in `Branding/syntropia/calamares/slides/`
 - Kept as a battle-tested artifact for when a "download one ISO" experience is desired
 
+### 7. Agent Skill Layer — THE LIVING COMPUTER 🆕
+**Syntropia ships intelligence alongside installs.** Every brew install drops a `SKILL.md` into `~/.config/syntropia/skills/<brew>/` so any AI agent (Freebuff, Hermes, the future swarm) can read how to help with that app — without rediscovering tribal knowledge. This is the core Syntropia vision made concrete: *the machine becomes legible to any agent that shows up.*
+
+- **Per-brew skills**: `syntropia install` writes `~/.config/syntropia/skills/<brew>/SKILL.md` — the app's stack (wine build, prefix path, launchers), known issues with their **proven fixes** (not re-derived), log locations, and the uninstall procedure.
+- **Machine skill**: `syntropia transform` installs `~/.config/syntropia/skills/syntropia/SKILL.md` — the OS awareness layer: brew registry location, `~/VST3` shared-folder convention, transform-safety rules, update flow.
+- **Brew schema**: optional `skill` field in the `.brew` manifest (path to a bundled `SKILL.md`, or auto-generated skeleton from the brew's metadata when absent).
+- **Vision**: brews become *app + intelligence* bundles — the AUR-beating differentiation. Example content (Ableton): wine stack = giang17 d2d1-dcomp (NOT stock, NOT shibco), the "serious program error" workaround, the D3D env incantations, the busy-prefix hang, newest-Live-dir log gotcha, `syntropia uninstall` straggler search.
+
 ---
 
 ## 🍺 `.brew` Specification
@@ -127,6 +135,7 @@ commands = [
 - **Winetricks Integration**: Automated installation of required Windows components
 - **Yabridge Sync**: Automatic VST3 registration with `yabridgectl`
 - **Isolated Prefixes**: Each brew gets its own Wine prefix for stability
+- **Agent Skills (🆕)**: Every install drops a `SKILL.md` into `~/.config/syntropia/skills/<brew>/` — the app's stack, known issues + proven fixes, log paths, uninstall steps — so any agent can help with the app without re-deriving the knowledge
 
 ---
 

@@ -207,6 +207,30 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 
 ---
 
+## 🧠 Phase 1.8: Agent Skill Layer — THE LIVING COMPUTER 🆕
+
+Every Syntropia install ships **intelligence alongside the app**: a `SKILL.md` dropped into `~/.config/syntropia/skills/<brew>/` that any AI agent reads to help with that app — stack, known issues + proven fixes, logs, uninstall. `syntropia transform` installs the machine-level skill so a transformed box knows its own constitution. This is the core Syntropia vision: *the machine becomes legible to any agent that shows up.*
+
+### Skill Format
+- [ ] **Define SKILL.md format** - Required sections (Stack, Known Issues + Fixes, Logs, Uninstall), frontmatter, naming convention
+- [ ] **Write `template.SKILL.md`** - The authoring template every brew skill is based on
+
+### Brew Schema & Engine
+- [ ] **Add `[skill]` field to brew schema** - Optional `source` path to a bundled SKILL.md; auto-generate a skeleton from brew metadata when absent
+- [ ] **Install per-brew skills** - `syntropia install` writes `~/.config/syntropia/skills/<brew>/SKILL.md` as an engine step (idempotent, like the rest)
+- [ ] **Add machine-level skill** - `syntropia transform` installs `~/.config/syntropia/skills/syntropia/SKILL.md` (registry location, ~/VST3 convention, safety rules, update flow)
+- [ ] **Auto-generate skeleton** - From brew metadata (name, wine stack, prefix, category) when no bundled skill exists
+
+### Content — Write the Real Skills
+- [ ] **Write `ableton-live-12.SKILL.md`** - From the war diary: giang17 d2d1-dcomp wine (NOT stock, NOT shibco), prefix + launchers, "serious program error" workaround, D3D env incantations, busy-prefix hang rule, newest-Live-dir log gotcha, uninstall straggler search
+- [ ] **Write machine `SKILL.md`** - The Syntropia OS constitution an agent reads on any transformed box
+
+### Validation
+- [ ] **Tests for skills** - Skill install step, skeleton generation, missing-source handling, idempotent re-install
+- [ ] **Wire into CLI** - `syntropia install` and `syntropia transform` both covered by the test suite
+
+---
+
 ## 📊 Progress Tracking
 
 ### Completed (Week 1-2 equiv.)
@@ -219,6 +243,11 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 - [ ] Phase 1.3: Prove a brew end-to-end with a real Windows installer
 - [ ] Phase 1.2: Custom Plymouth animation (replace stock CachyOS frames)
 
+### New (Agent Skill Layer)
+- [ ] Phase 1.8: Per-brew `SKILL.md` installed by `syntropia install` (stack, fixes, logs, uninstall)
+- [ ] Phase 1.8: Machine-level skill installed by `syntropia transform` (the OS constitution)
+- [ ] Phase 1.8: Real Ableton skill written from the war diary
+
 ### Remaining (Week 4 equiv.)
 - [ ] Phase 1.5: AUR PKGBUILD + `syntropia update` subcommand
 - [ ] Phase 1.6: Git Butler `syn` script
@@ -226,4 +255,4 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 
 ---
 
-**Last Updated**: Package-first strategy refocus — AUR delivery, ISO sidelined, Plymouth custom animation needed
+**Last Updated**: Package-first strategy refocus — AUR delivery, ISO sidelined, Plymouth custom animation needed; added Phase 1.8 Agent Skill Layer (the living computer)
