@@ -45,7 +45,7 @@ We prioritise **rapid local development** using `syntropia transform` on running
 - **System Branding**: Custom `/etc/os-release` & `/usr/share/syntropia/logo.txt`
 - **Shell Identity**: `😈 \u@\h \W $ ` prompt in `~/.bashrc` & `~/.zshrc` (fish uses fastfetch greeting instead)
 - **Audio Stack**: Automated installation of `wine-staging`, `winetricks`, `yabridge`, `yabridgectl`, `pipewire`, `pipewire-pulse`, `wireplumber`
-- **Directory Structure**: Creates `~/.config/syntropia/brews/`, `~/.local/share/syntropia/prefixes/`, `~/.vst3/Syntropia/`
+- **Directory Structure**: Creates `~/.config/syntropia/brews/`, `~/.local/share/syntropia/prefixes/`, `~/VST3/` (user-facing drop folder for Windows VST3s)
 - **CLI Deployment**: Installs `/usr/local/bin/syntropia` executable
 - **Audio Optimization**: Applies PipeWire low-latency configuration (`quantum=128`)
 - **Safety**: `--check` dry-run, snapper snapshot before applying, `--yes` flag for automation
@@ -68,7 +68,9 @@ Application and plugin manifests called **brews** (`.brew` TOML format) — the 
 - **`syntropia install <brew>`**: Parses `.brew` specs, provisions Wine prefixes, applies DLL overrides, runs `winetricks`, registers VST3 DLLs, triggers `yabridgectl sync`
 - **`syntropia list-brews`**: Lists available local brews
 - **`syntropia search`**: Searches brew repository
-- **122 tests, all passing**
+- **`syntropia plugins folder` / `syntropia plugins sync`**: Drop-folder VST3 workflow — `~/VST3` is the single user-facing folder for Windows VST3s; `sync` registers it with `yabridgectl` (idempotent) and bridges everything in it
+- **Shared-folder architecture (see plan.md §4a)**: `~/VST3` is symlinked into every wine prefix's `Common Files/VST3`, so Bitwig (via `~/.vst3/yabridge` stubs) and Ableton (direct scan) share the same plugins. Bundle layout required for Ableton; vendor data dirs + `installdir` registry keys needed for Arturia-class plugins
+- **166 tests, all passing**
 
 ### 5. AUR Package & Updates 🔨 TO BUILD
 - **AUR PKGBUILD**: `yay -S syntropia` installs the CLI, branding assets, and systemd services
@@ -106,7 +108,7 @@ packages = ["gdiplus", "corefonts", "vcrun2022"]
 
 [yabridge]
 enabled = true
-plugin_dirs = ["~/.vst3/Syntropia"]
+plugin_dirs = ["~/VST3"]
 
 [environment]
 WINEDLLOVERRIDES = "winemenubuilder.exe=d"
@@ -116,7 +118,7 @@ LANG = "en_US.UTF-8"
 [install]
 commands = [
   "wine /tmp/Serum_Setup.exe /S",
-  "cp -r '$WINEPREFIX/drive_c/Program Files/Common Files/VST3/Serum.vst3' ~/.vst3/Syntropia/"
+  "cp -r '$WINEPREFIX/drive_c/Program Files/Common Files/VST3/Serum.vst3' \"$HOME/VST3/\""
 ]
 ```
 
@@ -203,7 +205,7 @@ Project-Syntropia/
 ## 🛡️ Quality Assurance
 
 ### Testing Strategy
-- **Unit Tests**: All Python modules, 122 tests all passing ✅
+- **Unit Tests**: All Python modules, 166 tests all passing ✅
 - **Integration Tests**: Full brew installation workflow (pending real installer test)
 - **System Tests**: Complete transform → brew install → DAW launch (pending)
 - **Performance Tests**: Audio latency measurements (pending)

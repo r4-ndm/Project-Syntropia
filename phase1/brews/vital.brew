@@ -19,7 +19,7 @@ packages = ["corefonts", "gdiplus"]
 
 [yabridge]
 enabled = true
-plugin_dirs = ["~/.vst3/Syntropia"]
+plugin_dirs = ["~/VST3"]
 
 [environment]
 WINEDLLOVERRIDES = "winemenubuilder.exe=d"
@@ -30,6 +30,6 @@ LANG = "en_US.UTF-8"
 # open the GUI and block. /VERYSILENT runs it headless.
 commands = [
   "wine /tmp/Vital-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
-  "mkdir -p \"$HOME/.vst3/Syntropia\"",
-  "cp -r \"$WINEPREFIX/drive_c/Program Files/Common Files/VST3/Vital.vst3\" \"$HOME/.vst3/Syntropia/\"",
+  "mkdir -p \"$HOME/VST3\"",
+  "cp -r \"$WINEPREFIX/drive_c/Program Files/Common Files/VST3/Vital.vst3\" \"$HOME/VST3/\"",
 ]

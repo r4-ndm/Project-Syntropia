@@ -33,7 +33,7 @@ AUDIO_PACKAGES = [
 SYNTROPIA_DIRS_REL = [
     ".config/syntropia/brews",
     ".local/share/syntropia/prefixes",
-    ".vst3/Syntropia",
+    "VST3",  # the single user-facing drop folder for Windows VST3s (yabridge-bridged)
 ]
 
 PIPEWIRE_QUANTUM = 128
@@ -415,7 +415,8 @@ class Transform:
             self.paths.fastfetch_dir,
             self.paths.syntropia_config_dir,
             self.paths.home / ".local" / "share" / "syntropia",
-            self.paths.home / ".vst3",
+            self.paths.home / ".vst3",  # yabridge stubs land under ~/.vst3/yabridge
+            self.paths.home / "VST3",  # the user-facing drop folder
             self.paths.home / ".local" / "share" / "backgrounds",
         }
         for path in managed:

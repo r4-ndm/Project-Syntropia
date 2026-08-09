@@ -8,6 +8,7 @@ from pathlib import Path
 import click
 
 from .brew import BrewError, brew_filename, find_brews, lint_brew, load_brew, resolve_brew, save_brew
+from .plugins import DEFAULT_PLUGIN_DIR, PluginsError, drop_folder, ensure_drop_folder, find_plugins, link_vendor_data, stub_for, sync_plugins
 from .progress import StepProgress
 from .registry import RegistryError, submit_brew
 from .transform import TransformError, run_transform
@@ -458,6 +459,122 @@ def submit(name: str, registry: str, base: str) -> None:
         raise click.ClickException(str(exc)) from exc
     click.echo(click.style("🚀 PR opened:", fg="green"))
     click.echo(f"   {url}")
+
+
+@cli.group()
+def plugins() -> None:
+    """Drop-folder VST3 workflow — drop Windows VST3s into ~/VST3 and bridge them.
+
+    Windows VST3 files (flat DLLs or bundles) go into the drop folder;
+    ``syntropia plugins sync`` registers it with yabridge and writes
+    Linux stubs under ~/.vst3/yabridge, which Bitwig and other Linux
+    DAWs scan by default.
+    """
+
+
+@plugins.command("folder")
+@click.option("--create", "create", is_flag=True, help="Create the folder if it does not exist.")
+def plugins_folder(create: bool) -> None:
+    """Show the VST3 drop folder (optionally create it)."""
+    path = drop_folder()
+    if create:
+        path = ensure_drop_folder(path)
+        click.echo(click.style(f"✅ {path}", fg="green"))
+        click.echo("Drop Windows VST3 files here, then run 'syntropia plugins sync'.")
+    else:
+        click.echo(f"{path}")
+        if not path.exists():
+            click.echo("(does not exist yet — re-run with --create to make it)")
+
+
+@plugins.command("link")
+@click.option("--data", "vendor", required=True, metavar="VENDOR", help="Vendor name to link (e.g. Arturia).")
+@click.option("--source", "source", default="~/.wine", show_default=True, help="Wine prefix that already has the vendor's data + registry.")
+@click.option("--prefix", "prefixes", multiple=True, help="Target wine prefix to link into (repeatable; default: all syntropia prefixes).")
+@click.option("--check", is_flag=True, help="Dry-run: show what would be linked, change nothing.")
+def plugins_link(vendor: str, source: str, prefixes: tuple[str, ...], check: bool) -> None:
+    """Wire a vendor's data + registry into wine DAW prefixes.
+
+    Vendors like Arturia split installs across a data dir
+    (``C:\\ProgramData\\<Vendor>``) and an ``installdir`` registry key. Bitwig
+    works via yabridge (runs plugins in their home prefix); a wine-hosted
+    DAW like Ableton needs the data symlinked + keys added to its own
+    prefix. This command does that from a source prefix (default ~/.wine)
+    into every syntropia-managed prefix.
+    """
+    source_path = Path(os.path.expanduser(source))
+    target_prefixes: list[Path] | None = None
+    if prefixes:
+        target_prefixes = [Path(os.path.expanduser(p)) for p in prefixes]
+    try:
+        result = link_vendor_data(
+            vendor,
+            source_path,
+            target_prefixes=target_prefixes,
+            dry_run=check,
+        )
+    except PluginsError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo(f"Linking {result.vendor} data from {result.source_prefix}:")
+    for src, dest in result.data_dirs:
+        click.echo(f"  ↪ {dest}  →  {src}")
+    for prefix, key, name, value in result.registry_keys:
+        click.echo(f"  reg: {prefix}  HKLM\\{key}  {name} = {value}")
+
+    if check:
+        click.echo("Dry-run: nothing changed.")
+        return
+    if not result.data_dirs and not result.registry_keys:
+        click.echo("Nothing to do — already linked.")
+        return
+    click.echo(click.style(
+        f"✅ Linked {result.vendor}: {len(result.data_dirs)} data dir(s), "
+        f"{len(result.registry_keys)} registry value(s) across {len(result.target_prefixes)} prefix(es)",
+        fg="green",
+    ))
+
+
+@plugins.command("sync")
+@click.option("--check", is_flag=True, help="Dry-run: show what would be bridged, change nothing.")
+def plugins_sync(check: bool) -> None:
+    """Make yabridge aware of every plugin in the drop folder.
+
+    Registers the drop folder with yabridgectl and syncs, so each
+    dropped Windows VST3 gets a Linux stub under ~/.vst3/yabridge.
+    """
+    try:
+        result = sync_plugins(dry_run=check)
+    except PluginsError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    drop = result.drop_dir
+    click.echo(f"Drop folder: {drop}")
+
+    if not result.plugins_found:
+        click.echo("No Windows VST3/VST2/CLAP plugins found yet.")
+        click.echo(f"Drop plugin files into {drop} and run 'syntropia plugins sync' again.")
+        return
+
+    for plugin in result.plugins_found:
+        click.echo(f"  found: {plugin.name}")
+
+    if check:
+        click.echo(
+            "Dry-run: would register the folder with yabridgectl and sync "
+            f"({len(result.plugins_found)} plugin(s)). Nothing changed."
+        )
+        return
+
+    click.echo(click.style(f"✅ Bridged {result.bridged_count} plugin(s)", fg="green"))
+    stub_root = result.stub_dir
+    if stub_root is not None:
+        click.echo(f"Linux stubs written to {stub_root}")
+        for plugin in result.plugins_found:
+            stub = stub_for(plugin, stub_root)
+            if stub is not None:
+                click.echo(f"  → {stub}")
+        click.echo("Your DAW should already scan this folder — if not, add it in its plugin settings.")
 
 
 @cli.command()

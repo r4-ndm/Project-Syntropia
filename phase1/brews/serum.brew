@@ -20,7 +20,7 @@ packages = ["gdiplus", "corefonts", "vcrun2022"]
 
 [yabridge]
 enabled = true
-plugin_dirs = ["~/.vst3/Syntropia"]
+plugin_dirs = ["~/VST3"]
 
 [environment]
 WINEDLLOVERRIDES = "winemenubuilder.exe=d"
@@ -30,5 +30,6 @@ LANG = "en_US.UTF-8"
 [install]
 commands = [
   "wine /tmp/Serum_Setup.exe /S",
-  "cp -r '$WINEPREFIX/drive_c/Program Files/Common Files/VST3/Serum.vst3' ~/.vst3/Syntropia/",
+  "mkdir -p \"$HOME/VST3\"",
+  "cp -r '$WINEPREFIX/drive_c/Program Files/Common Files/VST3/Serum.vst3' \"$HOME/VST3/\"",
 ]

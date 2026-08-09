@@ -41,7 +41,7 @@ def make_full_brew() -> dict:
     data = make_valid_brew()
     data["wine"]["overrides"] = {"d2d1": "disabled", "gdiplus": "native"}
     data["winetricks"] = {"packages": ["gdiplus", "corefonts", "vcrun2022"]}
-    data["yabridge"] = {"enabled": True, "plugin_dirs": ["~/.vst3/Syntropia"]}
+    data["yabridge"] = {"enabled": True, "plugin_dirs": ["~/VST3"]}
     data["environment"] = {"WINEDLLOVERRIDES": "winemenubuilder.exe=d", "LANG": "en_US.UTF-8"}
     return data
 
@@ -71,7 +71,7 @@ def test_full_brew_parses_everything():
     assert brew.wine_overrides == {"d2d1": "disabled", "gdiplus": "native"}
     assert brew.winetricks_packages == ["gdiplus", "corefonts", "vcrun2022"]
     assert brew.yabridge_enabled is True
-    assert brew.plugin_dirs == ["~/.vst3/Syntropia"]
+    assert brew.plugin_dirs == ["~/VST3"]
     assert brew.environment["WINEDLLOVERRIDES"] == "winemenubuilder.exe=d"
 
 

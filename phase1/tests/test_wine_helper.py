@@ -21,7 +21,7 @@ SERUM_MANIFEST = {
         "overrides": {"d2d1": "disabled", "gdiplus": "native"},
     },
     "winetricks": {"packages": ["gdiplus", "corefonts"]},
-    "yabridge": {"enabled": True, "plugin_dirs": ["~/.vst3/Syntropia"]},
+    "yabridge": {"enabled": True, "plugin_dirs": ["~/VST3"]},
     "environment": {"WINEDLLOVERRIDES": "winemenubuilder.exe=d"},
     "install": {"commands": ["wine /tmp/Serum_Setup.exe /S"]},
 }
@@ -71,7 +71,7 @@ def test_env_applies_environment_section(tmp_path: Path):
 
 
 def test_expand_path_home_and_var(tmp_path: Path):
-    assert WH.expand_path("~/.vst3/Syntropia", tmp_path) == tmp_path / ".vst3" / "Syntropia"
+    assert WH.expand_path("~/VST3", tmp_path) == tmp_path / "VST3"
     # unset vars pass through, then anchor to home
     assert WH.expand_path("$WINEPREFIX/drive_c", tmp_path) == tmp_path / "$WINEPREFIX" / "drive_c"
     # relative paths anchor to home
@@ -154,7 +154,7 @@ def test_yabridge_plugin_dir_expands_tilde(tmp_path: Path, monkeypatch: pytest.M
     add_calls = [c for c in calls if c[0] == "yabridgectl" and c[1] == "add"]
     assert add_calls, "yabridgectl add should have been invoked"
     # the plugin dir must be resolved against the injected home, not a literal ~
-    assert add_calls[0][2] == str(tmp_path / ".vst3" / "Syntropia")
+    assert add_calls[0][2] == str(tmp_path / "VST3")
 
 
 def test_install_command_failure_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

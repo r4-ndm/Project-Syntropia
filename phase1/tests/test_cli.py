@@ -200,3 +200,147 @@ def test_save_hints_submit(tmp_path: Path):
     result = _run("save", str(source), "--registry", str(tmp_path / "registry"))
     assert result.exit_code == 0
     assert "syntropia submit surge-xt" in result.output
+
+
+# --- plugins drop-folder workflow --------------------------------------
+
+
+def test_plugins_folder_prints_path(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("syntropia.cli.drop_folder", lambda: tmp_path / "VST3")
+    result = _run("plugins", "folder")
+    assert result.exit_code == 0, result.output
+    assert str(tmp_path / "VST3") in result.output
+
+
+def test_plugins_folder_create_makes_dir(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("syntropia.cli.drop_folder", lambda: tmp_path / "VST3")
+    result = _run("plugins", "folder", "--create")
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "VST3").is_dir()
+
+
+def test_plugins_sync_dry_run_changes_nothing(tmp_path: Path, monkeypatch):
+    result_obj = type(
+        "Result",
+        (),
+        {
+            "drop_dir": tmp_path / "VST3",
+            "plugins_found": [tmp_path / "VST3" / "FlatCRMBL.vst3"],
+            "stub_dir": tmp_path / ".vst3" / "yabridge",
+            "bridged_count": 0,
+            "dry_run": True,
+        },
+    )()
+    monkeypatch.setattr("syntropia.cli.sync_plugins", lambda dry_run=False: result_obj)
+    result = _run("plugins", "sync", "--check")
+    assert result.exit_code == 0, result.output
+    assert "Dry-run" in result.output
+    assert "Nothing changed" in result.output
+
+
+def test_plugins_sync_reports_bridged(tmp_path: Path, monkeypatch):
+    stub = tmp_path / ".vst3" / "yabridge" / "FlatCRMBL.vst3"
+    result_obj = type(
+        "Result",
+        (),
+        {
+            "drop_dir": tmp_path / "VST3",
+            "plugins_found": [tmp_path / "VST3" / "FlatCRMBL.vst3"],
+            "stub_dir": tmp_path / ".vst3" / "yabridge",
+            "bridged_count": 1,
+            "dry_run": False,
+        },
+    )()
+    monkeypatch.setattr("syntropia.cli.sync_plugins", lambda dry_run=False: result_obj)
+    monkeypatch.setattr(
+        "syntropia.cli.stub_for",
+        lambda plugin, root: stub,
+    )
+    result = _run("plugins", "sync")
+    assert result.exit_code == 0, result.output
+    assert "Bridged 1 plugin" in result.output
+    assert str(stub) in result.output
+
+
+def test_plugins_sync_empty_folder_message(tmp_path: Path, monkeypatch):
+    result_obj = type(
+        "Result",
+        (),
+        {
+            "drop_dir": tmp_path / "VST3",
+            "plugins_found": [],
+            "stub_dir": tmp_path / ".vst3" / "yabridge",
+            "bridged_count": 0,
+            "dry_run": False,
+        },
+    )()
+    monkeypatch.setattr("syntropia.cli.sync_plugins", lambda dry_run=False: result_obj)
+    result = _run("plugins", "sync")
+    assert result.exit_code == 0, result.output
+    assert "No Windows VST3/VST2/CLAP plugins found" in result.output
+
+
+def test_plugins_link_dry_run(tmp_path: Path, monkeypatch):
+    link_result = type(
+        "LinkResult",
+        (),
+        {
+            "vendor": "Arturia",
+            "source_prefix": tmp_path / "wine",
+            "target_prefixes": [tmp_path / "prefixes" / "ableton"],
+            "data_dirs": [(tmp_path / "wine" / "d", tmp_path / "prefixes" / "ableton" / "d")],
+            "registry_keys": [
+                (tmp_path / "prefixes" / "ableton", "Software\\Arturia\\X", "installdir", "C:\\data"),
+            ],
+            "dry_run": True,
+        },
+    )()
+    monkeypatch.setattr(
+        "syntropia.cli.link_vendor_data",
+        lambda vendor, source, target_prefixes=None, dry_run=False: link_result,
+    )
+    result = _run("plugins", "link", "--data", "Arturia", "--check")
+    assert result.exit_code == 0, result.output
+    assert "Linking Arturia" in result.output
+    assert "Dry-run: nothing changed" in result.output
+
+
+def test_plugins_link_reports_summary(tmp_path: Path, monkeypatch):
+    link_result = type(
+        "LinkResult",
+        (),
+        {
+            "vendor": "Arturia",
+            "source_prefix": tmp_path / "wine",
+            "target_prefixes": [tmp_path / "prefixes" / "ableton"],
+            "data_dirs": [(tmp_path / "wine" / "d", tmp_path / "prefixes" / "ableton" / "d")],
+            "registry_keys": [
+                (tmp_path / "prefixes" / "ableton", "Software\\Arturia\\X", "installdir", "C:\\data"),
+            ],
+            "dry_run": False,
+        },
+    )()
+    monkeypatch.setattr(
+        "syntropia.cli.link_vendor_data",
+        lambda vendor, source, target_prefixes=None, dry_run=False: link_result,
+    )
+    result = _run("plugins", "link", "--data", "Arturia")
+    assert result.exit_code == 0, result.output
+    assert "✅ Linked Arturia: 1 data dir(s), 1 registry value(s)" in result.output
+
+
+def test_plugins_link_missing_vendor_data(tmp_path: Path, monkeypatch):
+    from syntropia.plugins import PluginsError
+
+    def boom(vendor, source, target_prefixes=None, dry_run=False):
+        raise PluginsError(f"no '{vendor}' data or registry keys found in {source}")
+    monkeypatch.setattr("syntropia.cli.link_vendor_data", boom)
+    result = _run("plugins", "link", "--data", "GhostVendor")
+    assert result.exit_code != 0
+    assert "no 'GhostVendor' data" in result.output
+
+
+def test_plugins_link_requires_data_flag():
+    result = _run("plugins", "link")
+    assert result.exit_code != 0
+    assert "--data" in result.output

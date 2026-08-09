@@ -25,7 +25,7 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 
 ### Directory Structure Setup
 - [x] **Create user directories** - `~/.config/syntropia/brews/`, `~/.local/share/syntropia/prefixes/`
-- [x] **Setup VST3 directory** - `~/.vst3/Syntropia/` for bridged plugins
+- [x] **Setup VST3 drop folder** - `~/VST3/` for bridged plugins (brew installs and manual drops both land here)
 - [x] **Create downloads cache** - `~/.local/share/syntropia/downloads/` for brew assets
 
 ### CLI Deployment
@@ -118,7 +118,7 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 - [ ] **Add prefix cleanup** - Remove orphaned or corrupted prefixes
 
 ### VST3 Directory Management
-- [x] **Ensure VST3 directory creation** - Auto-create `~/.vst3/Syntropia` if missing
+- [x] **Ensure VST3 drop folder creation** - Auto-create `~/VST3` if missing (brew installs and manual drops both land here)
 - [ ] **Implement plugin scanning** - Detect installed VST3 plugins
 - [ ] **Add directory verification** - Check permissions and accessibility
 
@@ -188,7 +188,7 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 - [x] **Test registry ops** - Save, remove, submit, validation
 - [x] **Test PNG-to-ASCII** - Logo conversion pipeline
 - [x] **Test wine helper** - Env building, prefix provisioning, dry-run, toolchain checks
-- **Result**: 122 tests, all passing ✅
+- **Result**: 166 tests, all passing ✅
 
 ### Integration Testing
 - [ ] **Test complete brew installation** - End-to-end test of `syntropia install` with real installer

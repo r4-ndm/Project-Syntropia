@@ -23,7 +23,7 @@ packages = ["corefonts"]
 
 [yabridge]
 enabled = true
-plugin_dirs = ["~/.vst3/Syntropia"]
+plugin_dirs = ["~/VST3"]
 
 [environment]
 WINEDLLOVERRIDES = "winemenubuilder.exe=d"
@@ -35,7 +35,7 @@ LANG = "en_US.UTF-8"
 # /VERYSILENT. xvfb-run gives it a virtual display for headless installs.
 commands = [
   "xvfb-run -a wine /tmp/surge-xt-setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
-  "mkdir -p \"$HOME/.vst3/Syntropia\"",
-  "cp -r \"$WINEPREFIX/drive_c/Program Files/Common Files/VST3/Surge Synth Team/Surge XT.vst3\" \"$HOME/.vst3/Syntropia/\"",
-  "cp -r \"$WINEPREFIX/drive_c/Program Files/Common Files/VST3/Surge Synth Team/Surge XT Effects.vst3\" \"$HOME/.vst3/Syntropia/\"",
+  "mkdir -p \"$HOME/VST3\"",
+  "cp -r \"$WINEPREFIX/drive_c/Program Files/Common Files/VST3/Surge Synth Team/Surge XT.vst3\" \"$HOME/VST3/\"",
+  "cp -r \"$WINEPREFIX/drive_c/Program Files/Common Files/VST3/Surge Synth Team/Surge XT Effects.vst3\" \"$HOME/VST3/\"",
 ]

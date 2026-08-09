@@ -270,7 +270,8 @@ def test_fix_user_ownership_chowns_managed_paths_under_sudo(
     paths = make_paths(tmp_path)
     paths.bashrc.parent.mkdir(parents=True)
     paths.bashrc.write_text("x")
-    (paths.home / ".vst3" / "Syntropia").mkdir(parents=True)
+    (paths.home / ".vst3").mkdir(parents=True)  # yabridge stub dir
+    (paths.home / "VST3").mkdir(parents=True)  # user-facing drop folder
     transform = T.Transform(paths, dry_run=False)
     transform._fix_user_ownership()
     chowns = [c for c in calls if c[0] == "chown"]
@@ -279,6 +280,7 @@ def test_fix_user_ownership_chowns_managed_paths_under_sudo(
     owned = {str(c[3]) for c in chowns}
     assert str(paths.bashrc) in owned
     assert str(paths.home / ".vst3") in owned
+    assert str(paths.home / "VST3") in owned
 
 
 def test_fix_user_ownership_noop_without_sudo(

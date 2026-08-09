@@ -32,7 +32,7 @@ packages = ["corefonts"]
 
 [yabridge]
 enabled = true
-plugin_dirs = ["~/.vst3/Syntropia"]
+plugin_dirs = ["~/VST3"]
 
 [environment]
 WINEDLLOVERRIDES = "winemenubuilder.exe=d"
@@ -42,5 +42,5 @@ LANG = "en_US.UTF-8"
 commands = [
   # Use $SYNTROPIA_SOURCE to reference the auto-discovered installer file:
   # "wine \"$SYNTROPIA_SOURCE\" /S",
-  # "cp -r '$WINEPREFIX/drive_c/Program Files/Common Files/VST3/Example.vst3' ~/.vst3/Syntropia/",
+  # "cp -r '$WINEPREFIX/drive_c/Program Files/Common Files/VST3/Example.vst3' \"$HOME/VST3/\"",
 ]

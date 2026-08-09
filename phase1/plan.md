@@ -47,7 +47,7 @@ Phase 1 follows a **package-first** strategy — the AUR package is the delivery
   - Applies `/etc/os-release` & `/usr/share/syntropia/logo.txt`.
   - Configures shell prompt `😈 \u@\h \W $ ` in `~/.bashrc` & `~/.zshrc` (fish support: pending).
   - Installs audio packages (`wine-staging`, `winetricks`, `yabridge`, `yabridgectl`, `pipewire`, `pipewire-pulse`, `wireplumber`).
-  - Sets up directories (`~/.config/syntropia/brews`, `~/.local/share/syntropia/prefixes`, `~/.vst3/Syntropia`).
+  - Sets up directories (`~/.config/syntropia/brews`, `~/.local/share/syntropia/prefixes`, `~/VST3` — the user-facing drop folder for Windows VST3s).
   - Deploys `/usr/local/bin/syntropia` CLI executable.
   - Applies PipeWire low-latency quantum configuration (`~/.config/pipewire/pipewire.conf.d/99-syntropia.conf`).
 
@@ -69,9 +69,48 @@ Application and plugin manifests called **brews** (`.brew` TOML format). The `.b
   - `syntropia install <name>` — resolves bare names against the registry, AUR-style (`syntropia install surge`), or a file path.
   - `syntropia remove <name>` / `list-brews` / `search` / `info` — the rest of the read/write surface.
   - `syntropia submit <name>` — pushes a new/changed brew to the shared GitHub registry as a PR via `gh`.
+  - `syntropia plugins folder [--create]` / `syntropia plugins sync [--check]` — the drop-folder workflow: users drop Windows VST3s into `~/VST3` (created on demand), `sync` registers the folder with `yabridgectl` (idempotent) and bridges them (stubs land in `~/.vst3/yabridge`). See §4a for the shared-folder architecture and bundle/registry gotchas.
 
 ### 4. Syntropia CLI & VST3 Engine
-* **`syntropia install <brew>`**: Parses `.brew` specs, provisions isolated Wine prefixes, applies DLL overrides (`d2d1 = "disabled"`, `gdiplus = "native"`), runs `winetricks`, registers VST3 DLLs with `yabridgectl`, and triggers automatic sync to `~/.vst3/Syntropia`.
+* **`syntropia install <brew>`**: Parses `.brew` specs, provisions isolated Wine prefixes, applies DLL overrides (`d2d1 = "disabled"`, `gdiplus = "native"`), runs `winetricks`, registers VST3 DLLs with `yabridgectl`, and triggers automatic sync. Brew installs copy their VST3s into `~/VST3` (the single user-facing folder), which `yabridgectl` bridges to `~/.vst3/yabridge`.
+
+### 4a. Shared `~/VST3` Folder Architecture (both DAWs)
+
+**One real folder, two DAWs.** `~/VST3` is the single user-facing folder for Windows VST3 plugins. Manual drops (`syntropia plugins sync`) and brew installs both land here; then **both** DAWs consume the same files:
+
+```
+~/VST3/                          ← THE one real folder (bundle layout required)
+├── Arturia/         (vendor subdirs allowed)
+├── <Plugin>.vst3/   (bundle: Contents/x86_64-win/<Plugin>.vst3)
+└── ...
+
+~/.wine/drive_c/Program Files/Common Files/VST3      ─┐
+…/prefixes/<brew>/drive_c/Program Files/Common Files/VST3 ─┤  both symlink → ~/VST3
+```
+
+* **Bitwig / native Linux DAWs** read `~/.vst3/yabridge/` — the Linux stubs `yabridgectl sync` writes for every Windows plugin in `~/VST3`. No per-DAW setup needed (Bitwig scans it by default).
+* **Ableton (wine-hosted)** scans its own prefix's `C:\Program Files\Common Files\VST3`, which is a **symlink to `~/VST3`**, so it sees the exact same plugins.
+
+**Bundle requirement**: Ableton only scans VST3 **bundle** layout (`Plugin.vst3/Contents/x86_64-win/Plugin.vst3`). Flat single-file `.vst3` DLLs (what many zips ship, e.g. Arturia's manual installs) are invisible to Ableton — yabridge accepts them for Bitwig, but they must be wrapped into bundle dirs for Ableton. (CRMBL and all 35 Arturia plugins were converted this way.)
+
+**Vendor data + registry**: Some vendors (Arturia especially) also need their data dir and `installdir` registry keys present in the DAW's prefix, or the plugin loads-but-fails to initialize:
+
+```
+# per Ableton prefix (symlinked, not copied — 5.8 GB for Arturia):
+drive_c/ProgramData/Arturia          → ~/.wine/drive_c/ProgramData/Arturia
+  drive_c/ProgramData/ArturiaSC      → ~/.wine/.../ArturiaSC
+drive_c/Program Files/Arturia        → ~/.wine/.../Arturia
+
+# per plugin, in the DAW prefix's registry (added via wine reg add, wine-11.x):
+HKLM\Software\Arturia\<Plugin>  installdir = "C:\ProgramData\Arturia\<Plugin>"
+HKLM\Software\Arturia           InstallVST364Dir = "C:\Program Files\Common Files\VST3"
+```
+
+**Gotchas learned (bake these into tooling):**
+* Use the prefix's **own wine** for `reg add` (`/opt/syntropia-wine/bin/wine` for Ableton) — system wine errors with a version mismatch against a custom-wine prefix.
+* `yabridgectl sync` **verifies each plugin by launching it** and hangs on some Arturia bundles — use `--no-verify` for drop-folder syncs.
+* Clearing the Ableton plugin DB (`AppData/Local/Ableton/Live Database/Live-plugins-1.db`) forces a full rescan after folder changes.
+* This wiring (symlinks + registry) is currently **manual per-machine** — a `syntropia plugins link --data <vendor>` command is the planned automation.
 
 ### 5. AUR Package & Updates (PRIORITY #2)
 * **AUR PKGBUILD**: `yay -S syntropia` installs the CLI, branding assets, and systemd services. The `PKGBUILD` wraps `phase1/cli/` with `setuptools` and ships everything to `/usr/`.
@@ -107,7 +146,7 @@ packages = ["gdiplus", "corefonts", "vcrun2022"]
 
 [yabridge]
 enabled = true
-plugin_dirs = ["~/.vst3/Syntropia"]
+plugin_dirs = ["~/VST3"]
 
 [environment]
 WINEDLLOVERRIDES = "winemenubuilder.exe=d"
@@ -117,7 +156,7 @@ LANG = "en_US.UTF-8"
 [install]
 commands = [
   "wine /tmp/Serum_Setup.exe /S",
-  "cp -r '$WINEPREFIX/drive_c/Program Files/Common Files/VST3/Serum.vst3' ~/.vst3/Syntropia/"
+  "cp -r '$WINEPREFIX/drive_c/Program Files/Common Files/VST3/Serum.vst3' \"$HOME/VST3/\""
 ]
 ```
 
@@ -154,13 +193,14 @@ Project-Syntropia/
 │   ├── phase1-requirements.md   # Requirements spec
 │   ├── cli/
 │   │   ├── pyproject.toml       # Python package metadata
-│   │   └── syntropia/
-│   │       ├── cli.py           # CLI command dispatch (click)
-│   │       ├── brew.py          # .brew TOML parser + registry ops
-│   │       ├── transform.py     # System transformation logic
-│   │       ├── wine_helper.py   # Wine prefix + yabridge engine
-│   │       ├── branding.py      # Plymouth, GRUB, wallpaper install
-│   │       └── registry.py      # AUR-style submit (gh PR flow)
+│   │   └── syntropia/│   │   ├── cli.py           # CLI command dispatch (click)
+│   │   ├── brew.py          # .brew TOML parser + registry ops
+│   │   ├── plugins.py       # Drop-folder VST3 workflow (~/VST3 + yabridge sync)
+│   │   ├── transform.py     # System transformation logic
+│   │   ├── wine_helper.py   # Wine prefix + yabridge engine
+│   │   ├── branding.py      # Plymouth, GRUB, wallpaper install
+│   │   ├── registry.py      # AUR-style submit (gh PR flow)
+│   │   └── update.py        # syntropia update (AUR/git/pip detection)
 │   ├── brews/                   # Bundled .brew manifests
 │   │   ├── template.brew
 │   │   ├── surge.brew
@@ -171,14 +211,16 @@ Project-Syntropia/
 │   ├── tools/                   # Dev utilities
 │   │   ├── png_to_ascii.py      # PNG to ASCII art converter
 │   │   └── generate_spinner.py  # Spinner animation generator
-│   ├── tests/                   # pytest suite (122 tests, all passing)
+│   ├── tests/                   # pytest suite (166 tests, all passing)
 │   │   ├── conftest.py
 │   │   ├── test_brew.py
 │   │   ├── test_cli.py
+│   │   ├── test_plugins.py
 │   │   ├── test_transform.py
 │   │   ├── test_wine_helper.py
 │   │   ├── test_branding.py
 │   │   ├── test_registry.py
+│   │   ├── test_uninstall.py
 │   │   └── test_png_to_ascii.py
 │   └── services/                # systemd units
 │       ├── syntropia-registry-sync.service
@@ -221,7 +263,7 @@ Project-Syntropia/
 
 ### Quality Gates
 - **Performance**: Audio latency <=10ms round-trip
-- **Reliability**: Transform script idempotent and safe (122 tests, all passing)
+- **Reliability**: Transform script idempotent and safe (166 tests, all passing)
 - **Usability**: CLI intuitive and well-documented
 - **Compatibility**: Works on target hardware configurations
 
