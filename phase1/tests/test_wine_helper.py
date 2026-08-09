@@ -198,3 +198,88 @@ def test_dry_run_plans_post_install_sync_without_running(
     installer = make_installer(tmp_path, dry_run=True)
     installer.run_all()
     assert calls == []  # dry-run never syncs
+
+
+# --- vendor data linking ------------------------------------------------
+
+
+def _manifest_with_vendor(vendors: list[str]) -> dict:
+    manifest = dict(SERUM_MANIFEST)
+    manifest["vendor_data"] = {"vendors": vendors}
+    return manifest
+
+
+def test_step_vendor_data_skips_when_none_declared(tmp_path: Path):
+    installer = make_installer(tmp_path)  # serum manifest: no [vendor_data]
+    installer.step_vendor_data()  # must not raise
+    assert installer._progress_detail == "none declared"
+
+
+def test_step_vendor_data_links_into_own_prefix(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    installer = WH.WineInstaller(
+        parse_brew(_manifest_with_vendor(["Arturia"]), "x.brew"), home=tmp_path
+    )
+    seen: dict = {}
+
+    def fake_link(vendor, source_prefix, target_prefixes=None, home=None, dry_run=False):
+        from syntropia.plugins import LinkResult
+
+        seen.update(
+            vendor=vendor,
+            source=Path(source_prefix),
+            targets=target_prefixes,
+            dry_run=dry_run,
+        )
+        return LinkResult(
+            vendor,
+            Path(source_prefix),
+            target_prefixes or [],
+            data_dirs=[(Path(source_prefix) / "d", installer.prefix / "d")],
+            registry_keys=[(installer.prefix, r"Software\Arturia\X", "installdir", r"C:\X")],
+            dry_run=dry_run,
+        )
+
+    monkeypatch.setattr("syntropia.plugins.link_vendor_data", fake_link)
+    installer.step_vendor_data()
+
+    assert seen["vendor"] == "Arturia"
+    # default source ~/.wine anchors to the injected home, not the real one
+    assert seen["source"] == tmp_path / ".wine"
+    assert seen["targets"] == [installer.prefix]
+    assert seen["dry_run"] is False
+
+
+def test_step_vendor_data_dry_run_plans_without_linking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    installer = WH.WineInstaller(
+        parse_brew(_manifest_with_vendor(["Arturia"]), "x.brew"), dry_run=True, home=tmp_path
+    )
+    seen: dict = {}
+
+    def fake_link(vendor, source_prefix, target_prefixes=None, home=None, dry_run=False):
+        from syntropia.plugins import LinkResult
+
+        seen["dry_run"] = dry_run
+        return LinkResult(vendor, Path(source_prefix), target_prefixes or [], dry_run=dry_run)
+
+    monkeypatch.setattr("syntropia.plugins.link_vendor_data", fake_link)
+    installer.step_vendor_data()
+
+    assert seen["dry_run"] is True
+
+
+def test_step_vendor_data_missing_vendor_warns_not_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A vendor absent from the source prefix must warn, not abort the install."""
+    installer = WH.WineInstaller(
+        parse_brew(_manifest_with_vendor(["Arturia"]), "x.brew"), home=tmp_path
+    )
+    from syntropia.plugins import PluginsError
+
+    def fake_link(vendor, source_prefix, target_prefixes=None, home=None, dry_run=False):
+        raise PluginsError("no 'Arturia' data or registry keys found")
+
+    monkeypatch.setattr("syntropia.plugins.link_vendor_data", fake_link)
+    installer.step_vendor_data()  # must not raise

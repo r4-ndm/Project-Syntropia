@@ -154,6 +154,55 @@ def test_install_fails_fast_on_jammed_manifest(tmp_path: Path):
     assert "multiple install commands on one line" in result.output
 
 
+MYSTERY_BREW = """\
+[brew]
+name = "Mystery"
+version = "1.0"
+category = "utility"
+maintainer = "Syntropia Team <x@y.io>"
+
+[wine]
+version = "cachyos-wine"
+prefix = "~/.local/share/syntropia/prefixes/mystery"
+arch = "win64"
+
+[install]
+commands = ["echo mystery"]
+"""
+
+
+def test_install_warns_when_registry_brew_is_stale(tmp_path: Path, monkeypatch):
+    """install must hint `syntropia save` when the registry copy of a brew
+    has drifted from the repo's phase1/brews version."""
+    source = _write_brew(tmp_path, name="mystery.brew", content=MYSTERY_BREW)
+    registry = tmp_path / "registry"
+    _run("save", str(source), "--registry", str(registry))
+    repo = tmp_path / "repo" / "brews" / "mystery.brew"
+    repo.parent.mkdir(parents=True)
+    repo.write_text("# fresher\n" + source.read_text(), encoding="utf-8")
+    monkeypatch.setattr(
+        "syntropia.brew.find_repo_brew",
+        lambda filename, start=None: repo if filename == "mystery.brew" else None,
+    )
+    result = _run("install", "mystery", "--registry", str(registry), "--check")
+    assert "registry copy of mystery.brew differs" in result.output
+    assert "syntropia save" in result.output
+
+
+def test_install_silent_when_registry_brew_current(tmp_path: Path, monkeypatch):
+    """No warning when the registry copy matches the repo version."""
+    source = _write_brew(tmp_path, name="mystery.brew", content=MYSTERY_BREW)
+    registry = tmp_path / "registry"
+    _run("save", str(source), "--registry", str(registry))
+    # the repo copy is byte-identical to what was saved
+    monkeypatch.setattr(
+        "syntropia.brew.find_repo_brew",
+        lambda filename, start=None: source if filename == "mystery.brew" else None,
+    )
+    result = _run("install", "mystery", "--registry", str(registry), "--check")
+    assert "registry copy" not in result.output
+
+
 def test_info_by_name(tmp_path: Path):
     source = _write_brew(tmp_path)
     registry = tmp_path / "registry"

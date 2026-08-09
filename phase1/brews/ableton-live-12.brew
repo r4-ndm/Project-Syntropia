@@ -58,6 +58,16 @@ plugin_dirs = []
 LANG = "en_US.UTF-8"
 WINE_DISABLE_CRASH_DIALOG = "1"
 
+[vendor_data]
+# Link Arturia's data (ProgramData + installdir registry keys) from the
+# default ~/.wine prefix into Ableton's own prefix, so Arturia VST3s that
+# work in Bitwig (via yabridge) also initialize inside Live. Requires the
+# Arturia installers to have been run into ~/.wine first; skipped with a
+# warning when they haven't been (link later with
+# `syntropia plugins link --data Arturia` once they are).
+source = "~/.wine"
+vendors = ["Arturia"]
+
 [install]
 commands = [
   "mkdir -p \"$WINEPREFIX/drive_c/ableton_installer\"",

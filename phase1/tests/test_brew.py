@@ -9,9 +9,11 @@ from syntropia.brew import (
     BrewError,
     brew_filename,
     find_brews,
+    find_repo_brew,
     lint_brew,
     load_brew,
     parse_brew,
+    registry_brew_is_stale,
     resolve_brew,
     save_brew,
     slugify_name,
@@ -43,6 +45,7 @@ def make_full_brew() -> dict:
     data["winetricks"] = {"packages": ["gdiplus", "corefonts", "vcrun2022"]}
     data["yabridge"] = {"enabled": True, "plugin_dirs": ["~/VST3"]}
     data["environment"] = {"WINEDLLOVERRIDES": "winemenubuilder.exe=d", "LANG": "en_US.UTF-8"}
+    data["vendor_data"] = {"source": "~/.wine", "vendors": ["Arturia"]}
     return data
 
 
@@ -73,6 +76,8 @@ def test_full_brew_parses_everything():
     assert brew.yabridge_enabled is True
     assert brew.plugin_dirs == ["~/VST3"]
     assert brew.environment["WINEDLLOVERRIDES"] == "winemenubuilder.exe=d"
+    assert brew.vendor_source == "~/.wine"
+    assert brew.vendor_names == ["Arturia"]
 
 
 # --- required sections/fields ------------------------------------------
@@ -188,6 +193,34 @@ def test_unknown_wine_field_rejected():
     data = make_valid_brew()
     data["wine"]["graphics"] = "vulkan"
     with pytest.raises(BrewError, match=r"unknown field\(s\) in \[wine\]: graphics"):
+        parse_brew(data)
+
+
+def test_vendor_data_defaults_to_none():
+    brew = parse_brew(make_valid_brew())
+    assert brew.vendor_source is None
+    assert brew.vendor_names == []
+
+
+def test_vendor_data_section_is_optional_table():
+    data = make_valid_brew()
+    data["vendor_data"] = {"vendors": ["Native Instruments"]}
+    brew = parse_brew(data)
+    assert brew.vendor_source is None  # source falls back to ~/.wine at run time
+    assert brew.vendor_names == ["Native Instruments"]
+
+
+def test_vendor_data_unknown_field_rejected():
+    data = make_valid_brew()
+    data["vendor_data"] = {"vendor": ["Arturia"]}  # typo: singular
+    with pytest.raises(BrewError, match=r"unknown field\(s\) in \[vendor_data\]: vendor"):
+        parse_brew(data)
+
+
+def test_vendor_data_must_be_table():
+    data = make_valid_brew()
+    data["vendor_data"] = "Arturia"
+    with pytest.raises(BrewError, match=r"section \[vendor_data\] must be a table"):
         parse_brew(data)
 
 
@@ -344,6 +377,55 @@ def test_slugify_name():
 
 def test_slugify_name_empty_falls_back():
     assert slugify_name("!!!") == "brew"
+
+
+def test_find_repo_brew_walks_up_to_sibling_brews(tmp_path: Path):
+    start = tmp_path / "phase1" / "cli" / "syntropia"
+    (tmp_path / "phase1" / "brews").mkdir(parents=True)
+    repo_brew = tmp_path / "phase1" / "brews" / "x.brew"
+    repo_brew.write_text("x", encoding="utf-8")
+    assert find_repo_brew("x.brew", start) == repo_brew
+
+
+def test_find_repo_brew_missing_returns_none(tmp_path: Path):
+    start = tmp_path / "a" / "b"
+    start.mkdir(parents=True)
+    assert find_repo_brew("x.brew", start) is None
+
+
+def test_registry_brew_is_stale_detects_drift(tmp_path: Path, monkeypatch):
+    registry_file = tmp_path / "registry" / "ableton-live-12.brew"
+    registry_file.parent.mkdir(parents=True)
+    registry_file.write_text("old manifest", encoding="utf-8")
+    repo = tmp_path / "brews" / "ableton-live-12.brew"
+    repo.parent.mkdir(parents=True)
+    repo.write_text("new manifest", encoding="utf-8")
+    monkeypatch.setattr(
+        "syntropia.brew.find_repo_brew",
+        lambda filename, start=None: repo if filename == "ableton-live-12.brew" else None,
+    )
+    assert registry_brew_is_stale(registry_file) == repo
+
+
+def test_registry_brew_is_stale_same_bytes_returns_none(tmp_path: Path, monkeypatch):
+    registry_file = tmp_path / "registry" / "x.brew"
+    registry_file.parent.mkdir(parents=True)
+    registry_file.write_text("same", encoding="utf-8")
+    repo = tmp_path / "brews" / "x.brew"
+    repo.parent.mkdir(parents=True)
+    repo.write_text("same", encoding="utf-8")
+    monkeypatch.setattr(
+        "syntropia.brew.find_repo_brew",
+        lambda filename, start=None: repo if filename == "x.brew" else None,
+    )
+    assert registry_brew_is_stale(registry_file) is None
+
+
+def test_registry_brew_is_stale_no_repo_copy_returns_none(tmp_path: Path):
+    registry_file = tmp_path / "x.brew"
+    registry_file.write_text("x", encoding="utf-8")
+    # the real repo's phase1/brews has no x.brew — nothing to compare against
+    assert registry_brew_is_stale(registry_file) is None
 
 
 def test_brew_filename_from_name(tmp_path: Path):

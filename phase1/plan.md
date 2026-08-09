@@ -153,12 +153,31 @@ WINEDLLOVERRIDES = "winemenubuilder.exe=d"
 WINE_AUDIO_BACKGROUND = "1"
 LANG = "en_US.UTF-8"
 
+# OPTIONAL — vendor data linking (Arturia-class plugins)
+# Links a vendor's data dirs + installdir registry keys from another
+# prefix (default ~/.wine) into THIS brew's prefix, so plugins that load
+# in Bitwig via yabridge also initialize in a wine-hosted DAW like
+# Ableton. Best-effort: skipped with a warning when the vendor isn't
+# installed in the source prefix yet.
+[vendor_data]
+source = "~/.wine"
+vendors = ["Arturia"]
+
 [install]
 commands = [
   "wine /tmp/Serum_Setup.exe /S",
   "cp -r '$WINEPREFIX/drive_c/Program Files/Common Files/VST3/Serum.vst3' \"$HOME/VST3/\""
 ]
 ```
+
+**`[vendor_data]`** (optional) — wires a vendor's data into the brew's own
+prefix. `source` is the prefix that already has the vendor installed
+(default `~/.wine`); `vendors` lists the vendor names to link. The install
+engine runs this as its own step after the install commands: data
+directories are symlinked (never copied) and missing `installdir` registry
+keys are added with the prefix's own wine — existing keys are never
+clobbered. When the vendor isn't present in the source prefix the step
+warns and continues rather than failing the DAW install.
 
 ---
 

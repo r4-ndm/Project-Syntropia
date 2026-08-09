@@ -413,6 +413,58 @@ class WineInstaller:
                     f"download failed: {result.stdout.strip() or result.stderr.strip()}"
                 )
 
+    def step_vendor_data(self) -> None:
+        """Wire declared vendor data (Arturia-class) from a source prefix.
+
+        Some vendors (Arturia, Native Instruments, …) split an install across
+        a data directory (``C:\\ProgramData\\<Vendor>``) and an
+        ``installdir`` registry key. Bitwig works without extra wiring because
+        yabridge runs the plugin inside its *home* prefix; a wine-hosted DAW
+        like Ableton runs the plugin in *its own* prefix, so the data dirs
+        must be symlinked + keys added — exactly what ``plugins link --data``
+        does. Best-effort: if the vendor isn't installed in the source prefix
+        yet (fresh box), warn and continue — the app itself is already
+        installed, and the user can link later with
+        ``syntropia plugins link --data <Vendor>``.
+        """
+        from .plugins import PluginsError, link_vendor_data
+
+        vendors = self.brew.vendor_names or []
+        if not vendors:
+            self.log("vendor", "no vendor data declared in manifest")
+            self._detail("none declared")
+            return
+        source = expand_path(self.brew.vendor_source or "~/.wine", self.home)
+        total_dirs = 0
+        total_reg = 0
+        for vendor in vendors:
+            try:
+                result = link_vendor_data(
+                    vendor,
+                    source,
+                    target_prefixes=[self.prefix],
+                    home=self.home,
+                    dry_run=self.dry_run,
+                )
+            except PluginsError as exc:
+                # Benign when the vendor's plugins aren't in the source
+                # prefix (e.g. no Arturia installed yet) — don't fail the
+                # DAW install over it.
+                self.log("vendor", f"'{vendor}': skipped — {exc}")
+                continue
+            total_dirs += len(result.data_dirs)
+            total_reg += len(result.registry_keys)
+            verb = "would link" if self.dry_run else "linked"
+            self.log(
+                "vendor",
+                f"'{vendor}': {verb} {len(result.data_dirs)} data dir(s), "
+                f"{len(result.registry_keys)} registry value(s)",
+            )
+        if total_dirs or total_reg:
+            self._detail(f"{total_dirs} dirs, {total_reg} reg")
+        else:
+            self._detail("none found")
+
     def step_install(self) -> None:
         self._would(
             "install",
@@ -459,7 +511,8 @@ class WineInstaller:
             (4, "Yabridge", self.step_yabridge),
             (5, "Source", self.step_source),
             (6, "Install", self.step_install),
-            (7, "Sync", self.step_yabridge_sync),
+            (7, "Vendor", self.step_vendor_data),
+            (8, "Sync", self.step_yabridge_sync),
         ]
 
         if progress is not None:

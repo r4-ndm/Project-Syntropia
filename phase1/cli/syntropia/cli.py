@@ -7,7 +7,7 @@ from pathlib import Path
 
 import click
 
-from .brew import BrewError, brew_filename, find_brews, lint_brew, load_brew, resolve_brew, save_brew
+from .brew import BrewError, brew_filename, find_brews, lint_brew, load_brew, registry_brew_is_stale, resolve_brew, save_brew
 from .plugins import DEFAULT_PLUGIN_DIR, PluginsError, drop_folder, ensure_drop_folder, find_plugins, link_vendor_data, stub_for, sync_plugins
 from .progress import StepProgress
 from .registry import RegistryError, submit_brew
@@ -55,6 +55,20 @@ def install(brew: str, registry: str, check: bool, yes: bool) -> None:
     except BrewError as exc:
         raise click.ClickException(str(exc)) from exc
 
+    # Hint when the registry copy has drifted from the repo's phase1/brews:
+    # the manifest being run is stale until `syntropia save` refreshes it.
+    registry_dir = Path(registry).expanduser().resolve()
+    if brew_file.resolve().parent == registry_dir:
+        stale = registry_brew_is_stale(brew_file)
+        if stale is not None:
+            click.echo(
+                click.style(
+                    f"⚠️  registry copy of {brew_file.name} differs from {stale} — "
+                    f"refresh it with 'syntropia save {stale}'",
+                    fg="yellow",
+                )
+            )
+
     # Fail fast on formatting problems before touching wine / the prefix.
     problems = lint_brew(brew_file)
     if problems:
@@ -76,6 +90,7 @@ def install(brew: str, registry: str, check: bool, yes: bool) -> None:
         ("Yabridge",   "Registering plugin directories"),
         ("Source",     "Finding installer file"),
         ("Install",    "Running install commands"),
+        ("Vendor",     "Linking vendor data (Arturia etc.)"),
         ("Sync",       "Syncing yabridge plugins"),
     ]
 

@@ -22,12 +22,13 @@ BREW_EXTENSION = ".brew"
 
 REQUIRED_BREW_FIELDS = ("name", "version", "category", "maintainer")
 VALID_WINE_ARCHS = ("win32", "win64")
-KNOWN_SECTIONS = {"brew", "wine", "winetricks", "yabridge", "environment", "install", "source"}
+KNOWN_SECTIONS = {"brew", "wine", "winetricks", "yabridge", "environment", "install", "source", "vendor_data"}
 KNOWN_WINE_FIELDS = {"version", "prefix", "arch", "overrides"}
 KNOWN_WINETRICKS_FIELDS = {"packages"}
 KNOWN_YABRIDGE_FIELDS = {"enabled", "plugin_dirs"}
 KNOWN_INSTALL_FIELDS = {"commands"}
 KNOWN_SOURCE_FIELDS = {"filename", "url", "look_in"}
+KNOWN_VENDOR_DATA_FIELDS = {"source", "vendors"}
 DEFAULT_SOURCE_LOOK_IN = ["~/Downloads"]
 
 
@@ -61,6 +62,8 @@ class Brew:
     source_filename: str | None = None
     source_url: str | None = None
     source_look_in: list[str] | None = None
+    vendor_source: str | None = None
+    vendor_names: list[str] | None = None
 
 
 def _fail(path: Path, message: str) -> None:
@@ -182,6 +185,19 @@ def parse_brew(data: dict[str, Any], path: Path | str = "<string>") -> Brew:
     # (if unusual) manifest. The install engine handles zero commands fine.
     install_commands = _require_str_list(install, path, "install", "commands")
 
+    # --- [vendor_data] section (optional) --------------------------------
+    # Links a vendor's data dirs + installdir registry keys (Arturia-class
+    # plugins) from another prefix into this brew's prefix, so plugins that
+    # load in Bitwig via yabridge also initialize in wine-hosted DAWs.
+    vendor_data = data.get("vendor_data", {})
+    if not isinstance(vendor_data, dict):
+        _fail(path, "section [vendor_data] must be a table")
+    unknown_vendor_data = set(vendor_data) - KNOWN_VENDOR_DATA_FIELDS
+    if unknown_vendor_data:
+        _fail(path, f"unknown field(s) in [vendor_data]: {', '.join(sorted(unknown_vendor_data))}")
+    vendor_source = _require_str(vendor_data, path, "vendor_data", "source", optional=True)
+    vendor_names = _require_str_list(vendor_data, path, "vendor_data", "vendors", optional=True)
+
     # --- [source] section (optional) ------------------------------------
     source_table = data.get("source", {})
     source_filename: str | None = None
@@ -215,6 +231,8 @@ def parse_brew(data: dict[str, Any], path: Path | str = "<string>") -> Brew:
         source_filename=source_filename,
         source_url=source_url,
         source_look_in=source_look_in,
+        vendor_source=vendor_source,
+        vendor_names=vendor_names,
     )
 
 
@@ -296,6 +314,44 @@ def slugify_name(name: str) -> str:
 def brew_filename(brew: Brew) -> str:
     """Registry filename for a brew, e.g. ``ableton-live-12.brew``."""
     return f"{slugify_name(brew.name)}{BREW_EXTENSION}"
+
+
+def find_repo_brew(filename: str, start: Path | None = None) -> Path | None:
+    """Locate *filename* in a repo checkout's ``brews/`` directory.
+
+    The installed CLI may be running from a git checkout (editable
+    install) or from site-packages. Walks up from this module's directory
+    to find a sibling ``brews/`` dir — the repo's ``phase1/brews`` in the
+    editable case. Returns ``None`` when no checkout is present.
+    """
+    here = start if start is not None else Path(__file__).resolve().parent
+    for ancestor in (here, *here.parents):
+        candidate = ancestor / "brews" / filename
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def registry_brew_is_stale(registry_file: Path) -> Path | None:
+    """Return the repo's fresher copy of *registry_file*, or ``None``.
+
+    The registry (``~/.config/syntropia/brews``) holds verbatim copies of
+    manifests made by ``syntropia save``. When the repo's ``phase1/brews``
+    version is edited after the last save, the registry copy silently goes
+    stale and ``syntropia install`` would run the old manifest. Returns the
+    repo path when the two differ, so callers can hint ``syntropia save``.
+    """
+    if not registry_file.is_file():
+        return None
+    repo = find_repo_brew(registry_file.name)
+    if repo is None:
+        return None
+    try:
+        if registry_file.read_bytes() == repo.read_bytes():
+            return None
+    except OSError:
+        return None
+    return repo
 
 
 def save_brew(brew: Brew, registry: Path | str) -> Path:
