@@ -162,13 +162,27 @@ phase2_inject_slides() {
     # `pacman -Sy --noconfirm cachyos-calamares-next` before starting
     # Calamares, which force-upgrades the package and re-extracts the STOCK
     # branding over our injected slides (observed: cachyos-calamares-next
-    # 3.4.2-7 -> 3.4.2-10 at live boot clobbered slides 1-6). NoUpgrade makes
-    # pacman keep our files even when the package updates.
+    # 3.4.2-7 -> 3.4.2-11 at live boot clobbered slides 1-6).
+    #
+    # IMPORTANT: NoUpgrade/NoExtract are ONLY honored inside the [options]
+    # section of pacman.conf. An earlier version appended these lines at the
+    # END of the file (after the [cachyos]/[core]/[extra]/[multilib] repo
+    # sections) — pacman silently ignored them, so the boot-time update
+    # re-extracted the stock slides anyway. We now replace the commented
+    # `#NoUpgrade   =` / `#NoExtract   =` placeholders that live INSIDE
+    # [options], which is where pacman actually reads them.
     if ! grep -q 'Syntropia: keep our amended slides' "rootfs/etc/pacman.conf"; then
-        cat >> "rootfs/etc/pacman.conf" << 'PACEOF'
+        python3 - "rootfs/etc/pacman.conf" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
 
+noupgrade_block = '''#NoUpgrade   =
 # Syntropia: keep our amended slides even when cachyos-calamares-next is
 # force-updated at live boot (calamares-online.sh runs pacman -Sy for it).
+# NOTE: must stay inside the [options] section — pacman ignores these after
+# the first repo section (this was the bug: appending at EOF did nothing).
 NoUpgrade = usr/share/calamares/branding/cachyos/slide1.jxl
 NoUpgrade = usr/share/calamares/branding/cachyos/slide2.jxl
 NoUpgrade = usr/share/calamares/branding/cachyos/slide3.jxl
@@ -178,9 +192,30 @@ NoUpgrade = usr/share/calamares/branding/cachyos/slide6.jxl
 # ... and the Calamares settings we patch below (else the update also
 # wipes our install-time wizard-copy hook).
 NoUpgrade = usr/share/calamares/settings_online.conf
-NoUpgrade = usr/share/calamares/settings_offline.conf
-PACEOF
-        ok "NoUpgrade set for slide files (survives live boot package update)"
+NoUpgrade = usr/share/calamares/settings_offline.conf'''
+noextract_block = '''#NoExtract   =
+# Syntropia: never extract the package's own slide files either
+# (belt-and-braces on top of NoUpgrade, both inside [options]).
+NoExtract = usr/share/calamares/branding/cachyos/slide1.jxl
+NoExtract = usr/share/calamares/branding/cachyos/slide2.jxl
+NoExtract = usr/share/calamares/branding/cachyos/slide3.jxl
+NoExtract = usr/share/calamares/branding/cachyos/slide4.jxl
+NoExtract = usr/share/calamares/branding/cachyos/slide5.jxl
+NoExtract = usr/share/calamares/branding/cachyos/slide6.jxl'''
+
+# Only patch once (idempotent): guard on the marker comment, not the
+# placeholder — the block itself starts with '#NoUpgrade   =', so checking
+# for the placeholder alone would re-patch every run.
+marker = 'Syntropia: keep our amended slides'
+if marker not in content:
+    if '#NoUpgrade   =' in content:
+        content = content.replace('#NoUpgrade   =', noupgrade_block, 1)
+    if '#NoExtract   =' in content:
+        content = content.replace('#NoExtract   =', noextract_block, 1)
+with open(path, 'w') as f:
+    f.write(content)
+PYEOF
+        ok "NoUpgrade+NoExtract set inside [options] (survives live boot package update)"
     else
         ok "NoUpgrade already present for slide files"
     fi
@@ -216,6 +251,8 @@ PACEOF
     mkdir -p "$syn_dir"
     cp "$wizard_src/syntropia-apps-wizard.sh" "$syn_dir/"
     cp "$wizard_src/syntropia-apps-dialog.py" "$syn_dir/"
+    cp "$wizard_src/syntropia-apps-server.py" "$syn_dir/"
+    cp "$wizard_src/syntropia-apps-dialog.html" "$syn_dir/"
     cp "$wizard_src/apps.list" "$syn_dir/"
     chmod +x "$syn_dir/syntropia-apps-wizard.sh"
 
@@ -348,6 +385,41 @@ for name in ("settings_online.conf", "settings_offline.conf"):
     p.write_text(text)
 PYEOF
     ok "Branding copy wired into Calamares"
+
+    # Step 3.10: Install Brave in the target so the Win98 browser dialog
+    # renders on first boot (brave-bin is in the CachyOS repo, not AUR).
+    # The shellprocess runs in the TARGET chroot (default dontChroot: false)
+    # so the package lands on the installed system, not the live env.
+    info "Wiring brave-bin install into Calamares..."
+    cat > "rootfs/etc/calamares/modules/shellprocess_syntropia_brave.conf" << 'BRAVECONF'
+---
+timeout: 300
+script:
+    - command: "pacman -S --noconfirm brave-bin"
+      timeout: 300
+BRAVECONF
+    python3 - "rootfs" << 'PYEOF'
+import sys, pathlib
+root = pathlib.Path(sys.argv[1])
+for name in ("settings_online.conf", "settings_offline.conf"):
+    p = root / "usr/share/calamares" / name
+    if not p.exists():
+        continue
+    text = p.read_text()
+    marker = "# Syntropia: install brave-bin for Win98 browser dialog"
+    if marker in text:
+        continue
+    instance = (
+        "\n- id:       syntropia_brave\n"
+        "  module:   shellprocess\n"
+        "  config:   shellprocess_syntropia_brave.conf\n"
+    )
+    text = text.replace("\n\nsequence:", instance + "\nsequence:")
+    text = text.replace("- shellprocess@syntropia_branding",
+                        "- shellprocess@syntropia_branding\n  - shellprocess@syntropia_brave")
+    p.write_text(text)
+PYEOF
+    ok "Brave install wired into Calamares (target will get brave-bin)"
 
     # Step 4: Repack squashfs
     info "Repacking squashfs (this takes ~5 min)..."

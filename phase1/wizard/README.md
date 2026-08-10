@@ -23,18 +23,21 @@ The wizard's dependencies are the **dialog tool**, **paru** (installs;
 bootstrapped automatically if missing), and a terminal emulator. Dialog
 tiers, best first (auto-detected, override with `--dialog`):
 
-1. **Qt grid dialog** (`syntropia-apps-dialog.py`, PySide6) — a native Qt
-   window styled like **Windows 98** (gray canvas, beveled 3D borders) with
-   a **4-column checkbox grid per category**; each category in its own
-   outlined group box, padded with empty placeholder cells so every
-   category fills a full row and the columns stay aligned. Cells are
-   **sunken when checked, raised when unchecked**, and play a synthesized
-   click sound when checked (no audio asset needed — the WAV is generated
-   at first use). Needs `python-pyside6`.
-2. **kdialog** (the `kdialog` package — it moved out of `kde-cli-tools` in
+1. **Browser grid dialog** (`syntropia-apps-server.py` + `syntropia-apps-dialog.html`) —
+   the **preferred** dialog. A tiny stdlib-only HTTP server renders the same
+   **Windows 98** grid (gray canvas, beveled 3D borders, dark-blue category
+   headers, 4-column grids with placeholder padding, **sunken-when-checked**
+   cells, synthesized click sound via WebAudio) and opens it in the default
+   browser. Needs only **python3 + a browser** — both present on any desktop
+   install — so the Win98 look works on stock installs with **zero extra
+   packages** (the PySide6 dialog needs the ~200 MB `pyside6` package).
+2. **Qt grid dialog** (`syntropia-apps-dialog.py`, PySide6) — the same
+   Win98 grid as a native Qt window; used when pyside6 is installed.
+   Needs `pyside6`.
+3. **kdialog** (the `kdialog` package — it moved out of `kde-cli-tools` in
    KF6) — one grouped dialog with category separator rows; renders as a
    **native Plasma window** on the default CachyOS desktop
-3. **zenity** — GTK fallback for non-KDE desktops (Cinnamon, GNOME)
+4. **zenity** — GTK fallback for non-KDE desktops (Cinnamon, GNOME)
 
 On non-Plasma desktops the wizard forces the **Breeze widget style** for
 Qt/kdialog (`QT_STYLE_OVERRIDE=breeze`), because GTK platform themes paint
@@ -125,11 +128,13 @@ first if missing (`pkexec pacman -S paru`).
 - Cancelling the dialog in `--once` mode writes the done-marker too, so it
   won't nag every login.
 - **Shipped in the ISO**: `iso/build.sh` phase 2 copies the wizard (script +
-  `apps.list` + `syntropia-apps-dialog.py`) into the rootfs `/etc/syntropia/`
-  and installs a first-boot autostart entry (`/etc/xdg/autostart/`), so fresh
-  installs get the dialog at first login. The transform path (installed
-  systems) is the same files, no changes needed.
-- **Dialog dependency**: the first-boot dialog needs `python-pyside6` (Qt
-  grid), `kdialog`, or `zenity` present on the installed system — none is
+  `apps.list` + `syntropia-apps-server.py` + `syntropia-apps-dialog.html` +
+  `syntropia-apps-dialog.py`) into the rootfs `/etc/syntropia/` and installs
+  a first-boot autostart entry (`/etc/xdg/autostart/`), so fresh installs get
+  the dialog at first login. The transform path (installed systems) is the
+  same files, no changes needed.
+- **Dialog dependency**: the preferred browser dialog needs only python3 +
+  a browser (both present on any desktop install) — no package install.
+  Fallbacks: `pyside6` (qt grid), `kdialog`, or `zenity` if present; none is
   guaranteed, so until a package dependency is declared the wizard degrades
   to whichever exists (see the open "Package as dependency-clean unit" task).

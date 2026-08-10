@@ -19,15 +19,18 @@
 #   --check               non-interactive sanity check (exit 0 = all good)
 #   --list                print the resolved catalog
 #   --config FILE         use FILE as the catalog
-#   --dialog TOOL         force a specific dialog tool (kdialog|zenity)
+#   --dialog TOOL         force a specific dialog tool (web|qt|kdialog|zenity)
 #   --setup               seed ~/.config/syntropia/apps.list (editable copy),
 #                         install the one-shot autostart entry
 #   --install-autostart   install the one-shot autostart entry
 #   --remove-autostart    remove the autostart entry
 #
-# Dependencies: kdialog (native KDE/Plasma look — CachyOS default desktop)
-# or zenity (fallback), paru (installs; bootstrapped if missing), a terminal
-# emulator (live install output). Nothing else.
+# Dependencies: the preferred dialog is the BROWSER grid
+# (syntropia-apps-server.py + syntropia-apps-dialog.html) — Win98-style,
+# rendered over 127.0.0.1 with only python3 + a browser, no package install.
+# Fallbacks: PySide6 qt grid if installed, else kdialog (native KDE/Plasma
+# look — CachyOS default desktop) or zenity (GTK). Plus paru (installs;
+# bootstrapped if missing) and a terminal emulator (live install output).
 
 set -euo pipefail
 
@@ -109,6 +112,21 @@ EOF
     echo "  ✅ $name  →  $launcher"
 }
 
+# The browser dialog (syntropia-apps-server.py + .html) renders the same
+# Win98-style grid with ONLY python3 + a browser — both present on any
+# desktop install — so it's the preferred dialog, no ~200 MB pyside6 needed.
+have_web_dialog() {
+    have python3 || return 1
+    have xdg-open || return 1
+    [[ -f "$SCRIPT_DIR/syntropia-apps-server.py" ]] || return 1
+    [[ -f "$SCRIPT_DIR/syntropia-apps-dialog.html" ]] || return 1
+    local b
+    for b in firefox brave chromium google-chrome chromium-browser vivaldi opera microsoft-edge; do
+        have "$b" && return 0
+    done
+    return 1
+}
+
 # kdialog is the native Plasma dialog (renders with the CachyOS/Breeze
 # theme); zenity is the GTK fallback for non-KDE desktops.
 have_qt_dialog() {
@@ -120,17 +138,22 @@ have_qt_dialog() {
 find_dialog() {
     if [[ -n "$DIALOG_TOOL" ]]; then
         case "$DIALOG_TOOL" in
+            web)
+                have_web_dialog || die "web dialog needs python3 + xdg-open + a browser"
+                echo "web"; return
+                ;;
             qt)
                 have_qt_dialog || die "qt dialog needs python3 + PySide6 (sudo pacman -S pyside6)"
                 echo "qt"; return
                 ;;
             kdialog|zenity)
-                have "$DIALOG_TOOL" || die "dialog tool not found: $DIALOG_TOOL (use qt, kdialog or zenity)"
+                have "$DIALOG_TOOL" || die "dialog tool not found: $DIALOG_TOOL (use web, qt, kdialog or zenity)"
                 echo "$DIALOG_TOOL"; return
                 ;;
-            *) die "unknown dialog tool: $DIALOG_TOOL (use qt, kdialog or zenity)" ;;
+            *) die "unknown dialog tool: $DIALOG_TOOL (use web, qt, kdialog or zenity)" ;;
         esac
     fi
+    have_web_dialog && { echo "web"; return; }
     have_qt_dialog && { echo "qt"; return; }
     have kdialog && { echo "kdialog"; return; }
     have zenity && { echo "zenity"; return; }
@@ -286,10 +309,11 @@ run_dialog() {
     dialog="$(find_dialog)" || die "no dialog available — install one of: pyside6 (qt grid), kdialog, or zenity"
     ensure_paru "$dialog"
 
-    # Force the Breeze widget style for the Qt dialogs on non-Plasma desktops
-    # so checkboxes render with the KDE look (their GTK platform theme paints
-    # them invisibly). On a Plasma session the native style is already active.
-    if [[ "$dialog" != "zenity" && -z "${KDE_FULL_SESSION:-}" ]]; then
+    # Force the Breeze widget style for the Qt dialogs (qt grid + kdialog) on
+    # non-Plasma desktops so checkboxes render with the KDE look (their GTK
+    # platform theme paints them invisibly). On a Plasma session the native
+    # style is already active. The browser dialog is pure HTML — no Qt involved.
+    if [[ "$dialog" == "qt" || "$dialog" == "kdialog" ]] && [[ -z "${KDE_FULL_SESSION:-}" ]]; then
         export QT_STYLE_OVERRIDE=breeze
     fi
 
@@ -306,7 +330,12 @@ run_dialog() {
         (( seen )) || cat_order+=("$c")
     done
 
-    if [[ "$dialog" == "qt" ]]; then
+    if [[ "$dialog" == "web" ]]; then
+        # browser dialog — serves the Win98 grid over 127.0.0.1, opens the
+        # default browser, prints checked package tags (one per line) like
+        # kdialog --separate-output
+        args=(python3 "$SCRIPT_DIR/syntropia-apps-server.py" "$CAT_FILE")
+    elif [[ "$dialog" == "qt" ]]; then
         # native grid dialog — reads the catalog itself, prints checked
         # package tags (one per line) like kdialog --separate-output
         args=(python3 "$SCRIPT_DIR/syntropia-apps-dialog.py" "$CAT_FILE")
@@ -346,7 +375,7 @@ run_dialog() {
 
     while IFS= read -r row; do
         [[ -z "$row" ]] && continue
-        if [[ "$dialog" == "qt" || "$dialog" == "kdialog" ]]; then
+        if [[ "$dialog" == "web" || "$dialog" == "qt" || "$dialog" == "kdialog" ]]; then
             # each returned line is the package tag directly
             [[ "$dialog" == "kdialog" && "$row" == __hdr__* ]] && continue  # skip category separators
             selected+=("$row")

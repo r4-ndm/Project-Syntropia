@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<!--
+  😈 Syntropia Apps Dialog — browser-rendered Win98-style app grid.
+  Served by syntropia-apps-server.py, which injects the catalog grid at
+  the CATALOG marker below and returns the checked packages via POST /done.
+  Self-contained (inline CSS/JS, no CDN) so it works fully offline.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>😈 Syntropia — Pick your apps</title>
+<style>
+  :root {
+    --face:   #c0c0c0;   /* classic gray */
+    --face2:  #d4d0c8;   /* sunken/checked gray */
+    --light:  #ffffff;   /* bevel highlight */
+    --dark:   #808080;   /* bevel shadow */
+    --dark2:  #404040;   /* outer bevel */
+    --title:  #000080;   /* navy */
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: #008080;                 /* classic teal desktop */
+    font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+    font-size: 13px;
+    color: #000;
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px;
+  }
+  .window {
+    width: 860px; max-width: 100%;
+    max-height: calc(100vh - 32px);
+    display: flex; flex-direction: column;
+    background: var(--face);
+    border: 3px solid;
+    border-color: var(--light) var(--dark2) var(--dark2) var(--light);
+    box-shadow: 4px 4px 0 rgba(0,0,0,.35);
+  }
+  .titlebar {
+    display: flex; align-items: center;
+    padding: 5px 8px;
+    color: #fff; font-weight: bold; font-size: 13px;
+    background: linear-gradient(90deg, #000080, #1084d0);
+    user-select: none;
+  }
+  .titlebar .icon { margin-right: 6px; }
+  .body { padding: 12px 14px 14px; overflow-y: auto; }
+  * { color-scheme: light; }
+  .intro { margin: 0 0 10px; color: #000000; }
+  .bulk-row { margin-bottom: 10px; }
+  .grid-area { display: flex; flex-direction: column; gap: 10px; }
+  .cat-group {
+    border: 2px solid;
+    border-color: var(--light) var(--dark) var(--dark) var(--light);
+    background: var(--face);
+    padding: 6px 8px 8px;
+  }
+  .cat-title {
+    margin: -6px 0 6px -8px;             /* sit on the border, Win98-style */
+    background: var(--face);
+    display: inline-block;
+    padding: 0 6px;
+    color: var(--title); font-weight: bold;
+  }
+  .cat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+  }
+  .cell {
+    display: flex; align-items: center;
+    border: 2px solid;
+    border-color: var(--light) var(--dark) var(--dark) var(--light);
+    padding: 5px 8px;
+    background: var(--face);
+    color: #000000;
+    cursor: pointer;
+    user-select: none;
+    min-height: 28px;
+  }
+  .cell:hover { background: #d6d6d6; }
+  .cell.checked {
+    background: var(--face2);
+    border-color: var(--dark) var(--light) var(--light) var(--dark); /* sunken */
+  }
+  .cell input { margin: 0 6px 0 0; accent-color: #000080; color: #000000; }
+  .cell.placeholder { visibility: hidden; border: none; }
+  .actions {
+    display: flex; justify-content: flex-end; gap: 8px;
+    border-top: 2px solid var(--dark);
+    padding: 10px 0 0; margin-top: 12px;
+  }
+  button {
+    font-family: inherit; font-size: 13px;
+    background: var(--face);
+    color: #000000;
+    border: 2px solid;
+    border-color: var(--light) var(--dark2) var(--dark2) var(--light);
+    padding: 5px 18px;
+    cursor: pointer;
+  }
+  button:active { border-color: var(--dark2) var(--light) var(--light) var(--dark2); }
+  button.primary { font-weight: bold; }
+  .hint { margin-top: 10px; color: #333; font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="window">
+  <div class="titlebar"><span class="icon">😈</span> Syntropia — Pick your apps</div>
+  <div class="body">
+    <p class="intro">Check the apps to install — everything installs together. Cancel skips this permanently.</p>
+    <div class="bulk-row">
+      <button onclick="selectAll()">Select All</button>
+      <button onclick="clearAll()">Clear All</button>
+    </div>
+    <div class="grid-area" id="grid"><!--CATALOG--></div>
+    <div class="actions">
+      <button onclick="cancel()">Cancel</button>
+      <button class="primary" onclick="ok()">OK</button>
+    </div>
+    <p class="hint" id="status"></p>
+  </div>
+</div>
+<script>
+  // ---- Win98-style click sound (synthesized, no asset needed) ----
+  let audioCtx = null;
+  function playClick() {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      const t = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(2000, t);
+      gain.gain.setValueAtTime(0.4, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(t); osc.stop(t + 0.03);
+    } catch (e) { /* audio unavailable — stay silent */ }
+  }
+
+  // ---- grid state ----
+  let checkboxes = [];
+  let bulk = false;
+
+  // The grid is injected server-side as static HTML, so wire the sunken/
+  // click behavior via event delegation rather than per-cell listeners.
+  const grid = document.getElementById('grid');
+  grid.addEventListener('change', (ev) => {
+    const input = ev.target;
+    if (input && input.type === 'checkbox') {
+      input.closest('.cell').classList.toggle('checked', input.checked);
+      if (input.checked && !bulk) playClick();
+    }
+  });
+
+  // Collect every checkbox in the injected grid (in DOM order).
+  checkboxes = Array.from(grid.querySelectorAll('input[type=checkbox]'));
+
+  function selectAll() {
+    bulk = true;
+    checkboxes.forEach(cb => { cb.checked = true; cb.closest('.cell').classList.add('checked'); });
+    bulk = false;
+  }
+  function clearAll() {
+    bulk = true;
+    checkboxes.forEach(cb => { cb.checked = false; cb.closest('.cell').classList.remove('checked'); });
+    bulk = false;
+  }
+
+  function post(path, body) {
+    return fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+  }
+
+  async function ok() {
+    const picked = checkboxes.filter(cb => cb.checked).map(cb => cb.value);
+    setStatus('Saving…');
+    try {
+      await post('/done', { packages: picked });
+      setStatus('Saved — you can close this tab.');
+    } catch (e) {
+      setStatus('Error saving — please try again.');
+    }
+  }
+
+  async function cancel() {
+    try { await post('/cancel', {}); } catch (e) { /* server may already be gone */ }
+    setStatus('Cancelled — you can close this tab.');
+  }
+
+  function setStatus(msg) {
+    document.getElementById('status').textContent = msg;
+  }
+</script>
+</body>
+</html>
