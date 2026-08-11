@@ -21,6 +21,7 @@ first error.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -40,6 +41,25 @@ class BrandingError(Exception):
 def run_command(cmd: list[str]) -> subprocess.CompletedProcess:
     """Run a command and capture output. Wrapped for test mocking."""
     return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def _dir_hash(directory: Path) -> str:
+    """Content hash of every file under ``directory`` (paths + bytes).
+
+    Lets the idempotency check be content-based: a branding package
+    update that ships new assets re-applies them instead of skipping on
+    a stale marker/presence check.
+    """
+    hasher = hashlib.sha256()
+    for path in sorted(p for p in directory.rglob("*") if p.is_file()):
+        hasher.update(path.relative_to(directory).as_posix().encode("utf-8"))
+        hasher.update(path.read_bytes())
+    return hasher.hexdigest()
+
+
+def _file_hash(path: Path) -> str:
+    """Content hash of a single file."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 @dataclass
@@ -104,9 +124,18 @@ class Branding:
             self.log("plymouth", "no 'plymouth/' asset dir found, skipping")
             return
         theme_dir = self.paths.plymouth_theme_dir
-        if (theme_dir / MARKER).exists():
-            self.log("plymouth", f"{theme_dir} already branded, skipping")
-            return
+        marker = theme_dir / MARKER
+        if marker.exists():
+            installed_hash = marker.read_text(encoding="utf-8").strip()
+            if installed_hash == _dir_hash(assets):
+                self.log(
+                    "plymouth",
+                    f"{theme_dir} already branded (assets unchanged), skipping",
+                )
+                return
+            # Assets changed (or a legacy marker without a hash) — refresh
+            # so a branding package update actually lands.
+            self.log("plymouth", f"{theme_dir} branded but assets changed — refreshing")
         self._would("plymouth", f"install Syntropia boot splash theme to {theme_dir}")
         if self.dry_run:
             return
@@ -145,7 +174,7 @@ class Branding:
             if not bg.exists():
                 shutil.copy2(wallpaper, bg)
                 self.log("plymouth", f"installed background from {wallpaper.name}")
-        (theme_dir / MARKER).write_text("branded by syntropia\n", encoding="utf-8")
+        (theme_dir / MARKER).write_text(_dir_hash(assets) + "\n", encoding="utf-8")
         if shutil.which("plymouth-set-default-theme"):
             result = run_command(["plymouth-set-default-theme", PLYMOUTH_THEME_NAME])
             if result.returncode != 0:
@@ -243,8 +272,11 @@ class Branding:
             return
         target = self.paths.wallpaper_target
         if target.exists():
-            self.log("wallpaper", f"{target} already installed, skipping")
-            return
+            if _file_hash(target) == _file_hash(asset):
+                self.log("wallpaper", f"{target} already installed (up to date), skipping")
+                return
+            # A branding package update changed the wallpaper — refresh it.
+            self.log("wallpaper", f"{target} differs from asset — refreshing")
         self._would("wallpaper", f"install {asset.name} -> {target}")
         if self.dry_run:
             return

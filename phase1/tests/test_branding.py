@@ -114,6 +114,71 @@ def test_plymouth_skips_without_assets(tmp_path: Path):
     branding.apply_plymouth()  # no crash, just skipped
 
 
+def test_plymouth_refreshes_when_assets_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A branding update with new frames re-applies instead of skipping."""
+    monkeypatch.setattr(B, "run_command", noop_run([]))
+    branding = make_branding(tmp_path, dry_run=False)
+    branding.apply_plymouth()
+    theme_dir = branding.paths.plymouth_theme_dir
+    assert (theme_dir / "animation-0001.png").read_bytes() == b"frame1"
+
+    # Ship a new frame — the next run must refresh the theme.
+    (branding.paths.assets_dir / "plymouth" / "animation-0001.png").write_bytes(
+        b"frame1-NEW"
+    )
+    branding.apply_plymouth()
+    assert (theme_dir / "animation-0001.png").read_bytes() == b"frame1-NEW"
+    # Marker carries the new assets hash, so a third run skips again.
+    marker = theme_dir / B.MARKER
+    assert marker.read_text(encoding="utf-8").strip() == B._dir_hash(
+        branding.paths.assets_dir / "plymouth"
+    )
+    branding.apply_plymouth()
+    assert (theme_dir / "animation-0001.png").read_bytes() == b"frame1-NEW"
+
+
+def test_plymouth_legacy_marker_triggers_refresh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A pre-hash marker ('branded by syntropia') is refreshed once."""
+    monkeypatch.setattr(B, "run_command", noop_run([]))
+    branding = make_branding(tmp_path, dry_run=False)
+    theme_dir = branding.paths.plymouth_theme_dir
+    theme_dir.mkdir(parents=True)
+    (theme_dir / "animation-0001.png").write_bytes(b"old-frame")
+    (theme_dir / B.MARKER).write_text("branded by syntropia\n", encoding="utf-8")
+
+    branding.apply_plymouth()
+    assert (theme_dir / "animation-0001.png").read_bytes() == b"frame1"
+
+
+def test_plymouth_refresh_dry_run_changes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Dry-run with changed assets reports but never writes."""
+    calls: list = []
+    monkeypatch.setattr(B, "run_command", noop_run(calls))
+    branding = make_branding(tmp_path, dry_run=False)
+    branding.apply_plymouth()
+    (branding.paths.assets_dir / "plymouth" / "animation-0001.png").write_bytes(
+        b"frame1-NEW"
+    )
+
+    def boom(cmd: list):
+        raise AssertionError("dry-run must not execute commands")
+
+    monkeypatch.setattr(B, "run_command", boom)
+    theme_dir = branding.paths.plymouth_theme_dir
+    before = (theme_dir / "animation-0001.png").read_bytes()
+    calls_before = len(calls)
+    B.Branding(branding.paths, dry_run=True).apply_plymouth()
+    assert (theme_dir / "animation-0001.png").read_bytes() == before
+    assert (theme_dir / B.MARKER).exists()
+    assert len(calls) == calls_before  # dry-run added no commands
+
+
 # --- GRUB ---------------------------------------------------------------
 
 
@@ -201,6 +266,19 @@ def test_wallpaper_dry_run_changes_nothing(tmp_path: Path):
     branding = make_branding(tmp_path, dry_run=True)
     branding.apply_wallpaper()
     assert not branding.paths.wallpaper_target.exists()
+
+
+def test_wallpaper_refreshes_when_asset_changes(tmp_path: Path):
+    branding = make_branding(tmp_path, dry_run=False)
+    branding.apply_wallpaper()
+    assert branding.paths.wallpaper_target.read_bytes() == b"wallpaper"
+
+    (branding.paths.assets_dir / "wallpaper.png").write_bytes(b"wallpaper-NEW")
+    branding.apply_wallpaper()
+    assert branding.paths.wallpaper_target.read_bytes() == b"wallpaper-NEW"
+    # Third run is a skip again (content matches).
+    branding.apply_wallpaper()
+    assert branding.paths.wallpaper_target.read_bytes() == b"wallpaper-NEW"
 
 
 # --- runner -------------------------------------------------------------
