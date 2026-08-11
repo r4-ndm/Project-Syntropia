@@ -1,10 +1,12 @@
 pkgbase = syntropia
-	pkgdesc = Transform CachyOS into Syntropia OS — rebranded, audio-optimised, with Wine/yabridge VST3 support
+	pkgdesc = Rebranded, audio-optimised CachyOS with Wine/yabridge VST3 support
 	pkgver = 0.1.0
 	pkgrel = 1
 	url = https://github.com/r4-ndm/Project-Syntropia
+	install = syntropia.install
 	arch = any
 	license = MIT
+	makedepends = python-build
 	makedepends = python-installer
 	makedepends = python-setuptools
 	makedepends = python-wheel

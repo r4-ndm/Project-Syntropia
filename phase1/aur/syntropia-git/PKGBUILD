@@ -1,0 +1,139 @@
+# Maintainer: Syntropia Team <hello@project-syntropia.io>
+# Contributor: r4-ndm
+#
+# VCS build of syntropia — tracks the latest main branch of
+# https://github.com/r4-ndm/Project-Syntropia directly. Fully standalone:
+# makepkg clones the repo, builds the Python wheel, and packages branding,
+# brews, and systemd units — no local checkout involved.
+#
+# The stable release package lives in ../PKGBUILD (syntropia) and is
+# preferred for users; this -git variant is for tracking the repo as it
+# moves. Both install the same paths, hence conflicts=('syntropia').
+
+pkgname=syntropia-git
+# Placeholder — pkgver() below recomputes 0.1.0.r<revcount>.g<sha> from the
+# cloned repo (makepkg autobumps this at build time).
+pkgver=0.1.0.r1
+pkgrel=1
+pkgdesc="Rebranded, audio-optimised CachyOS with Wine/yabridge VST3 support (git)"
+arch=('any')
+url="https://github.com/r4-ndm/Project-Syntropia"
+license=('MIT')
+install=syntropia.install
+depends=('python' 'python-click')
+makedepends=('git' 'python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+provides=("syntropia=${pkgver}")
+conflicts=('syntropia')
+optdepends=(
+  'wine-staging: run Windows audio applications (transform installs this)'
+  'winetricks: install Windows DLLs and components'
+  'yabridge: bridge Windows VST3 plugins to Linux'
+  'yabridgectl: manage yabridge-bridged plugins'
+  'fastfetch: display the Syntropia terminal logo at login'
+  'snapper: create pre-transform snapshots (recommended)'
+)
+source=('syntropia::git+https://github.com/r4-ndm/Project-Syntropia.git')
+sha256sums=('SKIP')
+
+pkgver() {
+    # No clone yet (e.g. `makepkg --printsrcinfo` without a build) — keep
+    # the declared placeholder instead of producing a broken version.
+    cd "$srcdir/syntropia" 2>/dev/null || { printf '%s' "$pkgver"; return; }
+    # The release number lives in phase1/cli/syntropia/__init__.py — the
+    # single source of truth; the revision suffix keeps the version
+    # monotonically increasing with every commit (Arch VCS guidelines:
+    # VER_NUM.rREV_NUM.HASH).
+    local rel
+    rel="$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' phase1/cli/syntropia/__init__.py | head -1)"
+    if [[ -n $rel ]]; then
+        printf '%s.r%s.g%s' "$rel" "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+    else
+        printf 'r%s.g%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+    fi
+}
+
+build() {
+    cd "$srcdir/syntropia/phase1/cli"
+    msg "Building Python wheel..."
+    # --no-isolation: use the python-setuptools/python-wheel makedepends
+    # instead of downloading a build env from PyPI.
+    python -m build --wheel --no-isolation --outdir="$srcdir/dist" .
+}
+
+package() {
+    _repo="$srcdir/syntropia"
+
+    # -- Python package -------------------------------------------------
+    msg "Installing Python package..."
+    python -m installer --destdir="$pkgdir" "$srcdir/dist/"*.whl
+
+    # -- Branding assets ------------------------------------------------
+    _branding="$pkgdir/usr/share/syntropia/branding"
+    install -d "$_branding"
+
+    msg "Installing branding assets..."
+    for asset in logo.txt fastfetch-color.json wallpaper.png; do
+        if [[ -f "$_repo/Branding/syntropia/$asset" ]]; then
+            install -m644 "$_repo/Branding/syntropia/$asset" "$_branding/"
+        fi
+    done
+
+    # grub/
+    if [[ -d "$_repo/Branding/syntropia/grub" ]]; then
+        cp -r "$_repo/Branding/syntropia/grub" "$_branding/grub"
+        chmod -R 755 "$_branding/grub"
+    fi
+
+    # plymouth/
+    if [[ -d "$_repo/Branding/syntropia/plymouth" ]]; then
+        cp -r "$_repo/Branding/syntropia/plymouth" "$_branding/plymouth"
+        chmod -R 755 "$_branding/plymouth"
+    fi
+
+    # calamares/ is deliberately excluded — ISO-only (~10 MB of installer
+    # slides, useless on an already-installed system).
+
+    # -- Brew manifests (seed registry) ---------------------------------
+    _brews="$pkgdir/usr/share/syntropia/brews"
+    install -d "$_brews"
+    msg "Installing seed brew manifests..."
+    for brew in "$_repo/phase1/brews/"*.brew; do
+        install -m644 "$brew" "$_brews/"
+    done
+
+    # -- Systemd units --------------------------------------------------
+    _units="$pkgdir/usr/lib/systemd/system"
+    install -d "$_units"
+    msg "Installing systemd units..."
+    for unit in syntropia-registry-sync.service syntropia-registry-sync.timer; do
+        if [[ -f "$_repo/phase1/services/$unit" ]]; then
+            install -m644 "$_repo/phase1/services/$unit" "$_units/"
+        fi
+    done
+
+    # -- License --------------------------------------------------------
+    install -d "$pkgdir/usr/share/licenses/$pkgname"
+    cat > "$pkgdir/usr/share/licenses/$pkgname/LICENSE" <<'LICEOF'
+MIT License
+
+Copyright (c) 2025-2026 Syntropia Project
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+LICEOF
+}

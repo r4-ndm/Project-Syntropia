@@ -25,9 +25,10 @@ MSG
 }
 
 post_upgrade() {
-    cat << 'MSG'
+    # pacman passes the new version as $1 — no %v substitution.
+    cat << MSG
 
-  😈  Syntropia upgraded to %v!
+  😈  Syntropia upgraded to $1!
 
   Re-run the transform to apply any updated branding:
 
