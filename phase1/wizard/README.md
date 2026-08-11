@@ -45,8 +45,33 @@ checklist checkboxes invisibly. On a Plasma session the native style is
 already active and nothing is overridden.
 
 `base-devel` is guaranteed in the target base install, so AUR builds work on
-first boot. When shipping, declare `kdialog` (or `zenity`) + `paru` as
-dependencies — neither is guaranteed on a stock install.
+first boot. **paru is NOT on a stock CachyOS install** (nor is yay, nor
+kdialog/zenity) — two mechanisms cover that:
+
+1. The **ISO ships paru + brave-bin** via a Calamares toolchain hook
+   (`syntropia_toolchain`), so fresh installs have both at first login.
+2. If paru is still missing (e.g. Syntropia added to an existing system),
+   the **browser dialog bootstraps it itself**: the page shows an "Install
+   paru" panel that runs `pkexec pacman -S paru` (standard polkit password
+   prompt) and reloads into the grid — no terminal, no GUI toolkit needed.
+   The kdialog/qt/zenity paths keep their own prompt and fail with a clear
+   message (not a crash) when no toolkit exists.
+
+**Brave is the default browser** on fresh ISO installs: the wizard runs
+`xdg-settings set default-web-browser brave-browser.desktop` + sets
+Plasma's `kdeglobals [General] BrowserApplication` at first login (Brave is
+already installed by the toolchain hook). Firefox stays installed — just
+not the default. Skipped when Brave isn't present (Firefox stays default).
+
+**No KDE Wallet prompt over the grid.** On a fresh KDE login, the first
+Chromium-family browser launch triggers a "create a new wallet" dialog
+(Secret Service request → kwalletd6) that pops up ON TOP of the wizard
+window and looks like an empty/frozen app. The wizard writes
+`~/.config/kwalletrc` `[KSecretD] Enabled=false` before opening the
+browser — disabling only the Secret Service bridge so browsers can't
+trigger wallet creation. The wallet itself stays enabled for KDE-native
+apps, and the setting is reversible in System Settings. (Verified: with
+this config present, the wizard's Brave opens the grid with no prompt.)
 
 ## The catalog: `apps.list`
 
@@ -136,5 +161,4 @@ first if missing (`pkexec pacman -S paru`).
 - **Dialog dependency**: the preferred browser dialog needs only python3 +
   a browser (both present on any desktop install) — no package install.
   Fallbacks: `pyside6` (qt grid), `kdialog`, or `zenity` if present; none is
-  guaranteed, so until a package dependency is declared the wizard degrades
-  to whichever exists (see the open "Package as dependency-clean unit" task).
+  guaranteed, so the wizard degrades to whichever exists.

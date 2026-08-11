@@ -225,29 +225,105 @@ launch_terminal() {
     nohup "${cmd[@]}" >/dev/null 2>&1 &
 }
 
+ensure_kde_wallet_quiet() {
+    # KDE's first run shows a "create a new wallet" dialog when a
+    # Chromium-family browser requests a keyring — which would pop up OVER
+    # the wizard grid (the "empty window" the first testers saw). Disable
+    # just the Secret Service bridge (org.freedesktop.secrets, provided by
+    # ksecretd) so browsers cannot trigger wallet creation; the wallet
+    # itself stays enabled for KDE-native apps. Idempotent and best-effort:
+    # only touches KDE systems and never fails the wizard.
+    have ksecretd || have kwalletd6 || return 0
+    python3 - "$CONFIG_HOME" << 'PY' || true
+import os, re, sys
+cfg = os.path.join(sys.argv[1], "kwalletrc")
+os.makedirs(os.path.dirname(cfg), exist_ok=True)
+text = ""
+if os.path.exists(cfg):
+    with open(cfg) as f:
+        text = f.read()
+if "[KSecretD]" not in text:
+    if text and not text.endswith("\n"):
+        text += "\n"
+    text += "\n[KSecretD]\nEnabled=false\n"
+else:
+    def fix_body(body):
+        if re.search(r"^Enabled\s*=.*$", body, re.M):
+            return re.sub(r"^Enabled\s*=.*$", "Enabled=false", body, count=1, flags=re.M)
+        return (body.rstrip("\n") + "\nEnabled=false\n") if body.strip() else "Enabled=false\n"
+    text = re.sub(r"(\[KSecretD\]\n)(.*?)(?=\n\[|\Z)",
+                  lambda m: m.group(1) + fix_body(m.group(2)),
+                  text, count=1, flags=re.S)
+with open(cfg, "w") as f:
+    f.write(text)
+PY
+}
+
+set_default_browser() {
+    # Brave ships with the ISO (toolchain hook) and is the browser behind the
+    # Win98 grid — make it the default on first run. Skipped on systems that
+    # don't have Brave (Firefox stays default there). Best-effort: never let
+    # this fail the wizard.
+    have brave || return 0
+    echo "Setting Brave as the default browser..."
+    # XDG default (xdg-open, most apps, web-app launchers)
+    xdg-settings set default-web-browser brave-browser.desktop 2>/dev/null || true
+    # Plasma/KDE apps read kdeglobals [General] BrowserApplication
+    python3 - "$HOME" << 'PY' || true
+import configparser, os, sys
+home = sys.argv[1]
+p = os.path.join(home, ".config", "kdeglobals")
+
+class KConf(configparser.ConfigParser):
+    optionxform = staticmethod(str)  # KDE keys are case-sensitive
+
+c = KConf()
+try:
+    c.read(p)
+except Exception:
+    pass
+if not c.has_section("General"):
+    c.add_section("General")
+c.set("General", "BrowserApplication", "brave-browser.desktop")
+try:
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "w") as f:
+        c.write(f)
+except Exception:
+    pass
+PY
+}
+
 ensure_paru() {
     local dialog="$1"
     have paru && return 0
     echo "paru (the AUR helper) is not installed."
     if [[ "$MODE" == "check" ]]; then return 1; fi
+    if [[ "$dialog" == "web" ]]; then
+        # The browser dialog bootstraps paru itself (a button in the page
+        # runs pkexec) — it needs no GUI toolkit, so defer to it. The install
+        # step below verifies paru exists before running anything.
+        echo "The app dialog will offer to install it."
+        return 0
+    fi
+    # kdialog/qt/zenity dialogs: prompt for the bootstrap with whatever GUI
+    # toolkit exists — and fail with a clear message instead of a cryptic
+    # "zenity: command not found" when neither is installed.
     local ask
-    if [[ "$dialog" == "kdialog" || "$dialog" == "qt" ]]; then
-        if have kdialog; then
-            kdialog --title "😈 Syntropia" \
-                --yesno "paru (the AUR helper) is not installed yet.\n\nInstall it first? (a password prompt will appear)" \
-                --yes-label "Install paru" --no-label "Cancel"
-            ask=$?
-        else
-            zenity --question --title="😈 Syntropia" \
-                --text="paru (the AUR helper) is not installed yet.\n\nInstall it first? (a password prompt will appear)" \
-                --ok-label="Install paru" --cancel-label="Cancel"
-            ask=$?
-        fi
-    else
+    if have kdialog; then
+        kdialog --title "😈 Syntropia" \
+            --yesno "paru (the AUR helper) is not installed yet.\n\nInstall it first? (a password prompt will appear)" \
+            --yes-label "Install paru" --no-label "Cancel"
+        ask=$?
+    elif have zenity; then
         zenity --question --title="😈 Syntropia" \
             --text="paru (the AUR helper) is not installed yet.\n\nInstall it first? (a password prompt will appear)" \
             --ok-label="Install paru" --cancel-label="Cancel"
         ask=$?
+    else
+        echo "😈 Install paru first, then re-run the wizard:" >&2
+        echo "    sudo pacman -S paru" >&2
+        return 1
     fi
     if [[ $ask -eq 0 ]]; then
         pkexec pacman -S --noconfirm paru
@@ -307,6 +383,10 @@ check_mode() {
 run_dialog() {
     local dialog
     dialog="$(find_dialog)" || die "no dialog available — install one of: pyside6 (qt grid), kdialog, or zenity"
+    # Silence the KDE wallet-creation prompt BEFORE any browser opens, so
+    # nothing can cover the grid on first login.
+    ensure_kde_wallet_quiet
+    set_default_browser
     ensure_paru "$dialog"
 
     # Force the Breeze widget style for the Qt dialogs (qt grid + kdialog) on

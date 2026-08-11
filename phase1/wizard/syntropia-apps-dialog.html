@@ -107,21 +107,37 @@
   .hint { margin-top: 10px; color: #333; font-size: 11px; }
 </style>
 </head>
-<body>
+<body data-paru="<!--PARU-->">
 <div class="window">
   <div class="titlebar"><span class="icon">😈</span> Syntropia — Pick your apps</div>
   <div class="body">
-    <p class="intro">Check the apps to install — everything installs together. Cancel skips this permanently.</p>
-    <div class="bulk-row">
-      <button onclick="selectAll()">Select All</button>
-      <button onclick="clearAll()">Clear All</button>
+    <div id="paru-panel" hidden>
+      <p class="intro">The app installer needs <b>paru</b> (the Arch AUR helper) — it is not installed yet.</p>
+      <div class="cat-group">
+        <div class="cat-title">One-time setup</div>
+        <p style="margin:2px 0 8px;color:#000000">Install paru now? A password prompt will appear.</p>
+        <div class="bulk-row">
+          <button class="primary" id="paru-install" onclick="installParu()">Install paru</button>
+        </div>
+        <p class="hint" id="paru-status"></p>
+      </div>
+      <div class="actions">
+        <button onclick="cancel()">Cancel</button>
+      </div>
     </div>
-    <div class="grid-area" id="grid"><!--CATALOG--></div>
-    <div class="actions">
-      <button onclick="cancel()">Cancel</button>
-      <button class="primary" onclick="ok()">OK</button>
+    <div id="app-area">
+      <p class="intro">Check the apps to install — everything installs together. Cancel skips this permanently.</p>
+      <div class="bulk-row">
+        <button onclick="selectAll()">Select All</button>
+        <button onclick="clearAll()">Clear All</button>
+      </div>
+      <div class="grid-area" id="grid"><!--CATALOG--></div>
+      <div class="actions">
+        <button onclick="cancel()">Cancel</button>
+        <button class="primary" onclick="ok()">OK</button>
+      </div>
+      <p class="hint" id="status"></p>
     </div>
-    <p class="hint" id="status"></p>
   </div>
 </div>
 <script>
@@ -197,6 +213,35 @@
 
   function setStatus(msg) {
     document.getElementById('status').textContent = msg;
+  }
+
+  // ---- paru bootstrap (shown only when the server reports paru missing) ----
+  const PARU_OK = document.body.dataset.paru === 'yes';
+  if (!PARU_OK) {
+    document.getElementById('app-area').hidden = true;
+    document.getElementById('paru-panel').hidden = false;
+  }
+
+  async function installParu() {
+    const btn = document.getElementById('paru-install');
+    const status = document.getElementById('paru-status');
+    btn.disabled = true;
+    status.textContent = 'Installing paru… a password prompt may appear.';
+    try {
+      const resp = await post('/paru/install', {});
+      if (resp.ok) {
+        status.textContent = 'paru installed — loading the app grid…';
+        location.reload();
+      } else {
+        const data = await resp.json().catch(() => ({}));
+        const out = (data.output || 'see the terminal').slice(0, 300);
+        status.textContent = 'Install failed: ' + out + ' — you can also run: sudo pacman -S paru';
+        btn.disabled = false;
+      }
+    } catch (e) {
+      status.textContent = 'Install failed — you can also run: sudo pacman -S paru';
+      btn.disabled = false;
+    }
   }
 </script>
 </body>
