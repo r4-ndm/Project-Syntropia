@@ -17,8 +17,8 @@ branding end-to-end, and fastfetch shows the white triangle logo.
 | `wallpaper.png` (1920×1080) | ✅ shipped + installed by transform |
 | `plymouth/` boot frames (36 animation + 30 throbber + misc, 74 files) | ⏳ **still stock CachyOS** — the real remaining work |
 | `calamares/usr/.../icon.png, logo.png, welcome.png` | ⏳ present but not confirmed re-skinned |
-| Commit + push | ⏳ everything uncommitted |
-| AUR packaging | ⏳ PKGBUILDs ready, repo must go public first |
+| Commit + push | ✅ done — 18 commits pushed (Aug 11), repo now **public** |
+| AUR packaging | ⏳ PKGBUILDs verified against the real public URL; submit to AUR |
 
 ## 1. Custom Plymouth boot frames (the main open branding task)
 The boot splash is still the stock CachyOS animation. Regenerate all
@@ -59,16 +59,15 @@ Everything from the branding + CLI sessions is still uncommitted
 (`Branding/`, `phase1/aur/`, `phase1/cli/`, `phase1/tests/`). Before any of
 it reaches users:
 
-1. Commit in logical chunks (update/paru, branding refresh, PKGBUILDs,
-   logo + color map) and push.
-2. **Make the GitHub repo public** — the AUR cannot build from a private
-   repo. The PKGBUILDs are verified and ready:
-   - `phase1/aur/PKGBUILD` — stable `syntropia` (local build; needs a
-     release tarball + sha256sums for AUR submission)
-   - `phase1/aur/syntropia-git/` — `syntropia-git`, builds straight from
-     GitHub, verified with a full `makepkg` build
-3. Re-verify `syntropia-git` against the real GitHub URL once public, then
-   submit to the AUR.
+1. Commits pushed (update/paru, branding refresh, PKGBUILDs, logo + white
+   map, wizard/ISO hooks, NEXT.md rewrite + junk sweep) — repo is **public**
+   since Aug 11.
+2. `syntropia-git` re-verified against the real URL post-publicity:
+   `makepkg` built `syntropia-git 0.1.0.r74.g870dbce-1` with the final logo,
+   white color map, and paru update code.
+3. Next: **submit to the AUR** (`paru -S syntropia-git` works once
+   published). The stable `syntropia` needs a release tarball + sha256sums
+   (see `phase1/aur/PKGBUILD` header).
 
 ## Verify
 ```bash
