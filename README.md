@@ -15,10 +15,9 @@ best-effort), builds a Python venv, shows the full `syntropia transform --check`
 plan, snapshots (when a snapper root config is available), and applies branding
 + audio stack with your confirmation.
 
-> ⚠️ The repo is **private** right now, so the curl one-liner will not work for
-> others until it goes public. Until then, run it from a clone you already have:
-> `./install-syntropia.sh` (add `--check` for a dry run, `SYNTROPIA_YES=1` to
-> skip the confirmation).
+> The curl one-liner installs from the public repo. For a dry run first:
+> `./install-syntropia.sh --check` (or `SYNTROPIA_YES=1` to skip the
+> confirmation).
 
 ## 🧭 Navigation Guide for Agents
 
