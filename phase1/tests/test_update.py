@@ -193,6 +193,157 @@ def test_changelog_empty_for_non_repo(tmp_path: Path):
     assert U.changelog(tmp_path) == ""
 
 
+# -- _update_via_pacman ----------------------------------------------
+
+
+def test_update_via_pacman_check(capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        U.shutil, "which", lambda name: f"/usr/bin/{name}" if name in ("paru", "yay") else None
+    )
+    U._update_via_pacman(check=True)
+    out = capsys.readouterr().out
+    assert "paru -Syu" in out
+    assert "would run" in out
+
+
+def test_update_via_pacman_prefers_paru(monkeypatch: pytest.MonkeyPatch):
+    calls: list = []
+    monkeypatch.setattr(
+        U.shutil, "which", lambda name: f"/usr/bin/{name}" if name in ("paru", "yay") else None
+    )
+
+    def fake_run(cmd: list) -> FakeResult:
+        calls.append(cmd)
+        return FakeResult(0)
+
+    monkeypatch.setattr(U.subprocess, "run", fake_run)
+    U._update_via_pacman()
+    assert calls == [["paru", "-Syu"]]
+
+
+def test_update_via_pacman_falls_back_to_yay(monkeypatch: pytest.MonkeyPatch):
+    calls: list = []
+    monkeypatch.setattr(
+        U.shutil, "which", lambda name: "/usr/bin/yay" if name == "yay" else None
+    )
+
+    def fake_run(cmd: list) -> FakeResult:
+        calls.append(cmd)
+        return FakeResult(0)
+
+    monkeypatch.setattr(U.subprocess, "run", fake_run)
+    U._update_via_pacman()
+    assert calls == [["yay", "-Syu"]]
+
+
+def test_update_via_pacman_no_helper_prints_advice(
+    capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(U.shutil, "which", lambda _: None)
+    U._update_via_pacman()
+    out = capsys.readouterr().out
+    assert "no AUR helper found" in out
+
+
+def test_update_via_pacman_nonzero_continues(
+    capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(
+        U.shutil, "which", lambda name: f"/usr/bin/{name}" if name in ("paru", "yay") else None
+    )
+    monkeypatch.setattr(U.subprocess, "run", lambda cmd: FakeResult(1))
+    # Must not raise — an aborted/failed system update shouldn't kill the flow.
+    U._update_via_pacman()
+    out = capsys.readouterr().out
+    assert "continuing with brews + transform" in out
+
+
+# -- _rerun_transform -------------------------------------------------
+
+
+def test_rerun_transform_check_prints_only(capsys: pytest.CaptureFixture):
+    """Check mode prints the sudo command and never runs anything."""
+    U._rerun_transform(check=True)
+    out = capsys.readouterr().out
+    assert "sudo syntropia transform --yes" in out
+
+
+def test_rerun_transform_as_root_runs_in_process(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(U.os, "geteuid", lambda: 0)
+    calls: list = []
+
+    def fake_run_transform(**kwargs) -> None:
+        calls.append(kwargs)
+
+    monkeypatch.setattr("syntropia.transform.run_transform", fake_run_transform)
+    U._rerun_transform()
+    assert calls == [
+        {"check": False, "yes": True, "branding_dir": "/usr/share/syntropia/branding"}
+    ]
+
+
+def test_rerun_transform_sudo_runs_binary(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(U.os, "geteuid", lambda: 1000)
+
+    def which(name: str) -> str | None:
+        return "/usr/bin/syntropia" if name == "syntropia" else "/usr/bin/sudo"
+
+    monkeypatch.setattr(U.shutil, "which", which)
+    calls: list = []
+
+    def fake_subprocess_run(cmd: list) -> FakeResult:
+        calls.append(cmd)
+        return FakeResult(0)
+
+    monkeypatch.setattr(U.subprocess, "run", fake_subprocess_run)
+    U._rerun_transform()
+    assert calls == [["sudo", "/usr/bin/syntropia", "transform", "--yes"]]
+
+
+def test_rerun_transform_sudo_failure_raises(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(U.os, "geteuid", lambda: 1000)
+
+    def which(name: str) -> str | None:
+        return "/usr/bin/syntropia" if name == "syntropia" else "/usr/bin/sudo"
+
+    monkeypatch.setattr(U.shutil, "which", which)
+
+    class FailingResult:
+        returncode = 1
+
+    monkeypatch.setattr(U.subprocess, "run", lambda cmd: FailingResult())
+    with pytest.raises(U.UpdateError, match="transform re-run failed"):
+        U._rerun_transform()
+
+
+def test_rerun_transform_without_sudo_raises(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(U.os, "geteuid", lambda: 1000)
+
+    def which(name: str) -> str | None:
+        return "/usr/bin/syntropia" if name == "syntropia" else None
+
+    monkeypatch.setattr(U.shutil, "which", which)
+    with pytest.raises(U.UpdateError, match="sudo is not available"):
+        U._rerun_transform()
+
+
+def test_rerun_transform_without_binary_raises(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(U.os, "geteuid", lambda: 1000)
+    monkeypatch.setattr(U.shutil, "which", lambda _: None)
+    with pytest.raises(U.UpdateError, match="cannot find the syntropia binary"):
+        U._rerun_transform()
+
+
 # -- run_update ---------------------------------------------------------
 
 
@@ -213,6 +364,40 @@ def test_run_update_unknown_prints_advice(
     monkeypatch.setattr(U, "detect_source", lambda: "unknown")
     monkeypatch.setattr(U, "pull_brews", lambda: (False, "not cloned"))
     U.run_update(check=True)  # should not raise
+
+
+def test_run_update_aur_runs_pacman_then_transform(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """AUR source: paru step runs first, then brews, then the transform."""
+    monkeypatch.setattr(U, "detect_source", lambda: "aur")
+    monkeypatch.setattr(U, "pull_brews", lambda: (False, "already up to date"))
+    calls: list = []
+    monkeypatch.setattr(
+        U, "_update_via_pacman", lambda check=False: calls.append(("pacman", check))
+    )
+    monkeypatch.setattr(
+        U, "_rerun_transform", lambda check=False: calls.append(("transform", check))
+    )
+    U.run_update(check=False)
+    assert calls == [("pacman", False), ("transform", False)]
+
+
+def test_run_update_aur_check_never_runs_paru(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Check mode with AUR source prints the plan and runs nothing."""
+    monkeypatch.setattr(U, "detect_source", lambda: "aur")
+    monkeypatch.setattr(U, "pull_brews", lambda: (False, "not cloned"))
+    calls: list = []
+    monkeypatch.setattr(
+        U, "_update_via_pacman", lambda check=False: calls.append(("pacman", check))
+    )
+    monkeypatch.setattr(
+        U, "_rerun_transform", lambda check=False: calls.append(("transform", check))
+    )
+    U.run_update(check=True)
+    assert calls == [("pacman", True), ("transform", True)]
 
 
 def test_run_update_git_no_changes_skips_transform(

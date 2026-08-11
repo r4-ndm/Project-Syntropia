@@ -96,7 +96,7 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 - [x] **Implement `syntropia info <brew>`** - Show detailed brew information
 - [x] **Add `syntropia save` / `remove`** - Write ops for the local registry
 - [x] **Add `syntropia submit`** - Push a local brew to the shared GitHub registry as a PR
-- [ ] **Add `syntropia update`** - Pull brews registry + check AUR + re-run transform (the `yay -Syu` equivalent)
+- [x] **Add `syntropia update`** - Pull brews registry + paru-update + re-run transform (the `paru -Syu` equivalent); aur source actually runs `paru -Syu` (yay fallback) so a pacman-tracked syntropia updates itself, then pulls brews, then re-applies branding via a fresh `sudo syntropia transform --yes` subprocess (new code executes; failures surface cleanly, no tracebacks)
 - [ ] **Add `syntropia fetch`** - Standalone system info display subcommand
 
 ### Target Brew Definitions
@@ -142,10 +142,10 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 ## 📦 Phase 1.5: AUR Package & Distribution (was ISO — reprioritised)
 
 ### AUR Package
-- [ ] **Create `PKGBUILD`** - Wrap `phase1/cli/` with setuptools, install to `/usr/`
-- [ ] **Test `makepkg -si`** - Verify the PKGBUILD builds and installs correctly
-- [ ] **Submit to AUR** - Push the PKGBUILD to the AUR so `yay -S syntropia` works
-- [ ] **Add `syntropia update` subcommand** - Pull brews, check AUR, re-run transform
+- [x] **Create `PKGBUILD`** - `phase1/aur/` wraps `phase1/cli/` (python -m build + installer, installs to `/usr/`), branding + brews + systemd units + `syntropia.install` scriptlet; pkgver read from `__init__.py` (single source of truth); fixed makepkg 7.1 lint (pkgver variable + pkgver() function) and regenerated `.SRCINFO`
+- [x] **Test `makepkg -si`** - `makepkg` build verified in a scratch dir (`/tmp/syntropia-aur-build`): version 0.1.0-1, namcap-clean, all 12 modules + 6 brews + units + LICENSE + .INSTALL present; `-i` pending user (elevation not approved)
+- [ ] **Submit to AUR** - Push the PKGBUILD to the AUR so `paru -S syntropia` works (needs a released source tarball + sha256sums per the header comment)
+- [x] **Add `syntropia update` subcommand** - Pull brews, check AUR, re-run transform (verified with a real transform re-run on the local machine)
 
 ### One-liner Installer
 - [x] **Create `install-syntropia.sh`** - `curl | bash` fallback, clones repo + builds venv + runs transform
@@ -215,12 +215,14 @@ A first-boot **popup GUI with checkboxes** for popular apps (Telegram, Wezterm, 
 - [x] **Write `apps.list` catalog** - Pipe-delimited `category|name|package|description`; user override at `~/.config/syntropia/apps.list`; 9 categories / 26 apps, all repo-verified: Chat (Telegram, Discord), Browser (Brave), DAW (Bitwig, Reaper), AI (Kiro, Freebuff, Ollama), Terminal (Wezterm), CLI (ripgrep, fzf, zoxide, eza, bat, yazi, btop, tmux), Video (mpv, OBS), Wallet (Electrum), Web (WhatsApp, YouTube Music, Spotify, Notion, Figma, Gmail — URL launchers); LibreWolf dropped (left AUR)
 - [x] **Web app support** - URL in the package field = PWA-style launcher (Brave/Chromium `--app=URL`, else Firefox); mixed native+web installs split cleanly
 - [x] **Write `syntropia-apps-wizard.sh`** - 4-tier dialog (browser Win98 grid — preferred, python3+browser only — then Qt PySide6 grid, kdialog grouped dialog, zenity fallback; Breeze style forced off-Plasma; no window respawn between categories) → bootstrap paru if missing → one `paru -S` for all picks; `--check`/`--list`/`--once`/`--setup`/`--dialog`/`--install-autostart`/`--remove-autostart` modes
-- [x] **Write `syntropia-apps-server.py` + `syntropia-apps-dialog.html`** - stdlib-only local server (127.0.0.1, ephemeral port) that renders the catalog as a Win98-style 4-column checkbox grid in the default browser and returns checked packages to stdout (same contract as `kdialog --separate-output`); needs only python3 + a browser, so the Win98 look works on stock installs with zero extra packages
+- [x] **Write `syntropia-apps-server.py` + `syntropia-apps-dialog.html`** - stdlib-only local server (127.0.0.1, ephemeral port) that renders the catalog as a Win98-style 4-column checkbox grid in the default browser and returns checked packages to stdout (same contract as `kdialog --separate-output`); needs only python3 + a browser, so the Win98 look works on stock installs with zero extra packages; **paru bootstrap panel** — when paru is missing the page offers an "Install paru" button that runs `pkexec pacman -S paru` and reloads into the grid (fixes the first-boot crash where neither paru nor zenity existed)
 - [x] **Write `syntropia-apps-dialog.py`** - PySide6 dialog rendering each category as a 4-column checkbox grid padded with empty placeholder cells (columns align across categories); Windows 98 theme (beveled borders, sunken-when-checked cells, synthesized click sound on check); prints checked packages to stdout (same contract as `kdialog --checklist --separate-output`)
 - [x] **Autostart-once desktop entry** - `syntropia-apps.desktop` template; `--once` self-disables via done-marker
-- [x] **Ship in ISO** - `iso/build.sh` phase 2 copies wizard + `apps.list` + dialog into rootfs `/etc/syntropia/` and installs a first-boot autostart entry (`/etc/xdg/autostart/`); shipped copy resolves its bundled catalog (verified against a scratch rootfs)
+- [x] **Ship in ISO** - `iso/build.sh` phase 2 copies wizard + `apps.list` + dialog into rootfs `/etc/syntropia/` and installs a first-boot autostart entry (`/etc/xdg/autostart/`); shipped copy resolves its bundled catalog (verified against a scratch rootfs); `syntropia_toolchain` Calamares hook installs **brave-bin + paru** in the target (stock installs have NO AUR helper and no kdialog/zenity — the wizard used to crash at first login); branding hook now also copies the fastfetch config + fish greeting into **existing** target user homes (skel is written after Calamares creates the user, so skel-only writes never reach the first user)
 - [ ] **Ship via transform** - Same files into installed systems (`syntropia transform` + `--install-autostart`)
-- [ ] **Package as dependency-clean unit** - If it ships as a package: declare `python-pyside6` (or `kdialog`, or `zenity`) + `paru` deps (none guaranteed on a fresh install)
+- [x] **paru dependency solved for ISO installs** - toolchain hook ships paru; browser dialog bootstraps it via pkexec when missing; kdialog/qt/zenity paths fail with a clear message (not a crash) when no toolkit exists
+- [x] **Brave = default browser** - wizard sets `xdg-settings default-web-browser brave-browser.desktop` + `kdeglobals BrowserApplication` at first login (Firefox stays installed, just not default)
+- [x] **No wallet prompt over the grid** - wizard writes `~/.config/kwalletrc` `[KSecretD] Enabled=false` before opening the browser (KDE first-run would otherwise pop a "create a new wallet" dialog over the wizard when Brave requests a keyring; verified in the VM — wallet stays enabled for KDE-native apps, reversible in System Settings)
 
 ---
 
@@ -276,4 +278,4 @@ Every Syntropia install ships **intelligence alongside the app**: a `SKILL.md` d
 
 ---
 
-**Last Updated**: Phase 1.9 First-Boot Apps Wizard — built in `phase1/wizard/` and shipped via ISO `/etc/syntropia/` (build.sh phase 2); transform path + dependency-clean packaging still open
+**Last Updated**: `syntropia update` real-run fixed — step 3 re-applies the transform via a fresh `sudo syntropia transform --yes` subprocess (clean `UpdateError` instead of an uncaught `TransformError`); update was previously crashing on non-root machines. Phase 1.9 wizard + ISO path still open

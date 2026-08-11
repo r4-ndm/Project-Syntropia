@@ -2,12 +2,15 @@
 
 Detects how syntropia was installed and updates from the appropriate
 source, then re-runs the transform to apply any updated branding assets
-or configs. The ``yay -Syu`` equivalent for the Syntropia layer.
+or configs. For pacman-tracked installs this runs ``paru -Syu``
+(``yay -Syu`` fallback) — once syntropia is on the AUR, paru is the
+whole CLI-update story, and syntropia update layers the brew registry
+pull + branding re-apply on top.
 
 Install sources detected (in priority order):
 * **aur** — installed via pacman (``pacman -Q syntropia``), whether
-  from the AUR, a local ``makepkg -si``, or a custom repo. Tells the
-  user to run ``yay -Syu`` (we can't call pacman safely from here).
+  from the AUR, a local ``makepkg -si``, or a custom repo. Runs
+  ``paru -Syu`` to refresh pacman and the syntropia package itself.
 * **git** — cloned via ``install-syntropia.sh`` or manually to
   ``~/syntropia`` (or ``$SYNTROPIA_SRC``). Runs ``git pull``.
 * **pip** — installed via ``pip install .`` or ``pip install syntropia``.
@@ -18,6 +21,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 from pathlib import Path
 
 from .process import run_command
@@ -127,6 +131,87 @@ def pull_brews() -> tuple[bool, str]:
     return pull_git(registry)
 
 
+TRANSFORM_BRANDING_DIR = "/usr/share/syntropia/branding"
+
+AUR_HELPERS = ("paru", "yay")
+
+
+def _update_via_pacman(check: bool = False) -> None:
+    """Update the system + syntropia through an AUR helper.
+
+    ``paru -Syu`` (falling back to yay) refreshes pacman and pulls the
+    latest syntropia package from the AUR — once syntropia is on the
+    AUR this is the whole CLI-update story. The terminal is inherited
+    so paru shows its package diffs and sudo can prompt for a password.
+
+    A non-zero exit (e.g. the user aborted the update) is reported but
+    does not abort the rest of ``syntropia update`` — the brew pull and
+    transform re-run stay safe and useful regardless.
+    """
+    helper = next((h for h in AUR_HELPERS if shutil.which(h)), None)
+    if helper is None:
+        print(
+            "  ⚠️  no AUR helper found (paru/yay) — install one and re-run "
+            "'syntropia update', or update manually: "
+            "sudo pacman -Syu && sudo syntropia transform --yes"
+        )
+        return
+    if check:
+        print(f"  [--check] would run: {helper} -Syu")
+        return
+    print(f"  🔄 Running {helper} -Syu (this also updates the syntropia package)...")
+    result = subprocess.run([helper, "-Syu"])
+    if result.returncode != 0:
+        print(
+            f"  ⚠️  {helper} -Syu exited with {result.returncode} — "
+            "continuing with brews + transform"
+        )
+    else:
+        print("  ✅ system packages updated (incl. syntropia)")
+
+
+def _rerun_transform(check: bool = False) -> None:
+    """Re-apply the transform with root privileges.
+
+    Runs a fresh ``syntropia transform --yes`` under sudo so that a
+    just-updated CLI executes its own new transform code, the real
+    user's home is resolved (transform.py reads SUDO_USER), and root
+    failures surface as a clean UpdateError instead of a traceback.
+    When already root, run in-process to avoid a pointless sudo hop.
+
+    The subprocess inherits the terminal (no output capture) so the
+    transform's APPLY logs are visible live, and sudo can prompt for
+    a password on the tty.
+    """
+    if check:
+        print("  [--check] would run: sudo syntropia transform --yes")
+        return
+
+    if os.geteuid() == 0:
+        from .transform import run_transform as _run_transform
+
+        _run_transform(check=False, yes=True, branding_dir=TRANSFORM_BRANDING_DIR)
+        return
+
+    binary = shutil.which("syntropia")
+    if binary is None:
+        raise UpdateError(
+            "cannot find the syntropia binary to re-run the transform — "
+            "run: sudo syntropia transform --yes"
+        )
+    if shutil.which("sudo") is None:
+        raise UpdateError(
+            "transform needs root privileges but sudo is not available — "
+            "run: sudo syntropia transform --yes"
+        )
+
+    result = subprocess.run(["sudo", binary, "transform", "--yes"])
+    if result.returncode != 0:
+        raise UpdateError(
+            f"transform re-run failed (exit {result.returncode}) — see output above"
+        )
+
+
 def changelog(repo: Path, n: int = 5) -> str:
     """Show the last n commits in the repo."""
     if not (repo / ".git").is_dir():
@@ -149,11 +234,10 @@ def run_update(*, check: bool = False) -> None:
 
     # ── Step 1: pull the CLI / core ──────────────────────────────────
     if source == "aur":
-        print("  📦 Installed via: pacman (local package)")
-        print("  Run this to update: yay -Syu   (or pacman -Syu)")
-        print("  (Once on the AUR, this detects the same way — pacman tracks it either way.)")
-        # Pacman updates are handled by the user's normal workflow;
-        # we still pull brews and re-transform below.
+        print("  📦 Installed via: pacman (syntropia tracked by pacman — AUR or local package)")
+        _update_via_pacman(check=check)
+        # Once syntropia is on the AUR, paru -Syu is the whole CLI-update
+        # story; we still pull brews and re-run the transform below.
     elif source == "git":
         repo = _repo_root()
         if repo is None:
@@ -208,12 +292,6 @@ def run_update(*, check: bool = False) -> None:
     print()
     if updated_any or source == "aur":
         print("  🔄 Re-applying transform to pick up any updated assets...")
-        if check:
-            print("  [--check] would run: sudo syntropia transform --yes")
-        else:
-            # We import lazily so the module is importable without root.
-            from .transform import run_transform as _run_transform
-
-            _run_transform(check=False, yes=True, branding_dir="/usr/share/syntropia/branding")
+        _rerun_transform(check=check)
     else:
         print("  ✅ Nothing to update — syntropia and brews are current.")

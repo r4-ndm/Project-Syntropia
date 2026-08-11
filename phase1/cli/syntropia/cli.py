@@ -607,10 +607,11 @@ def update(check: bool) -> None:
     """Update Syntropia CLI, brew registry, and re-apply branding.
 
     Detects how syntropia was installed (AUR, git clone, or pip) and
-    pulls the latest from the appropriate source. Also pulls the shared
-    brew registry and re-runs the transform to apply any updated assets.
+    pulls the latest from the appropriate source — pacman-tracked
+    installs run ``paru -Syu``. Also pulls the shared brew registry and
+    re-runs the transform to apply any updated assets.
 
-    The ``yay -Syu`` equivalent for the Syntropia layer.
+    ``paru -Syu`` plus the Syntropia layer (brews + branding).
     """
     try:
         run_update(check=check)
