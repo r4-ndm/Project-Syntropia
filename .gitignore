@@ -36,6 +36,9 @@ __pycache__/
 iso/work/
 iso/out/
 
+# Go TUI dialog binary (built on demand from phase1/wizard/dialog)
+phase1/wizard/dialog/syntropia-apps-tui
+
 # Future-phase planning docs (not ready for public eyes yet)
 phase2/
 phase3/

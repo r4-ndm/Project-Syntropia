@@ -23,14 +23,17 @@ The wizard's dependencies are the **dialog tool**, **paru** (installs;
 bootstrapped automatically if missing), and a terminal emulator. Dialog
 tiers, best first (auto-detected, override with `--dialog`):
 
-1. **Browser grid dialog** (`syntropia-apps-server.py` + `syntropia-apps-dialog.html`) —
-   the **preferred** dialog. A tiny stdlib-only HTTP server renders the same
-   **Windows 98** grid (gray canvas, beveled 3D borders, dark-blue category
-   headers, 4-column grids with placeholder padding, **sunken-when-checked**
-   cells, synthesized click sound via WebAudio) and opens it in the default
-   browser. Needs only **python3 + a browser** — both present on any desktop
-   install — so the Win98 look works on stock installs with **zero extra
-   packages** (the PySide6 dialog needs the ~200 MB `pyside6` package).
+1. **TUI dialog** (`dialog/syntropia-apps-tui`, source `dialog/main.go`) —
+   the **preferred** dialog: a **Bubble Tea (Charm ecosystem)** glamour UI —
+   dark purple/pink theme, gradient title, category groups, keyboard-first
+   checkbox list (`↑/↓`/`jk` move, `space` toggle, `a` select all, `n`
+   select none, `enter` install, `esc`/`q` cancel). It is a **static binary
+   with zero runtime dependencies**: the syntropia package builds it
+   (makedepends: go) and the ISO toolchain hook ships it; from a repo
+   checkout the wizard builds it on demand when `go` is present. It runs
+   inside a terminal — the same place the install output lands — and when
+   run without a TTY (e.g. the first-boot autostart entry) the wizard
+   relaunches it inside a terminal window itself.
 2. **Qt grid dialog** (`syntropia-apps-dialog.py`, PySide6) — the same
    Win98 grid as a native Qt window; used when pyside6 is installed.
    Needs `pyside6`.
@@ -46,32 +49,16 @@ already active and nothing is overridden.
 
 `base-devel` is guaranteed in the target base install, so AUR builds work on
 first boot. **paru is NOT on a stock CachyOS install** (nor is yay, nor
-kdialog/zenity) — two mechanisms cover that:
+kdialog/zenity) — the wizard bootstraps it itself on first use:
 
-1. The **ISO ships paru + brave-bin** via a Calamares toolchain hook
-   (`syntropia_toolchain`), so fresh installs have both at first login.
-2. If paru is still missing (e.g. Syntropia added to an existing system),
-   the **browser dialog bootstraps it itself**: the page shows an "Install
-   paru" panel that runs `pkexec pacman -S paru` (standard polkit password
-   prompt) and reloads into the grid — no terminal, no GUI toolkit needed.
-   The kdialog/qt/zenity paths keep their own prompt and fail with a clear
-   message (not a crash) when no toolkit exists.
+- The **TUI bootstraps it inline** — it runs in a terminal, so it just
+  prompts with `sudo pacman -S paru`. The kdialog/qt/zenity paths keep
+  their own prompt and fail with a clear message (not a crash) when no
+  toolkit exists.
 
-**Brave is the default browser** on fresh ISO installs: the wizard runs
-`xdg-settings set default-web-browser brave-browser.desktop` + sets
-Plasma's `kdeglobals [General] BrowserApplication` at first login (Brave is
-already installed by the toolchain hook). Firefox stays installed — just
-not the default. Skipped when Brave isn't present (Firefox stays default).
-
-**No KDE Wallet prompt over the grid.** On a fresh KDE login, the first
-Chromium-family browser launch triggers a "create a new wallet" dialog
-(Secret Service request → kwalletd6) that pops up ON TOP of the wizard
-window and looks like an empty/frozen app. The wizard writes
-`~/.config/kwalletrc` `[KSecretD] Enabled=false` before opening the
-browser — disabling only the Secret Service bridge so browsers can't
-trigger wallet creation. The wallet itself stays enabled for KDE-native
-apps, and the setting is reversible in System Settings. (Verified: with
-this config present, the wizard's Brave opens the grid with no prompt.)
+The ISO stays **stock CachyOS** — nothing is preinstalled (no paru, no
+Brave): apps are the user's first-boot picks from the dialog. Everything
+beyond the base install happens at first boot.
 
 ## The catalog: `apps.list`
 
@@ -140,10 +127,12 @@ both). The wizard prefers your copy over the system default automatically.
 
 ## Installing apps
 
-Checked apps install with a single `paru -S --noconfirm <packages>` in a
-terminal window (konsole → gnome-terminal → xfce4-terminal → kitty →
-alacritty → xterm, first one found, or `$TERMINAL`). paru is installed
-first if missing (`pkexec pacman -S paru`).
+Checked apps install with a single `paru -S --noconfirm <packages>`. When
+the wizard is already inside a terminal (the TUI path), paru runs **inline
+in that same terminal** with live output. Otherwise it opens a terminal
+window (konsole → gnome-terminal → xfce4-terminal → kitty → alacritty →
+xterm, first one found, or `$TERMINAL`). paru is installed first if
+missing (inline `sudo pacman -S paru` on the TUI path, `pkexec` elsewhere).
 
 ## Notes
 
@@ -153,12 +142,13 @@ first if missing (`pkexec pacman -S paru`).
 - Cancelling the dialog in `--once` mode writes the done-marker too, so it
   won't nag every login.
 - **Shipped in the ISO**: `iso/build.sh` phase 2 copies the wizard (script +
-  `apps.list` + `syntropia-apps-server.py` + `syntropia-apps-dialog.html` +
-  `syntropia-apps-dialog.py`) into the rootfs `/etc/syntropia/` and installs
-  a first-boot autostart entry (`/etc/xdg/autostart/`), so fresh installs get
-  the dialog at first login. The transform path (installed systems) is the
-  same files, no changes needed.
-- **Dialog dependency**: the preferred browser dialog needs only python3 +
-  a browser (both present on any desktop install) — no package install.
-  Fallbacks: `pyside6` (qt grid), `kdialog`, or `zenity` if present; none is
-  guaranteed, so the wizard degrades to whichever exists.
+  `apps.list` + `syntropia-apps-dialog.py` + the `dialog/` TUI source) into the rootfs
+  `/etc/syntropia/` and installs a first-boot autostart entry
+  (`/etc/xdg/autostart/`), so fresh installs get the dialog at first login.
+  The transform path (installed systems) is the same files, no changes
+  needed. The TUI binary itself ships prebuilt (toolchain hook / package);
+  from a bare checkout the wizard builds it on demand when `go` is present.
+- **Dialog dependency**: the preferred TUI dialog is a static binary with
+  zero runtime deps. Fallbacks: `pyside6` (qt grid), `kdialog`, or
+  `zenity` if present; none is guaranteed, so the wizard degrades to
+  whichever exists.

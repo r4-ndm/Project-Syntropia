@@ -19,18 +19,20 @@
 #   --check               non-interactive sanity check (exit 0 = all good)
 #   --list                print the resolved catalog
 #   --config FILE         use FILE as the catalog
-#   --dialog TOOL         force a specific dialog tool (web|qt|kdialog|zenity)
+#   --dialog TOOL         force a specific dialog tool (tui|qt|kdialog|zenity)
 #   --setup               seed ~/.config/syntropia/apps.list (editable copy),
 #                         install the one-shot autostart entry
 #   --install-autostart   install the one-shot autostart entry
 #   --remove-autostart    remove the autostart entry
 #
-# Dependencies: the preferred dialog is the BROWSER grid
-# (syntropia-apps-server.py + syntropia-apps-dialog.html) — Win98-style,
-# rendered over 127.0.0.1 with only python3 + a browser, no package install.
-# Fallbacks: PySide6 qt grid if installed, else kdialog (native KDE/Plasma
-# look — CachyOS default desktop) or zenity (GTK). Plus paru (installs;
-# bootstrapped if missing) and a terminal emulator (live install output).
+# Dependencies: the preferred dialog is the TUI (dialog/syntropia-apps-tui)
+# — a Bubble Tea (Charm ecosystem) glamour UI with zero runtime deps (static
+# binary). Built from source on demand when go is available, or shipped by
+# the syntropia package/ISO. Runs inside a terminal — the same place the
+# install output lands. Fallbacks: the PySide6 qt grid if installed, else
+# kdialog (native KDE/Plasma look — CachyOS default desktop) or zenity
+# (GTK). Plus paru (installs; bootstrapped if missing) and a terminal
+# emulator.
 
 set -euo pipefail
 
@@ -112,18 +114,25 @@ EOF
     echo "  ✅ $name  →  $launcher"
 }
 
-# The browser dialog (syntropia-apps-server.py + .html) renders the same
-# Win98-style grid with ONLY python3 + a browser — both present on any
-# desktop install — so it's the preferred dialog, no ~200 MB pyside6 needed.
-have_web_dialog() {
-    have python3 || return 1
-    have xdg-open || return 1
-    [[ -f "$SCRIPT_DIR/syntropia-apps-server.py" ]] || return 1
-    [[ -f "$SCRIPT_DIR/syntropia-apps-dialog.html" ]] || return 1
-    local b
-    for b in firefox brave chromium google-chrome chromium-browser vivaldi opera microsoft-edge; do
-        have "$b" && return 0
-    done
+# The TUI dialog (dialog/syntropia-apps-tui) is the tier-1 dialog: a
+# Bubble Tea (Charm ecosystem) glamour UI — category groups, checkbox list,
+# dark purple/pink theme. It is a static binary with zero runtime deps. The
+# PKGBUILD builds it (makedepends: go); the wizard also builds it on demand
+# from dialog/main.go when the Go toolchain is present, and falls back to
+# the other dialogs when neither is available.
+TUI_BIN="$SCRIPT_DIR/dialog/syntropia-apps-tui"
+have_tui_dialog() {
+    [[ -x "$TUI_BIN" ]] && return 0
+    have syntropia-apps-tui || [[ -x /usr/bin/syntropia-apps-tui ]]
+}
+
+ensure_tui_binary() {
+    have_tui_dialog && return 0
+    if have go && [[ -f "$SCRIPT_DIR/dialog/main.go" ]]; then
+        echo "Building the Syntropia TUI dialog (one-time, needs go)..."
+        ( cd "$SCRIPT_DIR/dialog" && go build -o syntropia-apps-tui . ) || return 1
+        return 0
+    fi
     return 1
 }
 
@@ -138,22 +147,24 @@ have_qt_dialog() {
 find_dialog() {
     if [[ -n "$DIALOG_TOOL" ]]; then
         case "$DIALOG_TOOL" in
-            web)
-                have_web_dialog || die "web dialog needs python3 + xdg-open + a browser"
-                echo "web"; return
+            tui)
+                ensure_tui_binary || die "tui dialog not found — build it with: cd $SCRIPT_DIR/dialog && go build -o syntropia-apps-tui ."
+                echo "tui"; return
                 ;;
             qt)
                 have_qt_dialog || die "qt dialog needs python3 + PySide6 (sudo pacman -S pyside6)"
                 echo "qt"; return
                 ;;
             kdialog|zenity)
-                have "$DIALOG_TOOL" || die "dialog tool not found: $DIALOG_TOOL (use web, qt, kdialog or zenity)"
+                have "$DIALOG_TOOL" || die "dialog tool not found: $DIALOG_TOOL (use tui, web, qt, kdialog or zenity)"
                 echo "$DIALOG_TOOL"; return
                 ;;
-            *) die "unknown dialog tool: $DIALOG_TOOL (use web, qt, kdialog or zenity)" ;;
+            *) die "unknown dialog tool: $DIALOG_TOOL (use tui, web, qt, kdialog or zenity)" ;;
         esac
     fi
-    have_web_dialog && { echo "web"; return; }
+    if [[ -z "${SKIP_TUI:-}" ]]; then
+        ensure_tui_binary && { echo "tui"; return; }
+    fi
     have_qt_dialog && { echo "qt"; return; }
     have kdialog && { echo "kdialog"; return; }
     have zenity && { echo "zenity"; return; }
@@ -225,86 +236,15 @@ launch_terminal() {
     nohup "${cmd[@]}" >/dev/null 2>&1 &
 }
 
-ensure_kde_wallet_quiet() {
-    # KDE's first run shows a "create a new wallet" dialog when a
-    # Chromium-family browser requests a keyring — which would pop up OVER
-    # the wizard grid (the "empty window" the first testers saw). Disable
-    # just the Secret Service bridge (org.freedesktop.secrets, provided by
-    # ksecretd) so browsers cannot trigger wallet creation; the wallet
-    # itself stays enabled for KDE-native apps. Idempotent and best-effort:
-    # only touches KDE systems and never fails the wizard.
-    have ksecretd || have kwalletd6 || return 0
-    python3 - "$CONFIG_HOME" << 'PY' || true
-import os, re, sys
-cfg = os.path.join(sys.argv[1], "kwalletrc")
-os.makedirs(os.path.dirname(cfg), exist_ok=True)
-text = ""
-if os.path.exists(cfg):
-    with open(cfg) as f:
-        text = f.read()
-if "[KSecretD]" not in text:
-    if text and not text.endswith("\n"):
-        text += "\n"
-    text += "\n[KSecretD]\nEnabled=false\n"
-else:
-    def fix_body(body):
-        if re.search(r"^Enabled\s*=.*$", body, re.M):
-            return re.sub(r"^Enabled\s*=.*$", "Enabled=false", body, count=1, flags=re.M)
-        return (body.rstrip("\n") + "\nEnabled=false\n") if body.strip() else "Enabled=false\n"
-    text = re.sub(r"(\[KSecretD\]\n)(.*?)(?=\n\[|\Z)",
-                  lambda m: m.group(1) + fix_body(m.group(2)),
-                  text, count=1, flags=re.S)
-with open(cfg, "w") as f:
-    f.write(text)
-PY
-}
-
-set_default_browser() {
-    # Brave ships with the ISO (toolchain hook) and is the browser behind the
-    # Win98 grid — make it the default on first run. Skipped on systems that
-    # don't have Brave (Firefox stays default there). Best-effort: never let
-    # this fail the wizard.
-    have brave || return 0
-    echo "Setting Brave as the default browser..."
-    # XDG default (xdg-open, most apps, web-app launchers)
-    xdg-settings set default-web-browser brave-browser.desktop 2>/dev/null || true
-    # Plasma/KDE apps read kdeglobals [General] BrowserApplication
-    python3 - "$HOME" << 'PY' || true
-import configparser, os, sys
-home = sys.argv[1]
-p = os.path.join(home, ".config", "kdeglobals")
-
-class KConf(configparser.ConfigParser):
-    optionxform = staticmethod(str)  # KDE keys are case-sensitive
-
-c = KConf()
-try:
-    c.read(p)
-except Exception:
-    pass
-if not c.has_section("General"):
-    c.add_section("General")
-c.set("General", "BrowserApplication", "brave-browser.desktop")
-try:
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p, "w") as f:
-        c.write(f)
-except Exception:
-    pass
-PY
-}
-
 ensure_paru() {
     local dialog="$1"
     have paru && return 0
     echo "paru (the AUR helper) is not installed."
     if [[ "$MODE" == "check" ]]; then return 1; fi
-    if [[ "$dialog" == "web" ]]; then
-        # The browser dialog bootstraps paru itself (a button in the page
-        # runs pkexec) — it needs no GUI toolkit, so defer to it. The install
-        # step below verifies paru exists before running anything.
-        echo "The app dialog will offer to install it."
-        return 0
+    if [[ "$dialog" == "tui" ]]; then
+        # The TUI runs in a terminal — bootstrap paru inline with sudo.
+        echo "Installing paru (sudo will ask for your password)..."
+        sudo pacman -S --noconfirm paru || die "paru is required to install apps"
     fi
     # kdialog/qt/zenity dialogs: prompt for the bootstrap with whatever GUI
     # toolkit exists — and fail with a clear message instead of a cryptic
@@ -382,17 +322,27 @@ check_mode() {
 
 run_dialog() {
     local dialog
-    dialog="$(find_dialog)" || die "no dialog available — install one of: pyside6 (qt grid), kdialog, or zenity"
-    # Silence the KDE wallet-creation prompt BEFORE any browser opens, so
-    # nothing can cover the grid on first login.
-    ensure_kde_wallet_quiet
-    set_default_browser
+    dialog="$(find_dialog)" || die "no dialog available — install one of: tui (needs go or the syntropia package), pyside6 (qt grid), kdialog, or zenity"
+    if [[ "$dialog" == "tui" && ! -t 0 ]]; then
+        # The TUI needs a real terminal. Relaunch inside one; the inner run
+        # then has a TTY and installs inline in that same terminal.
+        local relaunch=("$0" "--dialog" "tui")
+        [[ "$MODE" == "once" ]] && relaunch+=("--once")
+        [[ -n "$CATALOG" ]] && relaunch+=(--config "$CATALOG")
+        local q
+        q="$(printf '%q ' "${relaunch[@]}")"
+        if launch_terminal "$q"; then
+            exit 0
+        fi
+        # no terminal emulator — fall through to a GUI dialog
+        SKIP_TUI=1 dialog="$(find_dialog)" || die "no dialog available — install one of: pyside6 (qt grid), kdialog, or zenity"
+    fi
     ensure_paru "$dialog"
 
     # Force the Breeze widget style for the Qt dialogs (qt grid + kdialog) on
     # non-Plasma desktops so checkboxes render with the KDE look (their GTK
     # platform theme paints them invisibly). On a Plasma session the native
-    # style is already active. The browser dialog is pure HTML — no Qt involved.
+    # style is already active.
     if [[ "$dialog" == "qt" || "$dialog" == "kdialog" ]] && [[ -z "${KDE_FULL_SESSION:-}" ]]; then
         export QT_STYLE_OVERRIDE=breeze
     fi
@@ -410,11 +360,10 @@ run_dialog() {
         (( seen )) || cat_order+=("$c")
     done
 
-    if [[ "$dialog" == "web" ]]; then
-        # browser dialog — serves the Win98 grid over 127.0.0.1, opens the
-        # default browser, prints checked package tags (one per line) like
-        # kdialog --separate-output
-        args=(python3 "$SCRIPT_DIR/syntropia-apps-server.py" "$CAT_FILE")
+    if [[ "$dialog" == "tui" ]]; then
+        # TUI dialog — Bubble Tea glamour UI in the current terminal; prints
+        # checked package tags (one per line) like kdialog --separate-output
+        args=("$TUI_BIN" "$CAT_FILE")
     elif [[ "$dialog" == "qt" ]]; then
         # native grid dialog — reads the catalog itself, prints checked
         # package tags (one per line) like kdialog --separate-output
@@ -455,7 +404,7 @@ run_dialog() {
 
     while IFS= read -r row; do
         [[ -z "$row" ]] && continue
-        if [[ "$dialog" == "web" || "$dialog" == "qt" || "$dialog" == "kdialog" ]]; then
+        if [[ "$dialog" == "qt" || "$dialog" == "kdialog" ]]; then
             # each returned line is the package tag directly
             [[ "$dialog" == "kdialog" && "$row" == __hdr__* ]] && continue  # skip category separators
             selected+=("$row")
@@ -498,12 +447,26 @@ run_dialog() {
 
     if [[ ${#native[@]} -gt 0 ]]; then
         echo "Installing packages: ${native[*]}"
-        local inner="paru -S --noconfirm ${native[*]}; rc=\$?; echo; if [ \$rc -eq 0 ]; then echo '✅ Done — press Enter to close'; else echo '❌ paru exited with \$rc — press Enter to close'; fi; read -r _"
-        if launch_terminal "$inner"; then
-            echo "Install running in a terminal window."
+        if [[ -t 0 ]]; then
+            # already in a terminal (the TUI path) — install inline with live
+            # output, then hand back to the same terminal. In --once mode
+            # (the autostart relaunch) hold the window open so the result
+            # is visible before the terminal closes.
+            echo
+            paru -S --noconfirm "${native[@]}" || echo "paru exited with $? — continuing"
+            echo
+            if [[ "$MODE" == "once" ]]; then
+                echo "Done — press Enter to close this window."
+                read -r _
+            fi
         else
-            echo "No terminal emulator found — run this in a terminal instead:"
-            echo "  paru -S --noconfirm ${native[*]}"
+            local inner="paru -S --noconfirm ${native[*]}; rc=\$?; echo; if [ \$rc -eq 0 ]; then echo '✅ Done — press Enter to close'; else echo '❌ paru exited with \$rc — press Enter to close'; fi; read -r _"
+            if launch_terminal "$inner"; then
+                echo "Install running in a terminal window."
+            else
+                echo "No terminal emulator found — run this in a terminal instead:"
+                echo "  paru -S --noconfirm ${native[*]}"
+            fi
         fi
     fi
     if [[ ${#web_urls[@]} -gt 0 ]]; then

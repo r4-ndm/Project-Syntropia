@@ -251,8 +251,6 @@ PYEOF
     mkdir -p "$syn_dir"
     cp "$wizard_src/syntropia-apps-wizard.sh" "$syn_dir/"
     cp "$wizard_src/syntropia-apps-dialog.py" "$syn_dir/"
-    cp "$wizard_src/syntropia-apps-server.py" "$syn_dir/"
-    cp "$wizard_src/syntropia-apps-dialog.html" "$syn_dir/"
     cp "$wizard_src/apps.list" "$syn_dir/"
     chmod +x "$syn_dir/syntropia-apps-wizard.sh"
 
@@ -417,47 +415,6 @@ for name in ("settings_online.conf", "settings_offline.conf"):
     p.write_text(text)
 PYEOF
     ok "Branding copy wired into Calamares"
-
-    # Step 3.10: Install the wizard's toolchain in the target so first boot
-    # just works: brave-bin (Win98 browser dialog renders as a frameless app
-    # window; it's in the CachyOS repo, not AUR) and paru (the AUR helper the
-    # wizard uses to install apps — stock CachyOS installs include NO AUR
-    # helper, and the wizard crashed before this hook existed). The
-    # shellprocess runs in the TARGET chroot (default dontChroot: false) so
-    # the packages land on the installed system, not the live env.
-    info "Wiring brave + paru install into Calamares..."
-    cat > "rootfs/etc/calamares/modules/shellprocess_syntropia_toolchain.conf" << 'TOOLCONF'
----
-timeout: 600
-script:
-    # Runs CHROOTED in the target (default dontChroot: false), so /var/log
-    # here IS the target's /var/log — the log lands on the installed system.
-    - command: "bash -c 'set -o pipefail; { echo \"=== syntropia_toolchain:start $(date) ===\"; pacman -S --noconfirm brave-bin paru; echo \"=== syntropia_toolchain:exit $? ===\"; } 2>&1 | tee -a /var/log/syntropia-hooks.log'"
-      timeout: 600
-      verbose: true
-TOOLCONF
-    python3 - "rootfs" << 'PYEOF'
-import sys, pathlib
-root = pathlib.Path(sys.argv[1])
-for name in ("settings_online.conf", "settings_offline.conf"):
-    p = root / "usr/share/calamares" / name
-    if not p.exists():
-        continue
-    text = p.read_text()
-    marker = "# Syntropia: install wizard toolchain (brave + paru)"
-    if marker in text:
-        continue
-    instance = (
-        "\n- id:       syntropia_toolchain\n"
-        "  module:   shellprocess\n"
-        "  config:   shellprocess_syntropia_toolchain.conf\n"
-    )
-    text = text.replace("\n\nsequence:", instance + "\nsequence:")
-    text = text.replace("- shellprocess@syntropia_branding",
-                        "- shellprocess@syntropia_branding\n  - shellprocess@syntropia_toolchain")
-    p.write_text(text)
-PYEOF
-    ok "Toolchain wired into Calamares (target will get brave-bin + paru)"
 
     # Step 4: Repack squashfs
     info "Repacking squashfs (this takes ~5 min)..."
