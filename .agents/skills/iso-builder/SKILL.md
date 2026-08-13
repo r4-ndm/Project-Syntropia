@@ -166,6 +166,50 @@ All in Arch/CachyOS repos. The script checks these and exits early if missing.
 5. Fresh-install test in the VM: reset the disk (fresh qcow2), attach the ISO as cdrom (boot order 1), boot, run Calamares, reboot from disk
 6. Verify: wizard fires at first login, `fastfetch`/`lsb_release`/hostname report Syntropia, no limine-snapper notification
 
+## Snapshot-revert workflow (fast Layer 2 tests)
+
+A full ISO → Calamares install → reboot cycle costs ~20-25 min. Most of that is
+the reinstall, not the build. Once you have a **verified install**, snapshot it
+and revert instead of reinstalling.
+
+**When to snapshot vs. reinstall:**
+- **Revert** (fast, ~30s) when testing changes that land on an *installed*
+  system: the wizard behavior, `syntropia transform` output, branding files,
+  identity files, hook scripts. Revert to the snapshot, apply/verify the change
+  on the running system, done.
+- **Reinstall** (slow) only when the *install flow itself* changed: Calamares
+  hooks, the wizard autostart entry, paru-in-basePackages, the limine identity
+  sync that runs at install time. Those only take effect during install, so a
+  snapshot can't substitute.
+
+**Take the snapshot** after a fully verified fresh install (identity reports
+Syntropia, wizard completed, no limine warning):
+
+```bash
+virsh -c qemu:///system snapshot-create-as syntropia-iso clean-installed \
+  --description "Verified: Syntropia identity, limine fix, wizard completed"
+```
+
+**Revert to it** before a test cycle:
+
+```bash
+virsh -c qemu:///system snapshot-revert syntropia-iso clean-installed
+virsh -c qemu:///system start syntropia-iso
+```
+
+**Pitfalls:**
+- The snapshot only exists if the VM was **shut off** at creation (a running
+  VM's snapshot captures live RAM too and is slower to revert). Shut the VM
+  down first: `virsh -c qemu:///system shutdown syntropia-iso`.
+- This install's journald is **volatile** (`Storage=auto` with no
+  `/var/log/journal`), so boot history is lost on shutdown — don't expect to
+  grep the journal after a reboot.
+- The VM disk is a qcow2 at `/var/lib/libvirt/images/syntropia-iso.qcow2`
+  (root-owned). To read it directly (e.g. verify installed files without
+  booting), `qemu-img convert -O raw` to a scratch dir with room (NOT `/tmp`,
+  which is a small tmpfs), then `kpartx -av` and mount the `@` subvolume
+  read-only: the system root is `/mnt/.../@`, not the mount root.
+
 ## Disk usage
 
 - Work directory (`iso/work/`): ~10 GB (gitignored)

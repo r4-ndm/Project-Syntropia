@@ -4,7 +4,7 @@ Working checklist for the Syntropia visual identity. The asset-drop is the
 single folder: `Branding/syntropia/` (the PKGBUILDs copy it into
 `/usr/share/syntropia/branding/`; the transform installs from there).
 
-All tests green (231/231). Live system verified: the transform re-applies
+All tests green (232/232). Live system verified: the transform re-applies
 branding end-to-end, and fastfetch shows the white triangle logo.
 
 ## Status recap
@@ -17,8 +17,7 @@ branding end-to-end, and fastfetch shows the white triangle logo.
 | `wallpaper.png` (1920×1080) | ✅ shipped + installed by transform |
 | `plymouth/` boot frames (36 animation + 30 throbber + misc, 74 files) | ⏳ **still stock CachyOS** — the real remaining work |
 | `calamares/usr/.../icon.png, logo.png, welcome.png` | ⏳ present but not confirmed re-skinned |
-| Commit + push | ✅ done — 18 commits pushed (Aug 11), repo now **public** |
-| AUR packaging | ⏳ PKGBUILDs verified against the real public URL; submit to AUR |
+| Identity (os-release/lsb-release/hostname, limine sync) | ✅ shipped in ISO (build.sh + branding hook) |
 
 ## 1. Custom Plymouth boot frames (the main open branding task)
 The boot splash is still the stock CachyOS animation. Regenerate all
@@ -40,6 +39,10 @@ python3 phase1/tools/generate_spinner.py \
 - Then re-run the transform (or rebuild + reinstall the package) so the new
   frames land in `/usr/share/plymouth/themes/syntropia/` — the content-hash
   refresh in `branding.py` re-applies when the shipped frames change.
+- **Flag count check**: the on-disk stock layout is 36 animation + 30 throbber,
+  and the tool's `--frames`/`--throbber` flags map 1:1 to that layout — so to
+  regenerate the full set use `--frames 36 --throbber 30` (NOT the other way
+  around; the original note had them swapped).
 
 ## 2. Calamares installer icons (GIMP)
 The installer still shows CachyOS branding in three small PNGs:
@@ -54,20 +57,11 @@ Branding/syntropia/calamares/usr/share/calamares/branding/cachyos/
 Edit in GIMP (normal PNGs — no format tricks). Keep the same filenames and
 dimensions so they drop straight back in.
 
-## 3. Commit, push, and the AUR
-Everything from the branding + CLI sessions is still uncommitted
-(`Branding/`, `phase1/aur/`, `phase1/cli/`, `phase1/tests/`). Before any of
-it reaches users:
-
-1. Commits pushed (update/paru, branding refresh, PKGBUILDs, logo + white
-   map, wizard/ISO hooks, NEXT.md rewrite + junk sweep) — repo is **public**
-   since Aug 11.
-2. `syntropia-git` re-verified against the real URL post-publicity:
-   `makepkg` built `syntropia-git 0.1.0.r74.g870dbce-1` with the final logo,
-   white color map, and paru update code.
-3. Next: **submit to the AUR** (`paru -S syntropia-git` works once
-   published). The stable `syntropia` needs a release tarball + sha256sums
-   (see `phase1/aur/PKGBUILD` header).
+## 3. AUR
+- `syntropia-git` is built and verified (final logo, white map, paru update
+  code) — pending AUR submission.
+- The stable `syntropia` needs a release tarball + sha256sums (see
+  `phase1/aur/PKGBUILD` header).
 
 ## Verify
 ```bash
@@ -94,9 +88,9 @@ fastfetch
     cjxl --effort 7 -q 90 slides/slide$i.png slides/slide$i.jxl
   done
   ```
-- Loose PNGs at `Branding/` root — junk swept (18 deleted); the keepers
+- Loose PNGs at `Branding/` root — junk swept (19 deleted); the keepers
   (`iuuu66mage8.png` — used in §1, `r4ndm6688-1.png`, `syntropia.png`,
-  `agent-brave-icon.png`, `OIP g(4).png`, etc.) are source material for the
-  art. Try to keep the root tidy going forward.
+  `agent-brave-icon.png`, etc.) are source material for the art. Try to
+  keep the root tidy going forward.
 - Agent rules live in `agent-rules/` — the transform-safety rule (snapshot
   first, `--check`, never touch a non-test system) applies to any real run.
