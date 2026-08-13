@@ -37,6 +37,47 @@ for h in "$ROOT"/home/*; do
     fi
 done
 
+# --- Start-menu (Kickoff) icon ---
+# The stock CachyOS panel points the Kickoff applet at icon=org.cachyos.hello.
+# Install our menu-icon.png into the target's hicolor theme as syntropia-menu
+# and repoint the panel config — in BOTH /etc/skel (future users) and each
+# EXISTING target user home (Calamares created the first user before this
+# hook, so skel-only writes never reach them).
+menu_src="$ROOT/usr/share/syntropia/branding/menu-icon.png"
+if [[ -f "$menu_src" ]]; then
+    menu_dst="$ROOT/usr/share/icons/hicolor/256x256/apps"
+    mkdir -p "$menu_dst"
+    cp -a "$menu_src" "$menu_dst/syntropia-menu.png"
+fi
+for appsrc in "$ROOT/etc/skel/.config/plasma-org.kde.plasma.desktop-appletsrc" "$ROOT"/home/*/.config/plasma-org.kde.plasma.desktop-appletsrc; do
+    if [[ -f "$appsrc" ]] && grep -q 'icon=org.cachyos.hello' "$appsrc"; then
+        sed -i 's/icon=org.cachyos.hello/icon=syntropia-menu/' "$appsrc"
+    fi
+done
+
+# --- KSplash theme (triangle mark -> Plasma logo -> boot) ---
+# Install the Syntropia splash into the target's look-and-feel and point
+# ksplashrc at it, for BOTH /etc/skel (future users) and each EXISTING
+# target user home (the first user is created before this hook runs).
+splash_src="$ROOT/usr/share/syntropia/branding/splash"
+if [[ -d "$splash_src" ]]; then
+    for h in "$ROOT/etc/skel" "$ROOT"/home/*; do
+        [ -d "$h" ] || continue
+        theme_dir="$h/.local/share/plasma/look-and-feel/org.syntropia.desktop/contents/splash"
+        mkdir -p "$(dirname "$theme_dir")"
+        rm -rf "$theme_dir"
+        cp -a "$splash_src" "$theme_dir"
+        printf '[KSplash]\nEngine=KSplashQML\nTheme=org.syntropia.desktop\n' > "$h/.config/ksplashrc"
+        # chown numerically from the TARGET passwd (see fastfetch loop above).
+        u="$(basename "$h")"
+        uid="$(awk -F: -v u="$u" '$1==u{print $3; exit}' "$ROOT/etc/passwd" 2>/dev/null)"
+        gid="$(awk -F: -v u="$u" '$1==u{print $4; exit}' "$ROOT/etc/passwd" 2>/dev/null)"
+        if [ -n "${uid:-}" ] && [ -n "${gid:-}" ]; then
+            chown -R "$uid:$gid" "$h/.local/share/plasma/look-and-feel/org.syntropia.desktop" "$h/.config/ksplashrc" 2>/dev/null || true
+        fi
+    done
+fi
+
 # --- Identity sync: limine bootloader ---
 # The bootloader was generated at install time with the CachyOS name (the
 # rename to Syntropia happens at the END of install, after the bootloader

@@ -98,7 +98,7 @@ package() {
     install -d "$_branding"
 
     msg "Installing branding assets..."
-    for asset in logo.txt fastfetch-color.json wallpaper.png; do
+    for asset in logo.txt fastfetch-color.json wallpaper.png menu-icon.png; do
         if [[ -f "$_repo/Branding/syntropia/$asset" ]]; then
             install -m644 "$_repo/Branding/syntropia/$asset" "$_branding/"
         fi
@@ -114,6 +114,12 @@ package() {
     if [[ -d "$_repo/Branding/syntropia/plymouth" ]]; then
         cp -r "$_repo/Branding/syntropia/plymouth" "$_branding/plymouth"
         chmod -R 755 "$_branding/plymouth"
+    fi
+
+    # splash/ (KSplash theme: triangle mark -> Plasma logo -> boot)
+    if [[ -d "$_repo/Branding/syntropia/splash" ]]; then
+        cp -r "$_repo/Branding/syntropia/splash" "$_branding/splash"
+        chmod -R 755 "$_branding/splash"
     fi
 
     # calamares/ is deliberately excluded — it's ISO-only (~10 MB of

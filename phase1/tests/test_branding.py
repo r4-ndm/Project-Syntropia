@@ -281,6 +281,118 @@ def test_wallpaper_refreshes_when_asset_changes(tmp_path: Path):
     assert branding.paths.wallpaper_target.read_bytes() == b"wallpaper-NEW"
 
 
+# --- start-menu icon ---------------------------------------------------
+
+APP = "[Containments][23][Applets][24][Configuration][General]\nicon=org.cachyos.hello\n"
+
+
+def _make_menu_assets(tmp_path: Path, paths: B.BrandingPaths) -> None:
+    (paths.assets_dir / "menu-icon.png").write_bytes(b"menu-icon")
+    home = paths.home
+    (home / ".config").mkdir(parents=True, exist_ok=True)
+    (home / ".config" / "plasma-org.kde.plasma.desktop-appletsrc").write_text(
+        APP, encoding="utf-8"
+    )
+
+
+def test_menu_icon_installed_and_appletsrc_repointed(tmp_path: Path):
+    branding = make_branding(tmp_path, dry_run=False)
+    _make_menu_assets(tmp_path, branding.paths)
+    branding.apply_menu_icon()
+    assert branding.paths.menu_icon_target.read_bytes() == b"menu-icon"
+    content = branding.paths.appletsrc_path.read_text(encoding="utf-8")
+    assert "icon=syntropia-menu" in content
+    assert "icon=org.cachyos.hello" not in content
+
+
+def test_menu_icon_idempotent(tmp_path: Path):
+    branding = make_branding(tmp_path, dry_run=False)
+    _make_menu_assets(tmp_path, branding.paths)
+    branding.apply_menu_icon()
+    branding.apply_menu_icon()
+    assert branding.paths.menu_icon_target.read_bytes() == b"menu-icon"
+    assert branding.paths.appletsrc_path.read_text(encoding="utf-8").count("syntropia-menu") == 1
+
+
+def test_menu_icon_dry_run_changes_nothing(tmp_path: Path):
+    branding = make_branding(tmp_path, dry_run=True)
+    _make_menu_assets(tmp_path, branding.paths)
+    branding.apply_menu_icon()
+    assert not branding.paths.menu_icon_target.exists()
+    assert branding.paths.appletsrc_path.read_text(encoding="utf-8") == APP
+
+
+def test_menu_icon_skips_without_asset(tmp_path: Path):
+    branding = make_branding(tmp_path, dry_run=False)
+    branding.apply_menu_icon()  # no menu-icon.png in assets — no crash
+    assert not branding.paths.menu_icon_target.exists()
+
+
+def test_menu_icon_skips_without_appletsrc(tmp_path: Path):
+    branding = make_branding(tmp_path, dry_run=False)
+    (branding.paths.assets_dir / "menu-icon.png").write_bytes(b"menu-icon")
+    branding.apply_menu_icon()  # no appletsrc file — icon still installs, no repoint
+    assert branding.paths.menu_icon_target.read_bytes() == b"menu-icon"
+
+
+# --- login splash ------------------------------------------------------
+
+def _make_splash_assets(paths: B.BrandingPaths) -> None:
+    splash = paths.assets_dir / "splash"
+    (splash / "images").mkdir(parents=True)
+    (splash / "Splash.qml").write_text("// syntropia splash", encoding="utf-8")
+    (splash / "images" / "logo.png").write_bytes(b"logo")
+
+
+def test_splash_installed_and_selected(tmp_path: Path):
+    branding = make_branding(tmp_path, dry_run=False)
+    _make_splash_assets(branding.paths)
+    branding.apply_splash()
+    theme_dir = branding.paths.splash_theme_dir
+    assert (theme_dir / "Splash.qml").exists()
+    assert (theme_dir / "images" / "logo.png").read_bytes() == b"logo"
+    assert "Theme=org.syntropia.desktop" in branding.paths.ksplashrc_path.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_splash_idempotent(tmp_path: Path):
+    branding = make_branding(tmp_path, dry_run=False)
+    _make_splash_assets(branding.paths)
+    branding.apply_splash()
+    branding.apply_splash()  # second run skips
+    assert branding.paths.ksplashrc_path.read_text(encoding="utf-8").count(
+        "org.syntropia.desktop"
+    ) == 1
+
+
+def test_splash_dry_run_changes_nothing(tmp_path: Path):
+    branding = make_branding(tmp_path, dry_run=True)
+    _make_splash_assets(branding.paths)
+    branding.apply_splash()
+    assert not branding.paths.splash_theme_dir.exists()
+    assert not branding.paths.ksplashrc_path.exists()
+
+
+def test_splash_skips_without_asset(tmp_path: Path):
+    branding = make_branding(tmp_path, dry_run=False)
+    branding.apply_splash()  # no splash/ dir in assets
+    assert not branding.paths.splash_theme_dir.exists()
+
+
+def test_splash_refreshes_when_assets_change(tmp_path: Path):
+    branding = make_branding(tmp_path, dry_run=False)
+    _make_splash_assets(branding.paths)
+    branding.apply_splash()
+    (branding.paths.assets_dir / "splash" / "Splash.qml").write_text(
+        "// edited", encoding="utf-8"
+    )
+    branding.apply_splash()
+    assert (
+        branding.paths.splash_theme_dir / "Splash.qml"
+    ).read_text(encoding="utf-8") == "// edited"
+
+
 # --- runner -------------------------------------------------------------
 
 

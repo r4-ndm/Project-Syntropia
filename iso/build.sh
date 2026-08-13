@@ -417,6 +417,14 @@ PYEOF
     mkdir -p "$logo_dir/branding"
     cp "$brand_src/logo.txt" "$logo_dir/logo.txt"
     cp "$brand_src/fastfetch-color.json" "$logo_dir/branding/fastfetch-color.json"
+    # Start-menu (Kickoff) icon: ships as menu-icon.png and gets installed
+    # into the hicolor theme + repointed in the panel config by the branding
+    # hook (single source of truth with apply_menu_icon in branding.py).
+    cp "$brand_src/menu-icon.png" "$logo_dir/branding/menu-icon.png"
+    # KSplash theme: ships as splash/ (Splash.qml + images) and gets installed
+    # into the target's look-and-feel + ksplashrc by the branding hook (single
+    # source of truth with apply_splash in branding.py).
+    cp -r "$brand_src/splash" "$logo_dir/branding/splash"
     mkdir -p "rootfs/etc/skel/.config/fastfetch"
     # Run from the remaster dir (cwd) but import the repo's config builder
     # via PYTHONPATH — same single source of truth as `syntropia transform`.

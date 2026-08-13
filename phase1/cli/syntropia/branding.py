@@ -73,6 +73,19 @@ class BrandingPaths:
     grub_cfg: Path = Path("/boot/grub/grub.cfg")
     grub_default: Path = Path("/etc/default/grub")
     backgrounds_dir: Path | None = None  # default: ~/.local/share/backgrounds/syntropia
+    icons_dir: Path | None = None  # default: ~/.local/share/icons/hicolor
+    appletsrc: Path | None = None  # default: ~/.config/plasma-org.kde.plasma.desktop-appletsrc
+    lookfeel_dir: Path | None = None  # default: ~/.local/share/plasma/look-and-feel
+    ksplashrc: Path | None = None  # default: ~/.config/ksplashrc
+
+    @property
+    def splash_theme_dir(self) -> Path:
+        base = self.lookfeel_dir or self.home / ".local" / "share" / "plasma" / "look-and-feel"
+        return base / "org.syntropia.desktop" / "contents" / "splash"
+
+    @property
+    def ksplashrc_path(self) -> Path:
+        return self.ksplashrc or self.home / ".config" / "ksplashrc"
 
     @property
     def wallpaper_dir(self) -> Path:
@@ -81,6 +94,18 @@ class BrandingPaths:
     @property
     def wallpaper_target(self) -> Path:
         return self.wallpaper_dir / "wallpaper.png"
+
+    @property
+    def menu_icon_dir(self) -> Path:
+        return self.icons_dir or self.home / ".local" / "share" / "icons" / "hicolor"
+
+    @property
+    def menu_icon_target(self) -> Path:
+        return self.menu_icon_dir / "256x256" / "apps" / "syntropia-menu.png"
+
+    @property
+    def appletsrc_path(self) -> Path:
+        return self.appletsrc or self.home / ".config" / "plasma-org.kde.plasma.desktop-appletsrc"
 
     @property
     def plymouth_theme_dir(self) -> Path:
@@ -295,6 +320,93 @@ class Branding:
         elif os.environ.get("XDG_CURRENT_DESKTOP", "").upper() == "KDE":
             run_command(["plasma-apply-wallpaperimage", str(target)])
 
+    # -- start-menu icon ---------------------------------------------------
+
+    def _menu_icon_asset(self) -> Path | None:
+        candidate = self.paths.assets_dir / "menu-icon.png"
+        return candidate if candidate.is_file() else None
+
+    def apply_menu_icon(self) -> None:
+        """Replace the CachyOS start-menu (Kickoff) icon with the Syntropia mark.
+
+        The stock CachyOS panel points ``icon=org.cachyos.hello`` in the
+        Kickoff applet config. We ship ``menu-icon.png`` into the hicolor
+        icon theme as ``syntropia-menu`` and repoint the panel config at it —
+        instead of overwriting ``org.cachyos.hello`` (a package file that an
+        update would revert).
+        """
+        asset = self._menu_icon_asset()
+        if asset is None:
+            self.log("menu-icon", "no menu-icon.png asset found, skipping")
+            return
+        target = self.paths.menu_icon_target
+        if target.exists() and _file_hash(target) == _file_hash(asset):
+            self.log("menu-icon", f"{target} already installed (up to date), skipping")
+        else:
+            self._would("menu-icon", f"install {asset.name} -> {target}")
+            if not self.dry_run:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(asset, target)
+
+        appletsrc = self.paths.appletsrc_path
+        if not appletsrc.exists():
+            self.log("menu-icon", f"{appletsrc} not found, skipping panel repoint")
+            return
+        content = appletsrc.read_text(encoding="utf-8")
+        if "icon=syntropia-menu" in content:
+            self.log("menu-icon", f"{appletsrc} already points at syntropia-menu, skipping")
+            return
+        if "icon=org.cachyos.hello" not in content:
+            self.log("menu-icon", f"{appletsrc} has no cachyos menu icon ref, skipping")
+            return
+        self._would("menu-icon", f"repoint {appletsrc}: org.cachyos.hello -> syntropia-menu")
+        if not self.dry_run:
+            appletsrc.write_text(
+                content.replace("icon=org.cachyos.hello", "icon=syntropia-menu"),
+                encoding="utf-8",
+            )
+
+    # -- login splash (KSplash) -------------------------------------------
+
+    def _splash_asset_dir(self) -> Path | None:
+        candidate = self.paths.assets_dir / "splash"
+        return candidate if candidate.is_dir() else None
+
+    def apply_splash(self) -> None:
+        """Install the Syntropia KSplash theme and select it in ksplashrc.
+
+        Ships the ``splash/`` asset dir (Splash.qml + images) to a custom
+        ``org.syntropia.desktop`` look-and-feel splash and points ksplashrc
+        at it. The QML shows the triangle mark first, then the Plasma logo,
+        then fades out as the session becomes ready.
+        """
+        asset_dir = self._splash_asset_dir()
+        if asset_dir is None:
+            self.log("splash", "no splash/ asset dir found, skipping")
+            return
+        theme_dir = self.paths.splash_theme_dir
+        if theme_dir.is_dir() and _dir_hash(theme_dir) == _dir_hash(asset_dir):
+            self.log("splash", f"{theme_dir} already installed (up to date), skipping")
+        else:
+            self._would("splash", f"install splash theme -> {theme_dir}")
+            if not self.dry_run:
+                if theme_dir.exists():
+                    shutil.rmtree(theme_dir)
+                shutil.copytree(asset_dir, theme_dir)
+
+        ksplashrc = self.paths.ksplashrc_path
+        content = ksplashrc.read_text(encoding="utf-8") if ksplashrc.exists() else ""
+        if "Theme=org.syntropia.desktop" in content:
+            self.log("splash", f"{ksplashrc} already points at syntropia, skipping")
+            return
+        self._would("splash", f"select org.syntropia.desktop in {ksplashrc}")
+        if not self.dry_run:
+            ksplashrc.parent.mkdir(parents=True, exist_ok=True)
+            ksplashrc.write_text(
+                "[KSplash]\nEngine=KSplashQML\nTheme=org.syntropia.desktop\n",
+                encoding="utf-8",
+            )
+
     # -- runner -----------------------------------------------------------
 
     def apply_all(self) -> None:
@@ -304,3 +416,5 @@ class Branding:
         self.apply_plymouth()
         self.apply_grub()
         self.apply_wallpaper()
+        self.apply_menu_icon()
+        self.apply_splash()
