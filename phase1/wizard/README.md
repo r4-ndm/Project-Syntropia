@@ -1,64 +1,34 @@
 # 😈 Syntropia Apps Wizard
 
-A first-boot "pick your favorites" installer: **one grouped checkbox dialog**
-with category sections (Chat, Browser, DAW, AI, Terminal, CLI, Video, Wallet, Web)
-that installs whatever you check via **paru** — which handles both
-official-repo and AUR packages — with live output in a terminal window. All
-picks across every category install in one `paru -S` transaction.
+A first-boot "pick your favorites" installer: one grouped checkbox dialog
+(Chat, Browser, DAW, Audio, AI, Terminal, CLI, Video, Graphics, Wallet) that
+installs whatever you check via **paru** — which handles both official-repo
+and AUR packages — with live output in the terminal. All picks install in one
+`paru -S` transaction.
 
 It's intentionally a *wrapper around `paru`*: no baked packages, no ISO
 rebuilds, no Calamares surgery. The app list is just a text file, so adding
 an app is a one-line edit.
 
-## Why this exists (and why it's not something else)
+## The UI
 
-| Alternative | Why not |
-|---|---|
-| Calamares checkbox screen (netinstall) | Only installs pacman-repo packages; AUR names don't resolve; custom UI would need C++/Qt |
-| Baked local repo in the ISO | Works, but every new app means rebuilding packages + ISO; versions pinned to bake date |
-| CachyOS `packageinstaller` | Great general tool, but its curated list comes from *their* GitHub and it only does `pacman -S` (no AUR) |
-| "Paste this paru command" | Works, but paru isn't guaranteed on a fresh install and a terminal-first ask is weak UX for new users |
+The **only** frontend is the TUI (`dialog/syntropia-apps-tui`, source
+`dialog/main.go`) — a Bubble Tea (Charm ecosystem) glamour UI: dark
+purple/pink theme, gradient banner, category groups, keyboard-first checkbox
+grid (`↑/↓`/`jk` move, `←/→` between columns, `space` toggle, `a` select
+all, `n` clear, `space` on the DONE row arms it, `enter` installs, `esc`
+cancels). It's a **static binary with zero runtime dependencies**
+(`CGO_ENABLED=0`). It runs in a terminal — the same place the install output
+lands — and when launched without a TTY (e.g. the first-boot autostart entry)
+the wizard relaunches it inside a terminal window itself.
 
-The wizard's dependencies are the **dialog tool**, **paru** (installs;
-bootstrapped automatically if missing), and a terminal emulator. Dialog
-tiers, best first (auto-detected, override with `--dialog`):
+`iso/build.sh` step 3.6 builds it and ships it prebuilt into
+`/etc/syntropia/dialog/`. From a bare repo checkout the wizard builds it on
+demand when `go` is present.
 
-1. **TUI dialog** (`dialog/syntropia-apps-tui`, source `dialog/main.go`) —
-   the **preferred** dialog: a **Bubble Tea (Charm ecosystem)** glamour UI —
-   dark purple/pink theme, gradient title, category groups, keyboard-first
-   checkbox list (`↑/↓`/`jk` move, `space` toggle, `a` select all, `n`
-   select none, `enter` install, `esc`/`q` cancel). It is a **static binary
-   with zero runtime dependencies**: the syntropia package builds it
-   (makedepends: go) and the ISO toolchain hook ships it; from a repo
-   checkout the wizard builds it on demand when `go` is present. It runs
-   inside a terminal — the same place the install output lands — and when
-   run without a TTY (e.g. the first-boot autostart entry) the wizard
-   relaunches it inside a terminal window itself.
-2. **Qt grid dialog** (`syntropia-apps-dialog.py`, PySide6) — the same
-   Win98 grid as a native Qt window; used when pyside6 is installed.
-   Needs `pyside6`.
-3. **kdialog** (the `kdialog` package — it moved out of `kde-cli-tools` in
-   KF6) — one grouped dialog with category separator rows; renders as a
-   **native Plasma window** on the default CachyOS desktop
-4. **zenity** — GTK fallback for non-KDE desktops (Cinnamon, GNOME)
-
-On non-Plasma desktops the wizard forces the **Breeze widget style** for
-Qt/kdialog (`QT_STYLE_OVERRIDE=breeze`), because GTK platform themes paint
-checklist checkboxes invisibly. On a Plasma session the native style is
-already active and nothing is overridden.
-
-`base-devel` is guaranteed in the target base install, so AUR builds work on
-first boot. **paru is NOT on a stock CachyOS install** (nor is yay, nor
-kdialog/zenity) — the wizard bootstraps it itself on first use:
-
-- The **TUI bootstraps it inline** — it runs in a terminal, so it just
-  prompts with `sudo pacman -S paru`. The kdialog/qt/zenity paths keep
-  their own prompt and fail with a clear message (not a crash) when no
-  toolkit exists.
-
-The ISO stays **stock CachyOS** — nothing is preinstalled (no paru, no
-Brave): apps are the user's first-boot picks from the dialog. Everything
-beyond the base install happens at first boot.
+**paru is not on a stock CachyOS install** — the wizard bootstraps it itself
+on first use (`sudo pacman -S paru`). The ISO stays stock CachyOS; nothing is
+preinstalled, apps are the user's first-boot picks.
 
 ## The catalog: `apps.list`
 
@@ -69,19 +39,14 @@ category|display name|package|short description
 ```
 
 - `package` is a pacman repo **or** AUR package name — paru resolves either.
-  CLI apps work exactly the same (e.g. ripgrep, fzf — or Freebuff, a CLI
-  agent under AI): paru installs them, no launcher needed.
+  CLI apps work the same (ripgrep, fzf, Freebuff…): paru installs them, no
+  launcher needed.
 - **Web apps:** if `package` is an `https://` URL, the wizard creates a
-  PWA-style desktop launcher (dedicated window, taskbar icon) that opens the
-  site — no `paru` needed. It uses Brave/Chromium `--app=URL` if present,
-  else Firefox. Launchers land in `~/.local/share/applications/` as
-  `syntropia-<slug>.desktop`.
-- **Category = a section.** One dialog shows every category in file order,
-  with plain `— Chat —` separator rows between the apps — no window
-  respawn between categories, everything installs together. (Earlier
-  per-category dialogs were dropped for this smoother single dialog.)
-- Prefer binary / `.deb`-repackage AUR packages so installs stay fast.
-- The wizard loads the catalog in this order:
+  PWA-style desktop launcher (dedicated window, taskbar icon) — no `paru`.
+  Brave/Chromium `--app=URL` if present, else Firefox. Launchers land in
+  `~/.local/share/applications/` as `syntropia-<slug>.desktop`.
+- **Category = a section**, shown in file order in one grid.
+- Resolution order:
   1. `--config FILE`
   2. `~/.config/syntropia/apps.list` — **user override** (copy + edit to customize)
   3. `/etc/syntropia/apps.list` — system default
@@ -90,65 +55,33 @@ category|display name|package|short description
 ## Usage
 
 ```bash
-./syntropia-apps-wizard.sh              # run the dialog
-./syntropia-apps-wizard.sh --check      # sanity check (catalog + toolchain)
-./syntropia-apps-wizard.sh --list       # print the resolved catalog
-./syntropia-apps-wizard.sh --dialog kdialog  # force the dialog tool
-./syntropia-apps-wizard.sh --setup      # one-command setup (see below)
+./syntropia-apps-wizard.sh            # run the dialog
+./syntropia-apps-wizard.sh --once     # run, but exit quietly if already done
+./syntropia-apps-wizard.sh --config FILE   # use a specific catalog
 ./syntropia-apps-wizard.sh --install-autostart   # one-shot on next login
 ./syntropia-apps-wizard.sh --remove-autostart    # undo the above
 ```
 
-### `--setup` — the one-command onboarding
-
-```bash
-./syntropia-apps-wizard.sh --setup
-```
-
-1. Seeds `~/.config/syntropia/apps.list` from the default catalog (if you
-   don't already have one) — this is **your editable copy**.
-2. Installs the one-shot autostart entry.
-3. Prints where to edit and how to re-show the dialog.
-
-After setup, customizing the wizard is just editing `~/.config/syntropia/apps.list`:
-
-```
-Chat|Telegram|telegram-desktop|Messaging app
-DAW|Bitwig Studio|bitwig-studio|Digital audio workstation
-```
-
-One line per app; `package` may be a repo **or** AUR package (paru handles
-both). The wizard prefers your copy over the system default automatically.
-
-`--install-autostart` installs a desktop entry into
-`~/.config/autostart/` that runs the wizard `--once` on next login.
-`--once` self-disables after use (a completion marker is written to
+`--install-autostart` writes a desktop entry to `~/.config/autostart/` that
+runs the wizard `--once` on next login. `--once` self-disables after a
+**successful** install (completion marker at
 `~/.config/syntropia/apps-wizard.done`; delete it to run again).
 
 ## Installing apps
 
-Checked apps install with a single `paru -S --noconfirm <packages>`. When
-the wizard is already inside a terminal (the TUI path), paru runs **inline
-in that same terminal** with live output. Otherwise it opens a terminal
-window (konsole → gnome-terminal → xfce4-terminal → kitty → alacritty →
-xterm, first one found, or `$TERMINAL`). paru is installed first if
-missing (inline `sudo pacman -S paru` on the TUI path, `pkexec` elsewhere).
+Checked apps install with a single `paru -S --noconfirm <packages>`, inline
+in the same terminal with live output. Web-app picks create their launchers
+after the package install.
 
 ## Notes
 
-- Windows apps (Ableton, FL Studio) deliberately live **outside** this
-  wizard — they need Wine prefixes, which is the `.brew` engine's job
+- Windows apps (Ableton, FL Studio) deliberately live **outside** this wizard
+  — they need Wine prefixes, which is the `.brew` engine's job
   (`syntropia install ableton-live-12`). This wizard is for native apps.
-- Cancelling the dialog in `--once` mode writes the done-marker too, so it
-  won't nag every login.
+- **Cancelling does not skip forever** — cancelling (or selecting nothing)
+  shows a "run it later" note and writes *no* marker, so the wizard can be
+  re-run any time. Only a completed install marks it done.
 - **Shipped in the ISO**: `iso/build.sh` phase 2 copies the wizard (script +
-  `apps.list` + `syntropia-apps-dialog.py` + the `dialog/` TUI source) into the rootfs
+  `apps.list` + the `dialog/` TUI source and prebuilt binary) into
   `/etc/syntropia/` and installs a first-boot autostart entry
   (`/etc/xdg/autostart/`), so fresh installs get the dialog at first login.
-  The transform path (installed systems) is the same files, no changes
-  needed. The TUI binary itself ships prebuilt (toolchain hook / package);
-  from a bare checkout the wizard builds it on demand when `go` is present.
-- **Dialog dependency**: the preferred TUI dialog is a static binary with
-  zero runtime deps. Fallbacks: `pyside6` (qt grid), `kdialog`, or
-  `zenity` if present; none is guaranteed, so the wizard degrades to
-  whichever exists.

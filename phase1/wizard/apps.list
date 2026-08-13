@@ -4,8 +4,8 @@
 #   category|display name|package|short description
 #
 # - category: the wizard shows one grouped dialog with a section per
-#   category, in file order (Chat → Browser → DAW → AI → Terminal → CLI →
-#   Video → Wallet → Web)
+#   category, in file order (Chat → Browser → DAW → Audio → AI → Terminal →
+#   CLI → Video → Graphics → Wallet)
 #
 # CLI apps work exactly like any other package line — paru installs them;
 # no launcher or GUI needed (e.g. Freebuff is a CLI app and lives under AI).
@@ -38,6 +38,7 @@ Chat|Discord|discord|Voice, video and text chat
 Browser|Brave|brave-bin|Ad-blocking Chromium browser
 DAW|Bitwig Studio|bitwig-studio|Digital audio workstation
 DAW|Reaper|reaper|Digital audio workstation (native Linux)
+Audio|Audacity|audacity|Audio editor (record, edit, mix)
 AI|Kiro IDE|kiro-ide|Agentic AI code editor
 AI|Freebuff|freebuff-bin|AI coding agent for the terminal
 AI|Ollama|ollama|Run local LLMs
@@ -52,10 +53,6 @@ CLI|btop|btop|System monitor
 CLI|tmux|tmux|Terminal multiplexer
 Video|mpv|mpv|Minimal video player
 Video|OBS Studio|obs-studio|Screen recording and streaming
+Graphics|GIMP|gimp|Raster graphics editor (Photoshop alternative)
 Wallet|Electrum|electrum|Bitcoin wallet
-Web|WhatsApp|https://web.whatsapp.com|WhatsApp Web
-Web|YouTube Music|https://music.youtube.com|Music streaming
-Web|Spotify|https://open.spotify.com|Music streaming
-Web|Notion|https://www.notion.so|Notes and docs
-Web|Figma|https://www.figma.com|Design tool
-Web|Gmail|https://mail.google.com|Email
+Wallet|ZKX Wallet|https://app.zkxwallet.com/#/unlock|Web wallet (requires Brave browser)

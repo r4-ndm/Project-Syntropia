@@ -105,13 +105,35 @@ PYEOF
 
     ok "Patches applied"
 
+    # ── Guard against a stale mkarchiso work dir ──
+    # mkarchiso records completed steps as marker files in the work dir
+    # (e.g. build._build_buildmode_iso). On the previous run we renamed
+    # cachyos-*.iso → syntropia-*-stock.iso, so on the next run mkarchiso
+    # sees the marker, concludes the build is done, and exits silently
+    # WITHOUT producing an ISO — the wrapper then fails with a confusing
+    # "did not produce expected output" error. If the expected stock ISO is
+    # missing but a build-complete marker exists, the work dir is stale:
+    # drop the marker(s) so mkarchiso re-runs the ISO step. This is a fast
+    # incremental rebuild (the package install + squashfs are reused), not
+    # a from-scratch one.
+    local stock_iso="$OUT_DIR/cachyos-${ISO_DATE}-x86_64.iso"
+    local renamed_iso="$OUT_DIR/${ISO_NAME}-stock.iso"
+    # mkarchiso gates BOTH the buildmode step AND the ISO assembly with
+    # separate markers: build._build_buildmode_* and iso._build_iso_image.
+    # Clear both so the ISO is actually re-assembled (the heavy steps —
+    # rootfs, squashfs — are gated by base.* markers and stay cached).
+    local work_markers=( "$WORK_DIR/mkarchiso-work"/build._build_buildmode_* "$WORK_DIR/mkarchiso-work"/iso._build_iso_image )
+    if [[ ! -f "$stock_iso" && ( -e ${work_markers[0]:-none} || -e ${work_markers[1]:-none} ) ]]; then
+        warn "Stale mkarchiso work dir detected (build marker present but $stock_iso missing) — clearing ISO-assembly markers so the ISO rebuilds"
+        rm -f "$WORK_DIR/mkarchiso-work"/build._build_buildmode_*
+        rm -f "$WORK_DIR/mkarchiso-work"/iso._build_iso_image
+    fi
+
     # ── Build with mkarchiso ──
     info "Running mkarchiso (this downloads ~990 packages on first run)..."
     mkarchiso -v -w "$WORK_DIR/mkarchiso-work" -o "$OUT_DIR" "$CACHYOS_PROFILE_DIR"
 
     # mkarchiso names it cachyos-YYYY.MM.DD-x86_64.iso — rename to syntropia
-    local stock_iso="$OUT_DIR/cachyos-${ISO_DATE}-x86_64.iso"
-    local renamed_iso="$OUT_DIR/${ISO_NAME}-stock.iso"
     if [[ -f "$stock_iso" ]]; then
         mv "$stock_iso" "$renamed_iso"
         ok "Phase 1 complete: $renamed_iso ($(du -h "$renamed_iso" | cut -f1))"
@@ -253,9 +275,26 @@ PYEOF
     local syn_dir="rootfs/etc/syntropia"
     mkdir -p "$syn_dir"
     cp "$wizard_src/syntropia-apps-wizard.sh" "$syn_dir/"
-    cp "$wizard_src/syntropia-apps-dialog.py" "$syn_dir/"
     cp "$wizard_src/apps.list" "$syn_dir/"
     chmod +x "$syn_dir/syntropia-apps-wizard.sh"
+
+    # The TUI dialog (dialog/syntropia-apps-tui) is the wizard's only
+    # frontend — a static binary with zero runtime deps. Ship its source AND
+    # a freshly built binary. CGO_ENABLED=0 keeps it a real static binary (a
+    # cgo build links glibc); built here with the ISO toolchain's go.
+    if [[ -d "$wizard_src/dialog" ]]; then
+        cp -r "$wizard_src/dialog" "$syn_dir/dialog"
+        rm -f "$syn_dir/dialog/syntropia-apps-tui"   # never ship a stale binary
+        if command -v go >/dev/null 2>&1; then
+            ( cd "$syn_dir/dialog" && CGO_ENABLED=0 go build -o syntropia-apps-tui . ) \
+                && ok "TUI dialog built + shipped (static binary)" \
+                || warn "TUI dialog build failed — wizard will try to build it on first run"
+        else
+            warn "go not found — TUI dialog source shipped but not built; wizard will build it on first run"
+        fi
+    else
+        warn "wizard dialog/ dir missing — TUI not shipped"
+    fi
 
     # Calamares shellprocess hook helper: the branding hook runs its shell
     # logic through this script because the module macro-expands commands
@@ -324,6 +363,41 @@ PYEOF
     # cachyos-hello stays installed and available from the app menu.
     rm -f rootfs/etc/skel/.config/autostart/cachyos-hello.desktop
     ok "Wizard copy wired into Calamares; cachyos-hello first-run removed"
+
+    # Step 3.7b: Ship paru with EVERY install so the first-boot wizard never
+    # shows the "paru is not installed" bootstrap. The installed system is NOT
+    # a copy of the live rootfs — Calamares pacstraps a fresh base from
+    # pacstrap.conf's basePackages (paru lives only in the live packages
+    # list, so it never reaches the target). Add paru to basePackages here;
+    # NoUpgrade-protected above so the live-boot cachyos-calamares-next
+    # update can't revert it (same pattern as the settings files).
+    info "Adding paru to pacstrap basePackages..."
+    local pacstrap_conf="rootfs/etc/calamares/modules/pacstrap.conf"
+    if [[ -f "$pacstrap_conf" ]] && ! grep -q '^  - paru' "$pacstrap_conf"; then    # Insert into the basePackages list ONLY (the file has a second list,
+    # postInstallFiles, whose entries are also '  - ' — appending after the
+    # last such line would put paru in the WRONG list). Scan forward from
+    # 'basePackages:' until the next top-level key and append there.
+    python3 - "$pacstrap_conf" << 'PYEOF'
+import sys, re
+path = sys.argv[1]
+with open(path) as f:
+    lines = f.readlines()
+start = next(i for i, l in enumerate(lines) if l.strip() == 'basePackages:')
+insert_at = None
+for i in range(start + 1, len(lines)):
+    l = lines[i]
+    if re.match(r'^[A-Za-z][A-Za-z0-9]*:', l):  # next top-level key
+        insert_at = i
+        break
+assert insert_at is not None, "basePackages list has no end in pacstrap.conf"
+lines.insert(insert_at, '  - paru\n')
+with open(path, 'w') as f:
+    f.writelines(lines)
+PYEOF
+        ok "paru added to pacstrap basePackages (every install ships it)"
+    else
+        ok "paru already in pacstrap basePackages (or file missing)"
+    fi
 
     # Step 3.8: Ship the terminal ASCII-art branding so fresh installs show
     # the Syntropia logo in fastfetch's fish greeting WITHOUT needing
