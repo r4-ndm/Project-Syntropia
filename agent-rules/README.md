@@ -24,6 +24,24 @@ the Final Boss the same questions twice. 😈
 | [`transform-safety.md`](transform-safety.md) | Running `syntropia transform`: snapshot first, dry-run always, test systems only, rollback |
 | *(more rules to come — security boundary…)* |
 
+## Skills (how-to guides — read when the workflow applies)
+
+Rules decide **what** to do; skills explain **how**. Skills live in
+`.agents/skills/<name>/SKILL.md` (Claude Code mirrors most via symlinks in
+`.claude/skills/`). **Always check `.agents/skills/` before starting a recurring
+workflow — the iso-builder one exists precisely because agents didn't know it was there.**
+
+| Skill | Origin | Maintain? |
+|-------|--------|-----------|
+| `iso-builder` | **homegrown** — Syntropia-specific | ✅ YES — update in the same commit as any `iso/build.sh` / install-flow change |
+| `cachyos-linux-assistant` | vendored (`purplem0n/linux-assistants`) | no — read-only |
+| `arch-linux-triage` | vendored (`github/awesome-copilot`) | no — read-only |
+| `cli-developer` | vendored (`jeffallan/claude-skills`) | no — read-only |
+
+Vendored skills are pinned by hash in `skills-lock.json` — treat them as third-party
+material. `iso-builder` is ours and lives only under `.agents/skills/` (no `.claude`
+symlink yet); keep it in sync with reality.
+
 ## Note to agents
 
 These rules apply to decisions about the **Syntropia product and repo**. When in doubt,

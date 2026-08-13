@@ -42,7 +42,10 @@ OS_RELEASE_CONTENT = (
     'NAME="Syntropia"\n'
     'PRETTY_NAME="Syntropia OS"\n'
     "ID=syntropia\n"
-    "ID_LIKE=arch\n"
+    # Syntropia is a CachyOS re-skin today (Mint→Ubuntu model): keep the
+    # cachyos lineage so tooling that checks ID_LIKE still recognises it.
+    # When we become a proper fork with our own repos, this may change.
+    'ID_LIKE="arch cachyos"\n'
     "BUILD_ID=rolling\n"
     'ANSI_COLOR="38;2;255;0;0"\n'
     'HOME_URL="https://github.com/r4-ndm/Project-Syntropia"\n'

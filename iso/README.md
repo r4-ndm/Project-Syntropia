@@ -41,6 +41,14 @@ The CachyOS branding slides come from the `cachyos-calamares-next` package. We c
 
 Output: `iso/out/syntropia-YYYY.MM.DD-x86_64.iso`
 
+Phase 2 also ships the rest of the Syntropia install experience (not just slides):
+the apps wizard + TUI (`/etc/syntropia/`), paru in pacstrap `basePackages`, the
+fastfetch ASCII-art branding (`/usr/share/syntropia/`), the **Syntropia identity**
+(`os-release`/`lsb-release` generated from `transform.py`, copied into the installed
+`/etc/` at install time), the `syntropia-${cpu}` hostname default, and the limine
+bootloader identity sync. See `.agents/skills/iso-builder/SKILL.md` for the full
+step list and pitfalls.
+
 ## Branding slides
 
 Source: `Branding/syntropia/calamares/slides/slide{1-6}.jxl` (single source of truth)
@@ -123,6 +131,38 @@ A freshly created qcow2 can look tiny (`du` shows ~196K for a sparse file) while
 ### The slideshow only plays during the Install step
 
 `show.qml` runs while Calamares is writing the system (after you press **Install**), **not** on the welcome page. A white welcome page with the step pills is correct — don't chase it.
+
+### Phase 2 "Stock ISO not found" — date stamping
+
+The ISO name comes from `SOURCE_DATE_EPOCH` or today's date. Phase 2 needs a
+`*-stock.iso` for that date; if your stock ISO is from a previous day (the usual
+case after the first build), pin it:
+
+```bash
+sudo env SOURCE_DATE_EPOCH=$(date -d <stock-date> +%s) iso/build.sh --phase2
+```
+
+### "No bootable device" after rebooting to the installed system
+
+**Cause**: the Calamares install didn't actually complete (aborted, or returned to
+the live desktop before "All done"). The disk is still blank — a fresh qcow2 shows
+`disk size` of ~196 KiB in `qemu-img info` even though its virtual size is 40G.
+
+**Fix**: before detaching the ISO, verify the install wrote data — `qemu-img info
+<disk>.qcow2 | grep 'disk size'` should be multi-GiB, and the screen must show
+"All done — Restart now". If the disk is still ~196K, re-attach the ISO and re-run
+Calamares.
+
+### limine-snapper: "Target OS name 'syntropia OS' not found in /boot/limine.conf"
+
+**Cause**: the bootloader (limine.conf) is generated at install time with the CachyOS
+name, but the branding hook renames os-release to Syntropia at the END of install.
+`limine-snapper-sync` matches the limine.conf OS entry against os-release
+(PRETTY_NAME) or `TARGET_OS_NAME` in `/etc/default/limine`, and warns on boot.
+
+**Fix**: `iso/hook-scripts/hook-branding-users.sh` sets the limine.conf entry to
+`/+Syntropia OS` and pins `TARGET_OS_NAME="Syntropia OS"` in `/etc/default/limine`.
+Keep both in sync whenever the os-release name changes.
 
 ### Verify the amended slides are actually in the ISO
 

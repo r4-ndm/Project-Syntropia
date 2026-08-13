@@ -177,6 +177,17 @@ def test_os_release_backup_and_idempotent(tmp_path: Path, monkeypatch: pytest.Mo
     assert "CachyOS" in backup.read_text(encoding="utf-8")
 
 
+def test_os_release_identity_contract():
+    # Syntropia is a CachyOS re-skin (Mint→Ubuntu model): the name reads
+    # Syntropia, but the cachyos lineage must stay discoverable via ID_LIKE
+    # so cachyos tooling keeps recognising the base. This is the identity
+    # contract — changing any of these should be a deliberate decision.
+    assert "ID=syntropia\n" in T.OS_RELEASE_CONTENT
+    assert 'ID_LIKE="arch cachyos"\n' in T.OS_RELEASE_CONTENT
+    assert 'NAME="Syntropia"\n' in T.OS_RELEASE_CONTENT
+    assert 'PRETTY_NAME="Syntropia OS"\n' in T.OS_RELEASE_CONTENT
+
+
 def test_pipewire_config_written(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(T, "run_command", noop_run([]))
     transform = make_transform(tmp_path, dry_run=False)

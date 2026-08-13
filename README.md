@@ -2,6 +2,15 @@
 
 > *"From chaos, order. From order, life. From life, infinity .From infinity...... Gods of Syntropia 🐸."*
 
+## 🧬 Identity
+
+Syntropia is a **CachyOS re-skin** today — the same relationship Linux Mint has
+to Ubuntu. It keeps CachyOS as the base system (`ID=syntropia`,
+`ID_LIKE="arch cachyos"`), pulls packages from the cachyos repos, and layers
+Syntropia branding, the apps wizard, and the audio stack on top. The long-term
+goal is a full fork with our own repos; until then, updates and the package
+base stay CachyOS.
+
 ## ⚡ Install on an existing CachyOS
 
 Turn any running CachyOS system into Syntropia OS in one line:
@@ -23,6 +32,8 @@ plan, snapshots (when a snapper root config is available), and applies branding
 
 ### **Quick Start**
 - **Start Here**: `requirements.md` - Project vision and philosophy
+- **Binding rules**: `agent-rules/` - READ EVERY FILE at session start (git hygiene, transform safety, software inclusion)
+- **How-to skills**: `.agents/skills/` - iso-builder, cachyos-linux-assistant, arch-linux-triage, cli-developer
 - **Current Focus**: `phase1/` - Foundation being built by humans
 - **Future Work**: `phase2/`, `phase3/` - AI integration and swarm evolution
 - **Brainstorming**: `big-picture/` and `*/raw/` folders for ideas

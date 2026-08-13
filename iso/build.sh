@@ -190,9 +190,12 @@ NoUpgrade = usr/share/calamares/branding/cachyos/slide4.jxl
 NoUpgrade = usr/share/calamares/branding/cachyos/slide5.jxl
 NoUpgrade = usr/share/calamares/branding/cachyos/slide6.jxl
 # ... and the Calamares settings we patch below (else the update also
-# wipes our install-time wizard-copy hook).
+# wipes our install-time wizard-copy hook) + pacstrap.conf (paru added
+# to basePackages so every install ships it — see the pacstrap patch).
 NoUpgrade = usr/share/calamares/settings_online.conf
-NoUpgrade = usr/share/calamares/settings_offline.conf'''
+NoUpgrade = usr/share/calamares/settings_offline.conf
+NoUpgrade = etc/calamares/modules/pacstrap.conf
+NoUpgrade = etc/calamares/modules/users.conf'''
 noextract_block = '''#NoExtract   =
 # Syntropia: never extract the package's own slide files either
 # (belt-and-braces on top of NoUpgrade, both inside [options]).
@@ -360,6 +363,54 @@ PYEOF
         warn "fastfetch config empty — ASCII art not shipped"
     fi
 
+    # os-release + lsb-release: extract the pinned identity from transform.py
+    # (single source of truth — test_transform.py asserts OS_RELEASE_CONTENT)
+    # so the ISO and `syntropia transform` can never disagree on the name.
+    info "Generating os-release + lsb-release from transform.py..."
+    python3 - "$REPO_ROOT/phase1/cli/syntropia/transform.py" "$logo_dir/branding" << 'PYEOF'
+import ast, pathlib, sys
+src = pathlib.Path(sys.argv[1]).read_text()
+out = pathlib.Path(sys.argv[2])
+content = None
+for node in ast.parse(src).body:
+    if isinstance(node, ast.Assign) and any(
+        getattr(t, "id", "") == "OS_RELEASE_CONTENT" for t in node.targets
+    ):
+        if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            content = node.value.value
+        elif isinstance(node.value, ast.Tuple):
+            content = "".join(
+                elt.value for elt in node.value.elts
+                if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+            )
+        break
+if content is None:
+    sys.exit("OS_RELEASE_CONTENT not found in transform.py")
+(out / "os-release").write_text(content)
+(out / "lsb-release").write_text(
+    "LSB_VERSION=1.4\n"
+    'DISTRIB_ID="Syntropia"\n'
+    "DISTRIB_RELEASE=rolling\n"
+    'DISTRIB_DESCRIPTION="Syntropia OS"\n'
+    'DISTRIB_CODENAME="syntropia"\n'
+)
+PYEOF
+    if [[ -s "$logo_dir/branding/os-release" ]]; then
+        ok "os-release + lsb-release generated"
+    else
+        err "os-release generation failed"
+    fi
+
+    # Default hostname: Calamares auto-suggests "cachyos-${cpu}" — rebrand the
+    # default to "syntropia-${cpu}" (the user can still type their own).
+    local users_conf="rootfs/etc/calamares/modules/users.conf"
+    if [[ -f "$users_conf" ]]; then
+        sed -i 's/template: "cachyos-/template: "syntropia-/' "$users_conf"
+        ok "users.conf hostname default -> syntropia"
+    else
+        warn "users.conf not found — hostname default left as cachyos"
+    fi
+
     # Step 3.9: Make the branding survive the INSTALL too — Calamares builds
     # the target from packages and does NOT copy unpacakged files like our
     # /usr/share/syntropia. Extend the existing shellprocess hook (which runs
@@ -386,7 +437,7 @@ script:
     # undefined macro and the WHOLE job fails with "Missing variables" BEFORE
     # running anything. Never put bare $vars in a hook command — put shell
     # logic in a script (see /etc/syntropia/hook-branding-users.sh below).
-    - command: "bash -c 'set -o pipefail; { echo \"=== syntropia_branding:start $(date) ===\"; mkdir -p ${ROOT}/usr/share/syntropia/branding && cp -a /usr/share/syntropia/. ${ROOT}/usr/share/syntropia/ && mkdir -p ${ROOT}/etc/skel/.config/fastfetch && cp -a /etc/skel/.config/fastfetch/config.jsonc ${ROOT}/etc/skel/.config/fastfetch/; echo \"=== syntropia_branding:exit $? ===\"; } 2>&1 | tee -a ${ROOT}/var/log/syntropia-hooks.log'"
+    - command: "bash -c 'set -o pipefail; { echo \"=== syntropia_branding:start $(date) ===\"; mkdir -p ${ROOT}/usr/share/syntropia/branding && cp -a /usr/share/syntropia/. ${ROOT}/usr/share/syntropia/ && cp -a /usr/share/syntropia/branding/os-release ${ROOT}/etc/os-release && cp -a /usr/share/syntropia/branding/lsb-release ${ROOT}/etc/lsb-release && mkdir -p ${ROOT}/etc/skel/.config/fastfetch && cp -a /etc/skel/.config/fastfetch/config.jsonc ${ROOT}/etc/skel/.config/fastfetch/; echo \"=== syntropia_branding:exit $? ===\"; } 2>&1 | tee -a ${ROOT}/var/log/syntropia-hooks.log'"
       timeout: 120
       verbose: true
     - command: "bash -c 'set -o pipefail; { echo \"=== syntropia_branding:home-users:start $(date) ===\"; bash /etc/syntropia/hook-branding-users.sh \"${ROOT}\"; echo \"=== syntropia_branding:home-users:exit $? ===\"; } 2>&1 | tee -a ${ROOT}/var/log/syntropia-hooks.log'"

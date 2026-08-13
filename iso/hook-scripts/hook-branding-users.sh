@@ -37,4 +37,19 @@ for h in "$ROOT"/home/*; do
     fi
 done
 
+# --- Identity sync: limine bootloader ---
+# The bootloader was generated at install time with the CachyOS name (the
+# rename to Syntropia happens at the END of install, after the bootloader
+# step), so limine-snapper-sync can't match its OS entry against the renamed
+# os-release and warns on every boot. Sync both sides:
+#   1) limine.conf's OS entry name  /+CachyOS -> /+Syntropia OS
+#   2) TARGET_OS_NAME in /etc/default/limine, so the match never depends on
+#      PRETTY_NAME/NAME drifting.
+if [[ -f "$ROOT/boot/limine.conf" ]] && grep -q '/+CachyOS' "$ROOT/boot/limine.conf"; then
+    sed -i 's|/+CachyOS|/+Syntropia OS|' "$ROOT/boot/limine.conf"
+fi
+if [[ -f "$ROOT/etc/default/limine" ]] && ! grep -q '^TARGET_OS_NAME' "$ROOT/etc/default/limine"; then
+    printf 'TARGET_OS_NAME="Syntropia OS"\n' >> "$ROOT/etc/default/limine"
+fi
+
 exit 0
