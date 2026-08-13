@@ -22,6 +22,7 @@ the Final Boss the same questions twice. 😈
 | [`software-inclusion-policy.md`](software-inclusion-policy.md) | Whether a package ships with Syntropia (base vs. tooling vs. opt-in) |
 | [`git-hygiene.md`](git-hygiene.md) | When agents may commit, push, or rewrite history — and when to ask first |
 | [`transform-safety.md`](transform-safety.md) | Running `syntropia transform`: snapshot first, dry-run always, test systems only, rollback |
+| [`code-quality.md`](code-quality.md) | How code is written: modular, maintainable, battle-tested OSS first, Rust where practical |
 | *(more rules to come — security boundary…)* |
 
 ## Skills (how-to guides — read when the workflow applies)
@@ -39,8 +40,8 @@ workflow — the iso-builder one exists precisely because agents didn't know it 
 | `cli-developer` | vendored (`jeffallan/claude-skills`) | no — read-only |
 
 Vendored skills are pinned by hash in `skills-lock.json` — treat them as third-party
-material. `iso-builder` is ours and lives only under `.agents/skills/` (no `.claude`
-symlink yet); keep it in sync with reality.
+material. `iso-builder` is ours, lives under `.agents/skills/`, and is mirrored into
+`.claude/skills/` via symlink; keep it in sync with reality.
 
 ## Note to agents
 

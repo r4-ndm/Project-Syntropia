@@ -67,6 +67,24 @@ The `syntropia_branding` shellprocess runs in the **live env** (not the chroot) 
 - copies `os-release` + `lsb-release` → `${ROOT}/etc/` (the installed system reports Syntropia; the live ISO stays CachyOS)
 - runs `hook-branding-users.sh` (→ `/etc/syntropia/`): copies fastfetch/fish config into existing user homes AND applies the limine identity sync (below)
 
+## Base refresh policy (git HEAD — deliberate)
+
+Phase 1 builds the stock ISO from **CachyOS-Live-ISO git HEAD**, not from CachyOS's published release snapshot. This is a deliberate decision, not an accident:
+
+**Why HEAD (pros):** always current (no waiting for quarterly snapshots); fast refresh (git pull vs a 3 GB download); you see upstream profile breakage first while you're testing anyway; no version skew between the installer and the repos; fixes flow in automatically.
+
+**Why not the released ISO (cons of HEAD):** HEAD is untested as a whole snapshot — a half-merged profile change can land in your ISO; builds are implicitly coupled to whatever upstream pushed that day; and ISOs are harder to reproduce (you'd need to pin a commit).
+
+**Decision:** keep git HEAD for now — Syntropia is pre-1.0, has no users depending on installer stability, and the fast feedback loop is worth more than a quarterly pin. **Revisit this when real users exist** and a "it worked last quarter" complaint appears — that's the signal to switch to building from the published release ISO.
+
+**Refresh-log convention:** every phase-1 refresh appends **one line** to `iso/BASE-REFRESH.md`:
+
+```
+2026-08-13  base=HEAD@<upstream-commit-short>  breakage=none  (or: breakage=profile X broke, pinned to <commit>)
+```
+
+This keeps ISO behavior reproducible and turns "why is this ISO different?" into a one-grep answer. Log it in the same commit as the build if you commit one.
+
 ## Why two phases?
 
 We can't put slides in mkarchiso's `airootfs/` overlay because:
@@ -142,10 +160,11 @@ All in Arch/CachyOS repos. The script checks these and exits early if missing.
 ## Typical workflow
 
 1. Edit the source of truth (slides PNGs, `phase1/wizard/apps.list`, `dialog/main.go`, `transform.py` OS_RELEASE_CONTENT, etc.) and commit
-2. Build: `sudo env SOURCE_DATE_EPOCH=$(date -d <stock-date> +%s) iso/build.sh --phase2`
-3. Verify it baked in: `bsdtar -xf` the ISO, `unsquashfs` the sfs, and diff the shipped files against the repo (wizard script, os-release, apps.list, TUI binary)
-4. Fresh-install test in the VM: reset the disk (fresh qcow2), attach the ISO as cdrom (boot order 1), boot, run Calamares, reboot from disk
-5. Verify: wizard fires at first login, `fastfetch`/`lsb_release`/hostname report Syntropia, no limine-snapper notification
+2. **Only when refreshing the base:** run phase 1 (`iso/build.sh --phase1`), then append the one-line entry to `iso/BASE-REFRESH.md` (date, upstream commit, known breakage) per the base-refresh policy above
+3. Build: `sudo env SOURCE_DATE_EPOCH=$(date -d <stock-date> +%s) iso/build.sh --phase2`
+4. Verify it baked in: `bsdtar -xf` the ISO, `unsquashfs` the sfs, and diff the shipped files against the repo (wizard script, os-release, apps.list, TUI binary)
+5. Fresh-install test in the VM: reset the disk (fresh qcow2), attach the ISO as cdrom (boot order 1), boot, run Calamares, reboot from disk
+6. Verify: wizard fires at first login, `fastfetch`/`lsb_release`/hostname report Syntropia, no limine-snapper notification
 
 ## Disk usage
 
