@@ -36,6 +36,9 @@ __pycache__/
 iso/work/
 iso/out/
 
+# Release source tarballs (regenerated via git archive before each release)
+release/
+
 # Go TUI dialog binary (built on demand from phase1/wizard/dialog)
 phase1/wizard/dialog/syntropia-apps-tui
 

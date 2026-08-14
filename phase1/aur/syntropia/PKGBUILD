@@ -6,14 +6,14 @@
 # Depends on syntropia-cli (the `syntropia` command shell); syntropia-brews
 # (the app helper) is an optional extra, not a requirement.
 #
-# Build locally (from repo root):
-#   cd ~/Desktop/Project-Syntropia
-#   cp phase1/aur/syntropia/PKGBUILD phase1/aur/syntropia/syntropia.install .
+# Build/test locally: drop the release tarball into this directory, then
+#   cd phase1/aur/syntropia
 #   makepkg -si
-#   rm PKGBUILD syntropia.install
 #
-# For AUR submission: replace the empty source=() with a released source
-# tarball + sha256sums. The build/package steps are already AUR-shaped.
+# The source tarball is shared by all three Syntropia packages; regenerate
+# it from the repo root with:
+#   git archive --format=tar.gz --prefix="syntropia-$pkgver/" \
+#     -o release/syntropia-$pkgver.tar.gz HEAD
 
 pkgname=syntropia
 pkgrel=1
@@ -34,34 +34,16 @@ optdepends=(
 )
 makedepends=('python-build' 'python-installer' 'python-setuptools' 'python-wheel')
 
-source=()
-sha256sums=()
-
-_repodir() {
-    local dir="$startdir"
-    while [[ "$dir" != "/" ]]; do
-        if [[ -d "$dir/phase1/cli" ]]; then
-            printf '%s\n' "$dir"
-            return 0
-        fi
-        dir="$(dirname "$dir")"
-    done
-    return 1
-}
-
-# Shared pkgver source: phase1/cli/syntropia/__init__.py (bumped in lockstep
-# with syntropia-cli and syntropia-brews).
+# pkgver is the release version shared by all three Syntropia packages. It
+# matches phase1/cli/syntropia/__init__.py (the version-lockstep test pins
+# them together) — bump it here on each release.
 pkgver=0.1.0
 
-pkgver() {
-    local repo initpy
-    repo="$(_repodir)" || { error "cannot locate repo (phase1/cli) from $startdir"; return 1; }
-    initpy="$repo/phase1/cli/syntropia/__init__.py"
-    sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$initpy" | head -1
-}
+source=("syntropia-$pkgver.tar.gz::https://github.com/r4-ndm/Project-Syntropia/releases/download/v$pkgver/syntropia-$pkgver.tar.gz")
+sha256sums=('68032a768154b75a370f4871979e09c500de604e16c14d9d3fb9dff9d9c0a01d')
 
 build() {
-    _repo="$(_repodir)" || { error "cannot locate repo (phase1/cli) from $startdir"; return 1; }
+    _repo="$srcdir/syntropia-$pkgver"
 
     msg "Copying phase1/cli/ -> $srcdir/cli"
     cp -r "$_repo/phase1/cli" "$srcdir/cli"
@@ -75,7 +57,7 @@ build() {
 }
 
 package() {
-    _repo="$(_repodir)" || { error "cannot locate repo (phase1/cli) from $startdir"; return 1; }
+    _repo="$srcdir/syntropia-$pkgver"
 
     msg "Installing syntropia..."
     python -m installer --destdir="$pkgdir" "$srcdir/dist/"*.whl
