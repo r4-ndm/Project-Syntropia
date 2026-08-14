@@ -1,8 +1,8 @@
 # 😈 Phase 1: Syntropia Core Master Plan
 
-**Goal**: Ship `syntropia` as an **AUR package** that transforms a stock CachyOS install into Syntropia OS — rebranded, audio-optimised, and ready to install Windows VST3 plugins with one command (`syntropia install <brew>`).
+**Goal**: Ship `syntropia` as **three AUR packages** that transform a stock CachyOS install into Syntropia OS — rebranded, audio-optimised, and ready to install Windows VST3 plugins with one command (`syntropia install <brew>`).
 
-**Delivery model (package-first)**: User installs stock CachyOS → `yay -S syntropia` (or `curl | bash`) → `syntropia transform --yes` → done. The AUR package is the install mechanism; the Seed ISO is a future polish item (built and tested, but deferred past Phase 1).
+**Delivery model (package-first, three packages)**: User installs stock CachyOS → `paru -S syntropia` (pulls `syntropia-cli`; add `syntropia-brews` for the app helper, or `curl | bash`) → `syntropia transform --yes` → done. The three AUR packages are the install mechanism; the Seed ISO is a future polish item (built and tested, but deferred past Phase 1).
 
 **Scope Strategy**: Phase 1 ships **without Hermes**, without safety gates, and without self-mutating AI daemons. It focuses entirely on developer/musician UX, system identity, and smooth Windows audio plugin execution on CachyOS.
 
@@ -10,7 +10,7 @@
 
 ## 🧬 The Bootstrap & Development Strategy
 
-Phase 1 follows a **package-first** strategy — the AUR package is the delivery vehicle, `syntropia transform` is the application mechanism, and the ISO is a sidelined future polish:
+Phase 1 follows a **package-first** strategy — the three AUR packages are the delivery vehicle, `syntropia transform` is the application mechanism, and the ISO is a sidelined future polish:
 
 ```
 ┌───────────────────────────────────────────────────────────┐
@@ -25,8 +25,8 @@ Phase 1 follows a **package-first** strategy — the AUR package is the delivery
                               │
                               ▼
 ┌───────────────────────────────────────────────────────────┐
-│ 3. Ship via AUR — `yay -S syntropia`                     │
-│    (PKGBUILD → makepkg → `syntropia transform --yes`)     │
+│ 3. Ship via AUR — `paru -S syntropia` (+ brews)          │
+│    (three PKGBUILDs → makepkg → `syntropia transform`)    │
 └─────────────────────────────┬─────────────────────────────┘
                               │
                               ▼
@@ -112,9 +112,9 @@ HKLM\Software\Arturia           InstallVST364Dir = "C:\Program Files\Common File
 * Clearing the Ableton plugin DB (`AppData/Local/Ableton/Live Database/Live-plugins-1.db`) forces a full rescan after folder changes.
 * This wiring (symlinks + registry) is currently **manual per-machine** — a `syntropia plugins link --data <vendor>` command is the planned automation.
 
-### 5. AUR Package & Updates (PRIORITY #2)
-* **AUR PKGBUILD**: `yay -S syntropia` installs the CLI, branding assets, and systemd services. The `PKGBUILD` wraps `phase1/cli/` with `setuptools` and ships everything to `/usr/`.
-* **`syntropia update`**: Pulls the brews registry (`git -C ~/.config/syntropia/brews pull`), checks the AUR for a newer syntropia version, and re-runs `syntropia transform --yes` to apply updated branding. The `yay -Syu` equivalent for the Syntropia layer.
+### 5. AUR Packages & Updates (PRIORITY #2)
+* **Three AUR PKGBUILDs**: `paru -S syntropia` installs the rebrand (`transform`/`update` + branding assets), `paru -S syntropia-brews` adds the app helper (brews engine + seed manifests + systemd units), and both pull `syntropia-cli` (the core command + plugin host). Each PKGBUILD wraps its own `phase1/cli/{,brews/,transform/}` project with `setuptools` and ships to `/usr/`.
+* **`syntropia update`**: Pulls the brews registry (`git -C ~/.config/syntropia/brews pull`), checks the AUR for newer versions of the three packages, and re-runs `syntropia transform --yes` to apply updated branding. The `paru -Syu` equivalent for the Syntropia layer.
 * **One-liner installer** (`install-syntropia.sh`): `curl | bash` fallback for users without an AUR helper — clones the repo, builds the venv, runs `syntropia transform --snapshot --yes`.
 
 ### 6. Seed ISO (SIDELINED — working, deferred to Phase 2)
@@ -217,7 +217,7 @@ source = "brews/ableton-live-12.SKILL.md"   # optional; else auto-generate
 | **Week 1** | `syntropia transform` & Branding | Implement `syntropia transform` script, `/etc/os-release`, Fastfetch ASCII logo, shell prompt (`😈`), PipeWire 128 quantum config, and CLI binary installation. |
 | **Week 2** | `.brew` Parser & VST Engine | Write `brew.py`, build `syntropia install <brew>` with `wine.overrides` and `winetricks` support, automate Wine prefix initialization and `yabridgectl sync`. |
 | **Week 3** | Target DAW & VST Brews | Test and finalize `ableton-live-12.brew`, `fl-studio.brew`, `serum.brew`, and `vital.brew` on local transformed CachyOS system. |
-| **Week 4** | AUR Package, Updates & DAW Validation | Build AUR PKGBUILD so `yay -S syntropia` works, add `syntropia update` subcommand, prove end-to-end DAW/VST3 installs with real installers. |
+| **Week 4** | AUR Packages, Updates & DAW Validation | Build the three AUR PKGBUILDs so `paru -S syntropia` / `paru -S syntropia-brews` work, add `syntropia update` subcommand, prove end-to-end DAW/VST3 installs with real installers. |
 
 ## 🤖 Git Butler Helper (Phase 1)
 
@@ -239,16 +239,16 @@ Project-Syntropia/
 │   ├── plan.md                  # This document
 │   ├── tasks.md                 # Task board
 │   ├── phase1-requirements.md   # Requirements spec
-│   ├── cli/
-│   │   ├── pyproject.toml       # Python package metadata
-│   │   └── syntropia/│   │   ├── cli.py           # CLI command dispatch (click)
-│   │   ├── brew.py          # .brew TOML parser + registry ops
-│   │   ├── plugins.py       # Drop-folder VST3 workflow (~/VST3 + yabridge sync)
-│   │   ├── transform.py     # System transformation logic
-│   │   ├── wine_helper.py   # Wine prefix + yabridge engine
-│   │   ├── branding.py      # Plymouth, GRUB, wallpaper install
-│   │   ├── registry.py      # AUR-style submit (gh PR flow)
-│   │   └── update.py        # syntropia update (AUR/git/pip detection)
+│   ├── cli/                       # three Python projects (one wheel each)
+│   │   ├── pyproject.toml         # core — syntropia-cli
+│   │   ├── syntropia/             # cli.py, progress.py, process.py, version
+│   │   ├── brews/
+│   │   │   ├── pyproject.toml     # syntropia-brews
+│   │   │   └── syntropia_brews/   # brew.py, plugins.py, registry.py, vendor.py, wine_helper.py, cli.py
+│   │   └── transform/
+│   │       ├── pyproject.toml     # syntropia (the rebrand)
+│   │       └── syntropia_transform/  # branding.py, transform.py, update.py, cli.py
+│   ├── aur/                      # three AUR PKGBUILDs (syntropia-cli, syntropia-brews, syntropia)
 │   ├── brews/                   # Bundled .brew manifests
 │   │   ├── template.brew
 │   │   ├── surge.brew
@@ -259,7 +259,7 @@ Project-Syntropia/
 │   ├── tools/                   # Dev utilities
 │   │   ├── png_to_ascii.py      # PNG to ASCII art converter
 │   │   └── generate_bootanimation.py  # Plymouth boot-animation generator
-│   ├── tests/                   # pytest suite (166 tests, all passing)
+│   ├── tests/                   # pytest suite (242 tests, all passing)
 │   │   ├── conftest.py
 │   │   ├── test_brew.py
 │   │   ├── test_cli.py
@@ -305,19 +305,19 @@ Project-Syntropia/
 - [x] `syntropia transform` works on clean CachyOS installation
 - [ ] `syntropia install` proves end-to-end with a real installer (Serum or Vital)
 - [ ] VST3 runs in a DAW with <=10ms round-trip latency
-- [ ] AUR package real and installable (`makepkg -si` succeeds, `yay -S syntropia` works)
+- [ ] AUR packages real and installable (`makepkg -si` succeeds, `paru -S syntropia` / `paru -S syntropia-brews` work)
 - [ ] `syntropia update` subcommand works (pull brews + re-apply transform)
 - [ ] Custom Plymouth boot animation (replace stock CachyOS frames)
 
 ### Quality Gates
 - **Performance**: Audio latency <=10ms round-trip
-- **Reliability**: Transform script idempotent and safe (166 tests, all passing)
+- **Reliability**: Transform script idempotent and safe (242 tests, all passing)
 - **Usability**: CLI intuitive and well-documented
 - **Compatibility**: Works on target hardware configurations
 
 ### Exit to Phase 2
 Phase 1 must be **fully shipped and stable** before Phase 2 begins:
-- [ ] AUR package real and installable (`makepkg -si` succeeds)
+- [ ] AUR packages real and installable (`makepkg -si` succeeds)
 - [ ] Real users have successfully used it
 - [ ] No critical bugs in core functionality
 - [ ] Documentation complete and usable

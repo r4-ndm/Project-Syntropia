@@ -1,6 +1,6 @@
 # 😈 Phase 1: Task Board
 
-**Delivery model**: Package-first (AUR). User installs stock CachyOS → `yay -S syntropia` → `syntropia transform --yes`. The Seed ISO is sidelined (working pipeline in `iso/`, deferred to Phase 2 polish).
+**Delivery model**: Package-first (AUR), split into three packages — `syntropia-cli` (core command + plugin host), `syntropia-brews` (Windows-app helper, optional), `syntropia` (the rebrand: `transform`/`update` + branding assets). User installs stock CachyOS → `paru -S syntropia` (pulls `syntropia-cli`; add `syntropia-brews` for the app helper) → `syntropia transform --yes`. The Seed ISO is sidelined (working pipeline in `iso/`, deferred to Phase 2 polish).
 
 This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** (Re-branding, `.brew` system, Wine/yabridge VST3 helper, AUR packaging).
 
@@ -41,7 +41,7 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 ### Health Checks
 - [x] **Implement pre-flight checks** - Verify system compatibility before transformation
 - [x] **Add rollback capability** - snapper snapshot before transform (safety rule)
-- [x] **Create validation tests** - 122 pytest tests all passing
+- [x] **Create validation tests** - 242 pytest tests all passing
 
 ---
 
@@ -67,7 +67,7 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 ## 🍺 Phase 1.3: Brew System & CLI (`syntropia install <brew>`)
 
 ### Brew Parser Implementation
-- [x] **Write `.brew` TOML parser** - Implemented in `phase1/cli/syntropia/brew.py`
+- [x] **Write `.brew` TOML parser** - Implemented in `phase1/cli/brews/syntropia_brews/brew.py`
 - [x] **Create schema validator** - Validate brew files against specification
 - [x] **Add error handling** - Clear error messages for malformed brews
 
@@ -139,12 +139,12 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 
 ---
 
-## 📦 Phase 1.5: AUR Package & Distribution (was ISO — reprioritised)
+## 📦 Phase 1.5: AUR Packages & Distribution (was ISO — reprioritised)
 
 ### AUR Package
-- [x] **Create `PKGBUILD`** - `phase1/aur/` wraps `phase1/cli/` (python -m build + installer, installs to `/usr/`), branding + brews + systemd units + `syntropia.install` scriptlet; pkgver read from `__init__.py` (single source of truth); fixed makepkg 7.1 lint (pkgver variable + pkgver() function) and regenerated `.SRCINFO`
-- [x] **Test `makepkg -si`** - `makepkg` build verified in a scratch dir (`/tmp/syntropia-aur-build`): version 0.1.0-1, namcap-clean, all 12 modules + 6 brews + units + LICENSE + .INSTALL present; `-i` pending user (elevation not approved)
-- [ ] **Submit to AUR** - Push the PKGBUILD to the AUR so `paru -S syntropia` works (needs a released source tarball + sha256sums per the header comment)
+- [x] **Create the three `PKGBUILD`s** - `phase1/aur/{syntropia-cli,syntropia-brews,syntropia}/` each wrap their own `phase1/cli/` project (python -m build + installer, installs to `/usr/`): `syntropia-cli` ships the core command, `syntropia-brews` ships the engine + seed manifests + systemd units, `syntropia` ships the transform + branding assets + `syntropia.install` scriptlet; all three read pkgver from `phase1/cli/syntropia/__init__.py` (single source of truth)
+- [x] **Test `makepkg -si`** - all three `makepkg` builds verified (0.1.0-1, correct file split: core / brews+units / branding); wheels build and entry-point plugin discovery works (core-only shows no commands, brews-only shows only brews)
+- [ ] **Submit to AUR** - Push the three PKGBUILDs to the AUR so `paru -S syntropia` (rebrand) and `paru -S syntropia-brews` (app helper) work (each needs a released source tarball + sha256sums per the header comment)
 - [x] **Add `syntropia update` subcommand** - Pull brews, check AUR, re-run transform (verified with a real transform re-run on the local machine)
 
 ### One-liner Installer
@@ -188,12 +188,12 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 - [x] **Test registry ops** - Save, remove, submit, validation
 - [x] **Test PNG-to-ASCII** - Logo conversion pipeline
 - [x] **Test wine helper** - Env building, prefix provisioning, dry-run, toolchain checks
-- **Result**: 166 tests, all passing ✅
+- **Result**: 242 tests, all passing ✅
 
 ### Integration Testing
 - [ ] **Test complete brew installation** - End-to-end test of `syntropia install` with real installer
 - [ ] **Verify audio stack integration** - Test PipeWire + Wine + yabridge combination
-- [ ] **Test AUR package install** - Verify `yay -S syntropia` on a clean CachyOS
+- [ ] **Test AUR packages install** - Verify `paru -S syntropia` (+ optional `syntropia-brews`) on a clean CachyOS
 
 ### Performance Testing
 - [ ] **Measure transformation time** - Benchmark on different hardware
@@ -201,7 +201,7 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 - [ ] **Measure brew installation speed** - Optimize for typical use cases
 
 ### Documentation
-- [ ] **Write user documentation** - Installation guide (stock CachyOS → yay → transform)
+- [ ] **Write user documentation** - Installation guide (stock CachyOS → `paru -S syntropia` [add `syntropia-brews` for the app helper] → transform)
 - [ ] **Create brew creation tutorial** - How to write and submit a .brew
 - [ ] **Write developer documentation** - Code structure, extension guide
 
