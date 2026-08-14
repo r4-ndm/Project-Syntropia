@@ -425,6 +425,10 @@ PYEOF
     # into the target's look-and-feel + ksplashrc by the branding hook (single
     # source of truth with apply_splash in branding.py).
     cp -r "$brand_src/splash" "$logo_dir/branding/splash"
+    # Plymouth boot animation: ships as plymouth/ (triangle particle swarm) and
+    # gets installed to /usr/share/plymouth/themes/syntropia + set active by the
+    # branding hook (single source of truth with apply_plymouth).
+    cp -r "$brand_src/plymouth" "$logo_dir/branding/plymouth"
     mkdir -p "rootfs/etc/skel/.config/fastfetch"
     # Run from the remaster dir (cwd) but import the repo's config builder
     # via PYTHONPATH — same single source of truth as `syntropia transform`.
