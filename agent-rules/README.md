@@ -35,6 +35,7 @@ workflow — the iso-builder one exists precisely because agents didn't know it 
 | Skill | Origin | Maintain? |
 |-------|--------|-----------|
 | `iso-builder` | **homegrown** — Syntropia-specific | ✅ YES — update in the same commit as any `iso/build.sh` / install-flow change |
+| `aur-audit` | **homegrown** — Syntropia-specific | ✅ YES — update in the same commit as any `phase1/tools/aur_audit.py` change |
 | `cachyos-linux-assistant` | vendored (`purplem0n/linux-assistants`) | no — read-only |
 | `arch-linux-triage` | vendored (`github/awesome-copilot`) | no — read-only |
 | `cli-developer` | vendored (`jeffallan/claude-skills`) | no — read-only |

@@ -23,10 +23,6 @@
 ├── 📄 phase1-requirements.md   # Technical specifications
 ├── 📄 plan.md                  # Implementation strategy
 ├── 📄 tasks.md                 # Concrete steps
-├── 📁 raw/                    # Brainstorming nuggets → requirements
-│   ├── 📄 README.md
-│   ├── 📄 eitri_dependency_and_ui_plan.md
-│   └── 📄 eitri_protocol_plan.md
 ├── 📁 cli/                    # CLI implementation (empty)
 ├── 📁 brews/                  # Brew files (empty)
 ├── 📁 installer/              # Installer scripts (empty)
@@ -65,7 +61,7 @@
 - **Purpose**: Brainstorming nuggets
 - **Content**: Ideas, diagrams, concepts, research
 - **When ready**: Compiled into formal requirements
-- **Example**: See `phase1/raw/eitri_*.md`
+- **Note**: Raw brainstorm docs are gitignored and kept local-only (see `phase1/raw/` on disk)
 
 ### **Phase Progression**
 1. **Phase 1** (Human): CLI, brews, Wine helper, installer

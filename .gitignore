@@ -12,9 +12,12 @@ Thumbs.db
 .agents/*
 # Ignore all community-installed skills by default...
 .agents/skills/*
-# ...but Project Syntropia's own skills ARE tracked
+# ...but re-include the skills dir so Project Syntropia's own skills ARE tracked
+!.agents/skills/
 !.agents/skills/iso-builder/
 !.agents/skills/iso-builder/**
+!.agents/skills/aur-audit/
+!.agents/skills/aur-audit/**
 skills-lock.json
 
 # Local agent tooling config (machine-specific)
@@ -43,6 +46,7 @@ release/
 phase1/wizard/dialog/syntropia-apps-tui
 
 # Future-phase planning docs (not ready for public eyes yet)
+phase1/raw/
 phase2/
 phase3/
 phase4/
