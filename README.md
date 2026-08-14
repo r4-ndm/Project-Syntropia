@@ -11,6 +11,10 @@ Syntropia branding, the apps wizard, and the audio stack on top. The long-term
 goal is a full fork with our own repos; until then, updates and the package
 base stay CachyOS.
 
+Syntropia targets CachyOS's **KDE Plasma** edition: the desktop branding
+(start-menu icon, KSplash, SDDM autologin) is Plasma-only, while the boot
+splash (Plymouth), GRUB, and OS identity are desktop-agnostic.
+
 ## ⚡ Install on an existing CachyOS
 
 Turn any running CachyOS system into Syntropia OS in one line:

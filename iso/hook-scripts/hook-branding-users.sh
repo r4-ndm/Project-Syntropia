@@ -1,6 +1,12 @@
 #!/bin/bash
-# hook-branding-users.sh — copy the terminal branding (fastfetch config + fish
-# greeting) into the EXISTING target user homes during a Calamares install.
+# hook-branding-users.sh — install Syntropia branding into the EXISTING target
+# user homes and the target rootfs during a Calamares install.
+#
+# Scope: fastfetch/fish terminal branding, the Plasma start-menu icon + KSplash
+# theme, the Plymouth triangle boot animation, and the limine OS-entry identity
+# sync. GRUB/bootloader theming is deliberately left vanilla CachyOS (limine) —
+# the only boot changes are the Syntropia name and the Plymouth theme (matching
+# `syntropia transform`, which leaves GRUB untouched).
 #
 # Calamares creates the first user BEFORE the syntropia_branding shellprocess
 # hook runs, so skel-only writes never reach that user (observed: fresh
@@ -76,6 +82,22 @@ if [[ -d "$splash_src" ]]; then
             chown -R "$uid:$gid" "$h/.local/share/plasma/look-and-feel/org.syntropia.desktop" "$h/.config/ksplashrc" 2>/dev/null || true
         fi
     done
+fi
+
+# --- Plymouth boot animation (triangle particle swarm) ---
+# Install the Syntropia boot-animation theme into the target and make it the
+# active Plymouth theme (overriding CachyOS's cachyos-bootanimation, which a
+# CachyOS package installs and selects at install time). Calamares' initramfs
+# step runs after this hook and rebuilds the initramfs, so the theme is picked
+# up and the animation actually plays at boot.
+plymouth_src="$ROOT/usr/share/syntropia/branding/plymouth"
+if [[ -d "$plymouth_src" ]]; then
+    plymouth_dst="$ROOT/usr/share/plymouth/themes/syntropia"
+    rm -rf "$plymouth_dst"
+    mkdir -p "$(dirname "$plymouth_dst")"
+    cp -a "$plymouth_src" "$plymouth_dst"
+    mkdir -p "$ROOT/etc/plymouth"
+    printf '[Daemon]\nTheme=syntropia\n' > "$ROOT/etc/plymouth/plymouthd.conf"
 fi
 
 # --- Identity sync: limine bootloader ---

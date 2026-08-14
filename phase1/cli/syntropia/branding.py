@@ -4,15 +4,13 @@ Consumes the asset set produced from the CachyOS official branding
 (see ``Branding/`` and the extracted reference set) and installs it:
 
 * **Plymouth boot splash** — the main branding surface. A complete theme
-  (``plymouth/`` dir with ``animation-*.png`` frames, a ``*.plymouth`` theme
-  file, etc.) installed as the ``syntropia`` theme and selected as default.
-  ``wallpaper.png`` is also copied as the Plymouth background image so the
-  full-color splash renders during boot (unlike GRUB's 16-bit framebuffer).
-* **GRUB** — the boot menu keeps a clean dark background (no custom splash)
-  because GRUB's 16-bit colour depth posterizes subtle gradients. Plymouth
-  handles the branding at full 24-bit colour later in the boot chain.
+  (``plymouth/`` dir with the 88-frame triangle ``animation-*.png`` swarm, a
+  ``*.plymouth`` theme file, etc.) installed as the ``syntropia`` theme and
+  selected as default.
+* **GRUB** — deliberately left as vanilla CachyOS: the stock boot menu and
+  kernel command line are untouched.
 * **Wallpaper** — ``wallpaper.png`` copied to the user's backgrounds dir
-  and applied best-effort on GNOME/KDE.
+  and applied best-effort on KDE Plasma.
 
 Safety contract mirrors ``transform.py``: ``--check`` never modifies
 anything, steps are idempotent (marker-based), and the runner stops at the
@@ -22,7 +20,6 @@ first error.
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 import shutil
 import subprocess
@@ -69,9 +66,6 @@ class BrandingPaths:
     home: Path
     assets_dir: Path
     plymouth_themes_dir: Path = Path("/usr/share/plymouth/themes")
-    grub_splash: Path = Path("/boot/grub/splash.png")
-    grub_cfg: Path = Path("/boot/grub/grub.cfg")
-    grub_default: Path = Path("/etc/default/grub")
     backgrounds_dir: Path | None = None  # default: ~/.local/share/backgrounds/syntropia
     icons_dir: Path | None = None  # default: ~/.local/share/icons/hicolor
     appletsrc: Path | None = None  # default: ~/.config/plasma-org.kde.plasma.desktop-appletsrc
@@ -118,6 +112,7 @@ class Branding:
 
     paths: BrandingPaths
     dry_run: bool = False
+    is_plasma: bool | None = None  # None = auto-detect; Syntropia targets Plasma only.
 
     # -- helpers ----------------------------------------------------------
 
@@ -134,6 +129,16 @@ class Branding:
 
     def has_assets(self) -> bool:
         return self.paths.assets_dir.is_dir()
+
+    def _is_plasma(self) -> bool:
+        """Syntropia branding is Plasma-only.
+
+        Auto-detect via the plasmashell binary (robust under sudo, which
+        strips XDG_CURRENT_DESKTOP); tests pin it via the is_plasma field.
+        """
+        if self.is_plasma is not None:
+            return self.is_plasma
+        return shutil.which("plasmashell") is not None
 
     # -- Plymouth boot splash ---------------------------------------------
 
@@ -191,14 +196,8 @@ class Branding:
             )
             target_descriptor.write_text(content, encoding="utf-8")
             descriptor.unlink()
-        # Copy wallpaper as the Plymouth background image (full 24-bit colour
-        # — unlike GRUB's 16-bit framebuffer which posterizes dark gradients).
-        wallpaper = self._wallpaper_asset()
-        if wallpaper:
-            bg = theme_dir / "background.png"
-            if not bg.exists():
-                shutil.copy2(wallpaper, bg)
-                self.log("plymouth", f"installed background from {wallpaper.name}")
+        # The triangle swarm runs on the theme's black background (same as
+        # CachyOS's cachyos-bootanimation) — no wallpaper overlay.
         (theme_dir / MARKER).write_text(_dir_hash(assets) + "\n", encoding="utf-8")
         if shutil.which("plymouth-set-default-theme"):
             result = run_command(["plymouth-set-default-theme", PLYMOUTH_THEME_NAME])
@@ -208,81 +207,6 @@ class Branding:
                     "warning: could not set default theme: "
                     f"{result.stdout.strip() or result.stderr.strip()}",
                 )
-
-    # -- GRUB (clean background, no splash) -------------------------------
-
-    def _regenerate_grub_config(self) -> None:
-        """Run ``grub-mkconfig`` so any /etc/default/grub edits take effect."""
-        grub_mkconfig = shutil.which("grub-mkconfig")
-        if grub_mkconfig is None:
-            self.log("grub", "grub-mkconfig not found, skipping config regeneration")
-            return
-        cfg = self.paths.grub_cfg
-        self._would("grub", f"regenerate GRUB config ({cfg.name}) via grub-mkconfig")
-        if self.dry_run:
-            return
-        result = run_command([grub_mkconfig, "-o", str(cfg)])
-        if result.returncode != 0:
-            self.log(
-                "grub",
-                "warning: grub-mkconfig failed: "
-                f"{result.stdout.strip() or result.stderr.strip()}",
-            )
-            return
-        self.log("grub", f"regenerated {cfg}")
-
-    def apply_grub(self) -> None:
-        """Ensure clean GRUB: no splash, native resolution, BGRT disabled.
-
-        * Comments out GRUB_BACKGROUND (Plymouth handles branding).
-        * Pins GFXMODE=1920x1080 so menu text is crisp.
-        * Adds bgrt_disable to kernel cmdline so the motherboard's firmware
-          logo never appears — Plymouth shows our wallpaper from frame one.
-        """
-        default_cfg = self.paths.grub_default
-        if not default_cfg.is_file():
-            self.log("grub", "/etc/default/grub not found, skipping")
-            return
-
-        try:
-            content = default_cfg.read_text(encoding="utf-8")
-        except OSError:
-            return
-
-        lines = content.splitlines()
-        new_lines: list[str] = []
-        changed = False
-
-        for line in lines:
-            stripped = line.strip()
-            # Comment out any active GRUB_BACKGROUND (Plymouth has the splash).
-            if stripped.startswith("GRUB_BACKGROUND=") and not stripped.startswith("#"):
-                new_lines.append("#GRUB_BACKGROUND commented out — Plymouth handles branding")
-                changed = True
-            # Pin GFXMODE to native resolution.
-            elif stripped.startswith("GRUB_GFXMODE=") and not stripped.startswith("#"):
-                if stripped != "GRUB_GFXMODE=1920x1080":
-                    new_lines.append("GRUB_GFXMODE=1920x1080")
-                    changed = True
-                else:
-                    new_lines.append(line)
-            # Ensure bgrt_disable is in kernel cmdline (suppresses firmware logo).
-            elif stripped.startswith("GRUB_CMDLINE_LINUX_DEFAULT=") and not stripped.startswith("#"):
-                if "bgrt_disable" not in stripped:
-                    new_lines.append(stripped.rstrip("'\"") + " bgrt_disable'")
-                    changed = True
-                else:
-                    new_lines.append(line)
-            else:
-                new_lines.append(line)
-
-        if changed:
-            self._would("grub", "clean GRUB + GFXMODE=1920x1080 + bgrt_disable")
-            if not self.dry_run:
-                default_cfg.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-                self._regenerate_grub_config()
-        else:
-            self.log("grub", "already clean (no splash, GFXMODE=1920x1080, bgrt_disable)")
 
     # -- Wallpaper --------------------------------------------------------
 
@@ -310,15 +234,12 @@ class Branding:
         self._apply_wallpaper_best_effort(target)
 
     def _apply_wallpaper_best_effort(self, target: Path) -> None:
-        """Set the wallpaper on GNOME/KDE if the tooling is present."""
-        uri = target.as_uri()
-        if os.environ.get("XDG_CURRENT_DESKTOP", "").upper() == "GNOME":
-            run_command(["gsettings", "set", "org.gnome.desktop.background", "picture-uri", uri])
-            run_command(
-                ["gsettings", "set", "org.gnome.desktop.background", "picture-uri-dark", uri]
-            )
-        elif os.environ.get("XDG_CURRENT_DESKTOP", "").upper() == "KDE":
-            run_command(["plasma-apply-wallpaperimage", str(target)])
+        """Set the wallpaper on Plasma (the only target desktop)."""
+        if not self._is_plasma():
+            return
+        if shutil.which("plasma-apply-wallpaperimage") is None:
+            return
+        run_command(["plasma-apply-wallpaperimage", str(target)])
 
     # -- start-menu icon ---------------------------------------------------
 
@@ -329,12 +250,18 @@ class Branding:
     def apply_menu_icon(self) -> None:
         """Replace the CachyOS start-menu (Kickoff) icon with the Syntropia mark.
 
-        The stock CachyOS panel points ``icon=org.cachyos.hello`` in the
-        Kickoff applet config. We ship ``menu-icon.png`` into the hicolor
-        icon theme as ``syntropia-menu`` and repoint the panel config at it —
-        instead of overwriting ``org.cachyos.hello`` (a package file that an
-        update would revert).
+        Plasma-only (Syntropia targets the KDE Plasma edition). The stock
+        CachyOS panel points ``icon=org.cachyos.hello`` in the Kickoff applet
+        config. We ship ``menu-icon.png`` into the hicolor icon theme as
+        ``syntropia-menu`` and repoint the panel config at it — instead of
+        overwriting ``org.cachyos.hello`` (a package file that an update
+        would revert).
         """
+        if not self._is_plasma():
+            self.log(
+                "menu-icon", "Syntropia branding is Plasma-only — skipping start-menu icon"
+            )
+            return
         asset = self._menu_icon_asset()
         if asset is None:
             self.log("menu-icon", "no menu-icon.png asset found, skipping")
@@ -375,11 +302,15 @@ class Branding:
     def apply_splash(self) -> None:
         """Install the Syntropia KSplash theme and select it in ksplashrc.
 
-        Ships the ``splash/`` asset dir (Splash.qml + images) to a custom
+        Plasma-only (Syntropia targets the KDE Plasma edition). Ships the
+        ``splash/`` asset dir (Splash.qml + images) to a custom
         ``org.syntropia.desktop`` look-and-feel splash and points ksplashrc
         at it. The QML shows the triangle mark first, then the Plasma logo,
         then fades out as the session becomes ready.
         """
+        if not self._is_plasma():
+            self.log("splash", "Syntropia branding is Plasma-only — skipping KSplash")
+            return
         asset_dir = self._splash_asset_dir()
         if asset_dir is None:
             self.log("splash", "no splash/ asset dir found, skipping")
@@ -414,7 +345,6 @@ class Branding:
             self.log("assets", f"{self.paths.assets_dir} not found, skipping all branding")
             return
         self.apply_plymouth()
-        self.apply_grub()
         self.apply_wallpaper()
         self.apply_menu_icon()
         self.apply_splash()

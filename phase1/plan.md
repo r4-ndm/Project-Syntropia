@@ -258,7 +258,7 @@ Project-Syntropia/
 │   │   └── fl-studio.brew
 │   ├── tools/                   # Dev utilities
 │   │   ├── png_to_ascii.py      # PNG to ASCII art converter
-│   │   └── generate_spinner.py  # Spinner animation generator
+│   │   └── generate_bootanimation.py  # Plymouth boot-animation generator
 │   ├── tests/                   # pytest suite (166 tests, all passing)
 │   │   ├── conftest.py
 │   │   ├── test_brew.py

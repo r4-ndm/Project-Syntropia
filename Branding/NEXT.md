@@ -4,7 +4,7 @@ Working checklist for the Syntropia visual identity. The asset-drop is the
 single folder: `Branding/syntropia/` (the PKGBUILDs copy it into
 `/usr/share/syntropia/branding/`; the transform installs from there).
 
-All tests green (232/232). Live system verified: the transform re-applies
+All tests green (240/240). Live system verified: the transform re-applies
 branding end-to-end, and fastfetch shows the white triangle logo.
 
 ## Status recap
@@ -12,37 +12,33 @@ branding end-to-end, and fastfetch shows the white triangle logo.
 |---|---|
 | `logo.txt` (triangle, 21 rows, `*`/`4`, white via fastfetch color map) | ✅ shipped + live |
 | `fastfetch-color.json` (all `#FFFFFF` — logo renders white) | ✅ shipped + live |
-| `grub/` (clean bg: no splash, GFXMODE=1920x1080, `bgrt_disable`) | ✅ shipped + applied |
+| GRUB | ✅ vanilla CachyOS — the transform leaves it untouched |
 | `calamares/slides/slide1-6.png` + `.jxl` | ✅ amended (build.sh reads `slides/`) |
 | `wallpaper.png` (1920×1080) | ✅ shipped + installed by transform |
-| `plymouth/` boot frames (36 animation + 30 throbber + misc, 74 files) | ⏳ **still stock CachyOS** — the real remaining work |
+| `plymouth/` boot animation (88-frame triangle swarm + 41 throbber) | ✅ triangle particle swarm generated + shipped |
 | `calamares/usr/.../icon.png, logo.png, welcome.png` | ⏳ present but not confirmed re-skinned |
 | Identity (os-release/lsb-release/hostname, limine sync) | ✅ shipped in ISO (build.sh + branding hook) |
 
-## 1. Custom Plymouth boot frames (the main open branding task)
-The boot splash is still the stock CachyOS animation. Regenerate all
-36 animation + 30 throbber frames from the triangle logo mark, using a
-transparent square logo PNG (e.g. `Branding/iuuu66mage8.png` or a cropped
-mark):
+## 1. Custom Plymouth boot animation ✅ done
+The boot splash is now the Syntropia **triangle particle swarm** — an 88-frame
+full-screen animation mirroring CachyOS's `cachyos-bootanimation`: the triangle
+holds full, disperses into a particle scatter, vanishes, then re-forms. It
+ships in `Branding/syntropia/plymouth/` (88 `animation-*.png` + 41
+`throbber-*.png` + `syntropia.plymouth`).
+
+Regenerate the frames from the triangle mark:
 
 ```bash
-python3 phase1/tools/generate_spinner.py \
-  --logo Branding/iuuu66mage8.png \
-  --out Branding/syntropia/plymouth \
-  --frames 30 --throbber 36 --size 32
+python3 phase1/tools/generate_bootanimation.py \
+  --logo Branding/syntropia/menu-icon.png \
+  --out Branding/syntropia/plymouth
 ```
 
-- Overwrites `animation-0001..0036.png` + `throbber-0001..0030.png` in place.
-- Keeps `bullet.png`, `entry.png`, `keyboard.png`, `lock.png`, `capslock.png`,
-  `keymap-render.png`, `watermark.png`, `cachyos.plymouth` as-is.
-- If the mark isn't square, the tool centers it on a transparent 32×32 canvas.
-- Then re-run the transform (or rebuild + reinstall the package) so the new
-  frames land in `/usr/share/plymouth/themes/syntropia/` — the content-hash
-  refresh in `branding.py` re-applies when the shipped frames change.
-- **Flag count check**: the on-disk stock layout is 36 animation + 30 throbber,
-  and the tool's `--frames`/`--throbber` flags map 1:1 to that layout — so to
-  regenerate the full set use `--frames 36 --throbber 30` (NOT the other way
-  around; the original note had them swapped).
+- White particles on transparent (Plymouth composites over black), 300×300.
+- Deterministic (seeded RNG), so rebuilds are reproducible.
+- The branding hook installs it to `/usr/share/plymouth/themes/syntropia` and
+  sets `Theme=syntropia`, overriding CachyOS's `cachyos-bootanimation` (which a
+  CachyOS package installs + selects at install time).
 
 ## 2. Calamares installer icons (GIMP)
 The installer still shows CachyOS branding in three small PNGs:

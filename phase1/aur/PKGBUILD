@@ -1,9 +1,11 @@
 # Maintainer: Syntropia Team <hello@project-syntropia.io>
 # Contributor: r4-ndm
 #
-# Build locally (from repo root — PKGBUILD copied to the repo root):
+# Build locally (from repo root — PKGBUILD + install script copied there):
 #   cd ~/Desktop/Project-Syntropia
-#   cp phase1/aur/PKGBUILD . && makepkg -si && rm PKGBUILD
+#   cp phase1/aur/PKGBUILD phase1/aur/syntropia.install .
+#   makepkg -si
+#   rm PKGBUILD syntropia.install
 #
 # The PKGBUILD also works in place (makepkg --printsrcinfo, namcap) —
 # every path resolves the repo root whether $startdir is the repo root

@@ -148,7 +148,7 @@ Project-Syntropia/
 │   ├── plan.md / tasks.md / requirements.md
 │   ├── cli/syntropia/           # Python package (cli, brew, transform, wine_helper, branding, registry)
 │   ├── brews/                   # 6 .brew manifests
-│   ├── tools/                   # png_to_ascii, generate_spinner
+│   ├── tools/                   # png_to_ascii, generate_bootanimation
 │   ├── tests/                   # 122 pytest tests (all passing)
 │   └── services/                # systemd units
 ├── Branding/syntropia/          # Asset-drop dir (logo, wallpaper, grub, plymouth, calamares)

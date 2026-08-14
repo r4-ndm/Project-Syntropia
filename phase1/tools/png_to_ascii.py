@@ -14,8 +14,8 @@ Two output modes:
   the ``logo.color`` config map (or ``--logo-color-N`` flags). Use
   ``--color-map FILE`` to write the matching map JSON.
 
-Uses ImageMagick (``magick``) for resizing/quantization, like
-``generate_spinner.py`` — no Python dependencies beyond the stdlib.
+Uses ImageMagick (``magick``) for resizing/quantization — no Python
+dependencies beyond the stdlib.
 
 Usage:
     python3 png_to_ascii.py --input Branding/syntropia/mark.png --width 60

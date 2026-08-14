@@ -7,9 +7,9 @@ assets *and* the reference set, merged from the CachyOS official extraction
 Two roles in one folder:
 
 1. **`syntropia transform --branding-dir Branding/syntropia`** consumes the
-   asset-drop layout (plymouth/, grub/, wallpaper.png, logo.txt).
-2. **The ISO builder** (Week 4) consumes the calamares + syslinux pieces for
-   the install image.
+   asset-drop layout (plymouth/, wallpaper.png, logo.txt).
+2. **The ISO builder** (Week 4) consumes the calamares pieces for the install
+   image.
 
 ## Expected layout
 
@@ -20,14 +20,10 @@ syntropia/
 ├── fastfetch-color.json       # color map for logo.txt ($N -> #RRGGBB) — kept
 │                              #   for when color placeholders return
 ├── plymouth/                  # whole boot-splash theme (copied as-is)
-│   ├── cachyos.plymouth      # theme descriptor (keep, rename Name=Syntropia)
-│   ├── animation-0001.png    # 30 frames — regenerable via
-│   ├── ...                   #   phase1/tools/generate_spinner.py
-│   ├── throbber-0001.png     # 36 frames (same script)
-│   └── watermark.png         # the boot-screen logo (256x86, transparent)
-├── grub/
-│   ├── splash.png            # 1920x1080 boot menu background (amended ✓)
-│   └── syslinux-splash.png   # same art, legacy BIOS boot path
+│   ├── syntropia.plymouth    # theme descriptor (Name=Syntropia)
+│   ├── animation-00..87.png  # 88-frame triangle particle swarm — regenerable
+│   │                         #   via phase1/tools/generate_bootanimation.py
+│   └── throbber-00..40.png   # 41 boot-progress frames
 ├── calamares/                # installer branding (for the ISO builder)
 │   ├── slides/               # SINGLE source of truth for slides (amended ✓)
 │   │   └── slide1-6.png + .jxl  # the show.qml slideshow uses 6 slides
@@ -46,8 +42,6 @@ syntropia/
 | `logo.txt` | `/usr/share/syntropia/logo.txt` (fallback: built-in art) | rewrite (idempotent) |
 | `fastfetch-color.json` | merged into fastfetch config `logo.color` | rewrite (idempotent) |
 | `plymouth/` | `/usr/share/plymouth/themes/syntropia/` | `.syntropia-branded` in theme dir |
-| `grub/splash.png` | `/boot/grub/splash.png` | `splash.png.syntropia-branded` |
-| `grub/syslinux-splash.png` | ISO legacy-boot splash (for ISO builder) | n/a |
 | `calamares/slides/slide*.png` + `.jxl` | ISO installer slideshow — build.sh reads these directly (single source of truth) | n/a |
 | `calamares/usr/.../icon.png, logo.png, welcome.png` | Installer logo / window icon / welcome banner | n/a |
 | `wallpaper.png` | `~/.local/share/backgrounds/syntropia/wallpaper.png` | target exists |
@@ -55,10 +49,9 @@ syntropia/
 ## Amended-vs-pending status
 | Piece | Status |
 |---|---|
-| `grub/splash.png` + `syslinux-splash.png` | ✅ amended |
 | `calamares/slides/slide1-6.png` + `.jxl` | ✅ amended |
 | `calamares/.../icon.png`, `logo.png`, `welcome.png` | ⏳ still CachyOS originals |
-| `plymouth/` frames (74 files) | ⏳ still originals — regenerate via spinner tool |
+| `plymouth/` boot animation (triangle swarm) | ✅ generated + shipped |
 | `wallpaper.png` | ✅ amended |
 
 ## Shortcuts
@@ -79,9 +72,10 @@ syntropia/
   `--colors` is the palette size (max 9 — fastfetch's placeholder limit);
   `--threshold` lifts dark pixels to spaces. The transform merges the map
   into the fastfetch config automatically.
-- **Boot spinner frames**: don't hand-edit — run
-  `python3 phase1/tools/generate_spinner.py --logo Branding/syntropia/mark.png --out Branding/syntropia/plymouth --frames 30 --throbber 36`
-  once you have a transparent logo mark.
+- **Boot animation frames**: don't hand-edit — regenerate the 88-frame triangle
+  swarm with
+  `python3 phase1/tools/generate_bootanimation.py --logo Branding/syntropia/menu-icon.png`
+  (defaults write straight into `plymouth/`).
 - **JXL slides**: GIMP can't open JXL — edit the PNG in `calamares/slides/`,
   then regenerate with the canonical libjxl encoder (better fidelity than
   ImageMagick — measured ~6x lower error on these slides). The JXL lives in
