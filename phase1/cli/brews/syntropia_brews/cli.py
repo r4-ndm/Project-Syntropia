@@ -7,6 +7,7 @@ from pathlib import Path
 
 import click
 
+from syntropia.process import run_command
 from syntropia.progress import StepProgress
 from .brew import BrewError, brew_filename, find_brews, lint_brew, load_brew, registry_brew_is_stale, resolve_brew, save_brew
 from .plugins import PluginsError, drop_folder, ensure_drop_folder, stub_for, sync_plugins
@@ -431,6 +432,33 @@ def submit(name: str, registry: str, base: str) -> None:
         raise click.ClickException(str(exc)) from exc
     click.echo(click.style("🚀 PR opened:", fg="green"))
     click.echo(f"   {url}")
+
+
+@cli.group()
+def registry() -> None:
+    """Manage the local brew registry (a git clone of the shared repo)."""
+
+
+@registry.command("sync")
+@click.option("--registry", default=DEFAULT_REGISTRY, show_default=True, help="Registry directory to sync.")
+def registry_sync(registry: str) -> None:
+    """Pull the latest brew manifests from the shared GitHub registry.
+
+    The local registry is a git clone of the shared syntropia-brews repo;
+    this fast-forwards it to origin/main. Read-only — never runs a recipe
+    or touches Wine. Safe to run from a systemd oneshot/timer.
+    """
+    path = Path(_registry_path(registry))
+    if not (path / ".git").is_dir():
+        click.echo(f"brew registry not cloned yet at {path} — nothing to sync")
+        return
+    proc = run_command(["git", "-C", str(path), "pull", "--quiet", "--ff-only", "origin", "main"])
+    if proc.returncode != 0:
+        raise click.ClickException(f"git pull failed in {path}: {proc.stderr.strip()}")
+    if proc.stdout.strip():
+        click.echo(click.style(f"✅ registry synced: {proc.stdout.strip()}", fg="green"))
+    else:
+        click.echo("✅ registry already up to date")
 
 
 @cli.group()

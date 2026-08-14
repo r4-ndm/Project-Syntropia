@@ -273,6 +273,58 @@ def test_save_hints_submit(tmp_path: Path):
     assert "syntropia submit surge-xt" in result.output
 
 
+# --- registry sync ------------------------------------------------------
+
+
+def test_registry_sync_not_cloned_is_noop(tmp_path: Path):
+    registry = tmp_path / "registry"
+    result = _run("registry", "sync", "--registry", str(registry))
+    assert result.exit_code == 0, result.output
+    assert "not cloned yet" in result.output
+
+
+def test_registry_sync_pulls_clone(tmp_path: Path, monkeypatch):
+    registry = tmp_path / "registry"
+    (registry / ".git").mkdir(parents=True)
+    proc = type(
+        "Proc",
+        (),
+        {"returncode": 0, "stdout": "", "stderr": ""},
+    )()
+    monkeypatch.setattr("syntropia_brews.cli.run_command", lambda cmd, **kw: proc)
+    result = _run("registry", "sync", "--registry", str(registry))
+    assert result.exit_code == 0, result.output
+    assert "registry already up to date" in result.output
+
+
+def test_registry_sync_prints_pull_result(tmp_path: Path, monkeypatch):
+    registry = tmp_path / "registry"
+    (registry / ".git").mkdir(parents=True)
+    proc = type(
+        "Proc",
+        (),
+        {"returncode": 0, "stdout": "Fast-forwarded.\n", "stderr": ""},
+    )()
+    monkeypatch.setattr("syntropia_brews.cli.run_command", lambda cmd, **kw: proc)
+    result = _run("registry", "sync", "--registry", str(registry))
+    assert result.exit_code == 0, result.output
+    assert "registry synced: Fast-forwarded." in result.output
+
+
+def test_registry_sync_reports_pull_failure(tmp_path: Path, monkeypatch):
+    registry = tmp_path / "registry"
+    (registry / ".git").mkdir(parents=True)
+    proc = type(
+        "Proc",
+        (),
+        {"returncode": 1, "stdout": "", "stderr": "fatal: not a git repository"},
+    )()
+    monkeypatch.setattr("syntropia_brews.cli.run_command", lambda cmd, **kw: proc)
+    result = _run("registry", "sync", "--registry", str(registry))
+    assert result.exit_code != 0
+    assert "git pull failed" in result.output
+
+
 # --- plugins drop-folder workflow --------------------------------------
 
 
