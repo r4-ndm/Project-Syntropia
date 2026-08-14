@@ -100,11 +100,16 @@ VENV="$SRC/.venv"
 if [[ ! -x "$VENV/bin/syntropia" ]]; then
     say "building venv"
     if [[ "${MODE}" == "--check" ]]; then
-        say "[--check] would create $VENV and pip install -e $SRC/phase1/cli"
+        say "[--check] would create $VENV and pip install -e the three packages under $SRC/phase1/cli"
     else
         python3 -m venv "$VENV"
         "$VENV/bin/pip" install --quiet --upgrade pip
-        "$VENV/bin/pip" install --quiet -e "$SRC/phase1/cli"
+        # Install all three packages: the core (cli/), the brew engine
+        # (cli/brews/), and the rebrand (cli/transform/) — each is its own
+        # distribution with its own pyproject.toml.
+        "$VENV/bin/pip" install --quiet -e "$SRC/phase1/cli" \
+            -e "$SRC/phase1/cli/brews" \
+            -e "$SRC/phase1/cli/transform"
     fi
 fi
 [[ -x "$VENV/bin/syntropia" ]] || die "venv build did not produce syntropia — run the installer without --check first, then re-run with --check for the plan"

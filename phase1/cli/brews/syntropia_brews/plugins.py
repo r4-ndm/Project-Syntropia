@@ -26,7 +26,7 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .process import expand_path, run_command
+from syntropia.process import expand_path, run_command
 
 # The friendly, discoverable drop folder (uppercase so it never collides
 # with the hidden native-Linux ``~/.vst3`` directory).

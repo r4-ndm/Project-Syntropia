@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from syntropia import update as U
+from syntropia_transform import update as U
 
 
 class FakeResult:
@@ -277,7 +277,7 @@ def test_rerun_transform_as_root_runs_in_process(
     def fake_run_transform(**kwargs) -> None:
         calls.append(kwargs)
 
-    monkeypatch.setattr("syntropia.transform.run_transform", fake_run_transform)
+    monkeypatch.setattr("syntropia_transform.transform.run_transform", fake_run_transform)
     U._rerun_transform()
     assert calls == [
         {"check": False, "yes": True, "branding_dir": "/usr/share/syntropia/branding"}
@@ -364,6 +364,22 @@ def test_run_update_unknown_prints_advice(
     monkeypatch.setattr(U, "detect_source", lambda: "unknown")
     monkeypatch.setattr(U, "pull_brews", lambda: (False, "not cloned"))
     U.run_update(check=True)  # should not raise
+
+
+def test_run_update_skips_brews_when_not_installed(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
+):
+    """A rebrand-only install has no `syntropia_brews` — the registry pull
+    must be skipped instead of hinting `syntropia save` (a brews command)."""
+    monkeypatch.setattr(U, "detect_source", lambda: "aur")
+    monkeypatch.setattr(U.importlib.util, "find_spec", lambda name: None)
+    called: list = []
+    monkeypatch.setattr(U, "pull_brews", lambda: called.append(1) or (False, "x"))
+    monkeypatch.setattr(U, "_update_via_pacman", lambda check=False: None)
+    monkeypatch.setattr(U, "_rerun_transform", lambda check=False: None)
+    U.run_update(check=False)
+    assert called == []
+    assert "syntropia-brews not installed" in capsys.readouterr().out
 
 
 def test_run_update_aur_runs_pacman_then_transform(

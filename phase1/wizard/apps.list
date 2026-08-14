@@ -4,8 +4,8 @@
 #   category|display name|package|short description
 #
 # - category: the wizard shows one grouped dialog with a section per
-#   category, in file order (Chat → Browser → DAW → Audio → AI → Terminal →
-#   CLI → Video → Graphics → Wallet)
+#   category, in file order (Syntropia → Chat → Browser → DAW → Audio → AI →
+#   Terminal → CLI → Video → Graphics → Wallet)
 #
 # CLI apps work exactly like any other package line — paru installs them;
 # no launcher or GUI needed (e.g. Freebuff is a CLI app and lives under AI).
@@ -32,6 +32,14 @@
 # - Reaper is in the official extra repo since 7.x; Bitwig is AUR (.deb
 #   repackage). Both are native Linux DAWs.
 # - Ollama (official repo) powers local LLMs for the AI agents.
+
+# Syntropia's own packages — opt in to the tooling and, optionally, the
+# Windows-app helper. `syntropia-cli` is a dependency of both and is pulled
+# automatically, so it isn't listed. Deselect Brews for a no-Wine Syntropia.
+# NOTE: these resolve via paru from the AUR — they must be published there
+# (release tarballs + .SRCINFO) before paru can install them.
+Syntropia|Syntropia|syntropia|Rebrand tooling — syntropia transform + update
+Syntropia|Syntropia Brews|syntropia-brews|Install Windows DAWs and VSTs via Wine + yabridge
 
 Chat|Telegram|telegram-desktop|Messaging app
 Chat|Discord|discord|Voice, video and text chat

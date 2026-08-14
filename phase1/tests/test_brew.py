@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from syntropia.brew import (
+from syntropia_brews.brew import (
     Brew,
     BrewError,
     KNOWN_SECTIONS,
@@ -458,7 +458,7 @@ def test_registry_brew_is_stale_detects_drift(tmp_path: Path, monkeypatch):
     repo.parent.mkdir(parents=True)
     repo.write_text("new manifest", encoding="utf-8")
     monkeypatch.setattr(
-        "syntropia.brew.find_repo_brew",
+        "syntropia_brews.brew.find_repo_brew",
         lambda filename, start=None: repo if filename == "ableton-live-12.brew" else None,
     )
     assert registry_brew_is_stale(registry_file) == repo
@@ -472,7 +472,7 @@ def test_registry_brew_is_stale_same_bytes_returns_none(tmp_path: Path, monkeypa
     repo.parent.mkdir(parents=True)
     repo.write_text("same", encoding="utf-8")
     monkeypatch.setattr(
-        "syntropia.brew.find_repo_brew",
+        "syntropia_brews.brew.find_repo_brew",
         lambda filename, start=None: repo if filename == "x.brew" else None,
     )
     assert registry_brew_is_stale(registry_file) is None

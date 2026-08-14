@@ -12,12 +12,12 @@ post_install() {
     • Installs wine-staging, winetricks, yabridge, yabridgectl
     • Configures PipeWire for low-latency audio (quantum=128)
     • Sets up the Syntropia shell prompt and terminal logo
-    • Installs GRUB splash + Plymouth boot animation
-    • Seeds the brew registry with 6 starter manifests
+    • Installs the Plymouth triangle boot animation
+    • Applies the OS identity, wallpaper, and Plasma menu icon
 
-  Then install your first VST:
+  Want the Windows app helper (Wine + yabridge VST installer)?
 
-      syntropia install surge    # free, good first test
+      paru -S syntropia-brews
 
   Docs: https://github.com/r4-ndm/Project-Syntropia
 

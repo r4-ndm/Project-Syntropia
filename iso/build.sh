@@ -435,11 +435,11 @@ PYEOF
     # NOTE: python3 -c only runs the FIRST argument; later args become
     # sys.argv and silently produce empty output. Use a heredoc instead so
     # the whole program is one stdin stream.
-    PYTHONPATH="$REPO_ROOT/phase1/cli" python3 - \
+    PYTHONPATH="$REPO_ROOT/phase1/cli:$REPO_ROOT/phase1/cli/transform" python3 - \
         "$REPO_ROOT/Branding/syntropia/fastfetch-color.json" \
       > rootfs/etc/skel/.config/fastfetch/config.jsonc 2>/dev/null << 'PYEOF' || true
 import json, sys
-from syntropia.transform import build_fastfetch_conf
+from syntropia_transform.transform import build_fastfetch_conf
 cm = json.load(open(sys.argv[1]))
 print(build_fastfetch_conf(cm), end="")
 PYEOF
@@ -453,7 +453,7 @@ PYEOF
     # (single source of truth — test_transform.py asserts OS_RELEASE_CONTENT)
     # so the ISO and `syntropia transform` can never disagree on the name.
     info "Generating os-release + lsb-release from transform.py..."
-    python3 - "$REPO_ROOT/phase1/cli/syntropia/transform.py" "$logo_dir/branding" << 'PYEOF'
+    python3 - "$REPO_ROOT/phase1/cli/transform/syntropia_transform/transform.py" "$logo_dir/branding" << 'PYEOF'
 import ast, pathlib, sys
 src = pathlib.Path(sys.argv[1]).read_text()
 out = pathlib.Path(sys.argv[2])

@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from syntropia import registry as REG
-from syntropia.registry import RegistryError
+from syntropia_brews import registry as REG
+from syntropia_brews.registry import RegistryError
 
 
 class FakeResult:

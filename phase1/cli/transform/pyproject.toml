@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "syntropia"
+# Version is cosmetic for the wheel — the governed source of truth is
+# syntropia/__init__.py, which all three AUR PKGBUILDs read in pkgver().
+# Bump this alongside syntropia/__init__.py.
+version = "0.1.0"
+description = "Rebrand CachyOS as Syntropia OS (transform + update)"
+requires-python = ">=3.11"
+# Runtime needs the syntropia core (syntropia.process); enforced by the AUR
+# PKGBUILD's depends=(syntropia-cli), not by PyPI.
+dependencies = ["click>=8.0"]
+
+# Registers transform/update into the core `syntropia` group.
+[project.entry-points."syntropia.plugins"]
+transform = "syntropia_transform.cli:register"
+
+[tool.setuptools]
+packages = ["syntropia_transform"]

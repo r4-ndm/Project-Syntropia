@@ -4,7 +4,9 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from syntropia.cli import cli
+from syntropia.cli import cli, register_plugins
+
+register_plugins(cli)
 
 VALID_BREW = """\
 # minimal manifest
@@ -201,7 +203,7 @@ def test_install_warns_when_registry_brew_is_stale(tmp_path: Path, monkeypatch):
     repo.parent.mkdir(parents=True)
     repo.write_text("# fresher\n" + source.read_text(), encoding="utf-8")
     monkeypatch.setattr(
-        "syntropia.brew.find_repo_brew",
+        "syntropia_brews.brew.find_repo_brew",
         lambda filename, start=None: repo if filename == "mystery.brew" else None,
     )
     result = _run("install", "mystery", "--registry", str(registry), "--check")
@@ -216,7 +218,7 @@ def test_install_silent_when_registry_brew_current(tmp_path: Path, monkeypatch):
     _run("save", str(source), "--registry", str(registry))
     # the repo copy is byte-identical to what was saved
     monkeypatch.setattr(
-        "syntropia.brew.find_repo_brew",
+        "syntropia_brews.brew.find_repo_brew",
         lambda filename, start=None: source if filename == "mystery.brew" else None,
     )
     result = _run("install", "mystery", "--registry", str(registry), "--check")
@@ -255,7 +257,7 @@ def test_submit_prints_pr_url(tmp_path: Path, monkeypatch):
     registry = tmp_path / "registry"
     _run("save", str(source), "--registry", str(registry))
     monkeypatch.setattr(
-        "syntropia.cli.submit_brew",
+        "syntropia_brews.cli.submit_brew",
         lambda brew_path, registry, base="main": "https://github.com/r4-ndm/syntropia-brews/pull/9",
     )
     result = _run("submit", "surge-xt", "--registry", str(registry))
@@ -275,14 +277,14 @@ def test_save_hints_submit(tmp_path: Path):
 
 
 def test_plugins_folder_prints_path(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr("syntropia.cli.drop_folder", lambda: tmp_path / "VST3")
+    monkeypatch.setattr("syntropia_brews.cli.drop_folder", lambda: tmp_path / "VST3")
     result = _run("plugins", "folder")
     assert result.exit_code == 0, result.output
     assert str(tmp_path / "VST3") in result.output
 
 
 def test_plugins_folder_create_makes_dir(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr("syntropia.cli.drop_folder", lambda: tmp_path / "VST3")
+    monkeypatch.setattr("syntropia_brews.cli.drop_folder", lambda: tmp_path / "VST3")
     result = _run("plugins", "folder", "--create")
     assert result.exit_code == 0, result.output
     assert (tmp_path / "VST3").is_dir()
@@ -300,7 +302,7 @@ def test_plugins_sync_dry_run_changes_nothing(tmp_path: Path, monkeypatch):
             "dry_run": True,
         },
     )()
-    monkeypatch.setattr("syntropia.cli.sync_plugins", lambda dry_run=False: result_obj)
+    monkeypatch.setattr("syntropia_brews.cli.sync_plugins", lambda dry_run=False: result_obj)
     result = _run("plugins", "sync", "--check")
     assert result.exit_code == 0, result.output
     assert "Dry-run" in result.output
@@ -320,9 +322,9 @@ def test_plugins_sync_reports_bridged(tmp_path: Path, monkeypatch):
             "dry_run": False,
         },
     )()
-    monkeypatch.setattr("syntropia.cli.sync_plugins", lambda dry_run=False: result_obj)
+    monkeypatch.setattr("syntropia_brews.cli.sync_plugins", lambda dry_run=False: result_obj)
     monkeypatch.setattr(
-        "syntropia.cli.stub_for",
+        "syntropia_brews.cli.stub_for",
         lambda plugin, root: stub,
     )
     result = _run("plugins", "sync")
@@ -343,7 +345,7 @@ def test_plugins_sync_empty_folder_message(tmp_path: Path, monkeypatch):
             "dry_run": False,
         },
     )()
-    monkeypatch.setattr("syntropia.cli.sync_plugins", lambda dry_run=False: result_obj)
+    monkeypatch.setattr("syntropia_brews.cli.sync_plugins", lambda dry_run=False: result_obj)
     result = _run("plugins", "sync")
     assert result.exit_code == 0, result.output
     assert "No Windows VST3/VST2/CLAP plugins found" in result.output
@@ -365,7 +367,7 @@ def test_plugins_link_dry_run(tmp_path: Path, monkeypatch):
         },
     )()
     monkeypatch.setattr(
-        "syntropia.cli.link_vendor_data",
+        "syntropia_brews.cli.link_vendor_data",
         lambda vendor, source, target_prefixes=None, dry_run=False: link_result,
     )
     result = _run("plugins", "link", "--data", "Arturia", "--check")
@@ -390,7 +392,7 @@ def test_plugins_link_reports_summary(tmp_path: Path, monkeypatch):
         },
     )()
     monkeypatch.setattr(
-        "syntropia.cli.link_vendor_data",
+        "syntropia_brews.cli.link_vendor_data",
         lambda vendor, source, target_prefixes=None, dry_run=False: link_result,
     )
     result = _run("plugins", "link", "--data", "Arturia")
@@ -399,11 +401,11 @@ def test_plugins_link_reports_summary(tmp_path: Path, monkeypatch):
 
 
 def test_plugins_link_missing_vendor_data(tmp_path: Path, monkeypatch):
-    from syntropia.vendor import VendorError
+    from syntropia_brews.vendor import VendorError
 
     def boom(vendor, source, target_prefixes=None, dry_run=False):
         raise VendorError(f"no '{vendor}' data or registry keys found in {source}")
-    monkeypatch.setattr("syntropia.cli.link_vendor_data", boom)
+    monkeypatch.setattr("syntropia_brews.cli.link_vendor_data", boom)
     result = _run("plugins", "link", "--data", "GhostVendor")
     assert result.exit_code != 0
     assert "no 'GhostVendor' data" in result.output

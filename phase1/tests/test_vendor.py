@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from syntropia import vendor as V
+from syntropia_brews import vendor as V
 
 
 class FakeResult:

@@ -1,98 +1,83 @@
 # Maintainer: Syntropia Team <hello@project-syntropia.io>
 # Contributor: r4-ndm
 #
-# Build locally (from repo root — PKGBUILD + install script copied there):
+# syntropia — the *rebrand*: turns a CachyOS install into Syntropia OS
+# (`syntropia transform` / `syntropia update`) and ships the branding assets.
+# Depends on syntropia-cli (the `syntropia` command shell); syntropia-brews
+# (the app helper) is an optional extra, not a requirement.
+#
+# Build locally (from repo root):
 #   cd ~/Desktop/Project-Syntropia
-#   cp phase1/aur/PKGBUILD phase1/aur/syntropia.install .
+#   cp phase1/aur/syntropia/PKGBUILD phase1/aur/syntropia/syntropia.install .
 #   makepkg -si
 #   rm PKGBUILD syntropia.install
 #
-# The PKGBUILD also works in place (makepkg --printsrcinfo, namcap) —
-# every path resolves the repo root whether $startdir is the repo root
-# or phase1/aur/.
-#
 # For AUR submission: replace the empty source=() with a released source
-# tarball + sha256sums, then submit. The build/package steps are already
-# AUR-shaped (python -m build + installer, no repo-root dependency
-# beyond the version file in pkgver()).
+# tarball + sha256sums. The build/package steps are already AUR-shaped.
 
 pkgname=syntropia
 pkgrel=1
-pkgdesc="Rebranded, audio-optimised CachyOS with Wine/yabridge VST3 support"
+pkgdesc="Rebrand CachyOS as Syntropia OS (transform + update)"
 arch=('any')
 url="https://github.com/r4-ndm/Project-Syntropia"
 install=syntropia.install
 license=('MIT')
-depends=('python' 'python-click')
+depends=('syntropia-cli' 'python')
 optdepends=(
-  'wine-staging: run Windows audio applications (transform installs this)'
+  'wine-staging: the audio stack transform installs'
   'winetricks: install Windows DLLs and components'
   'yabridge: bridge Windows VST3 plugins to Linux'
   'yabridgectl: manage yabridge-bridged plugins'
   'fastfetch: display the Syntropia terminal logo at login'
   'snapper: create pre-transform snapshots (recommended)'
+  'syntropia-brews: install Windows DAWs/VSTs via Wine + yabridge'
 )
 makedepends=('python-build' 'python-installer' 'python-setuptools' 'python-wheel')
 
-# No remote source — the package builds from the surrounding repo
-# checkout (see the header comment). source=() is deliberately empty.
 source=()
 sha256sums=()
 
-# Resolve the repo root whether this PKGBUILD lives at the repo root
-# (local build: cp phase1/aur/PKGBUILD .) or inside phase1/aur/ itself
-# (makepkg --printsrcinfo / namcap).
 _repodir() {
-    if [[ -d "$startdir/phase1/cli" ]]; then
-        # PKGBUILD sits at the repo root (local build: cp phase1/aur/PKGBUILD .)
-        printf '%s\n' "$startdir"
-    elif [[ -d "$startdir/../../phase1/cli" ]]; then
-        # PKGBUILD sits in phase1/aur/ — the repo root is two levels up.
-        printf '%s\n' "$(cd "$startdir/../.." && pwd)"
-    else
-        return 1
-    fi
+    local dir="$startdir"
+    while [[ "$dir" != "/" ]]; do
+        if [[ -d "$dir/phase1/cli" ]]; then
+            printf '%s\n' "$dir"
+            return 0
+        fi
+        dir="$(dirname "$dir")"
+    done
+    return 1
 }
 
-# pkgver is derived from phase1/cli/syntropia/__init__.py (the single
-# source of truth) — bump the version THERE, never here. Per the Arch
-# VCS/package guidelines, the pkgver *variable* must still be declared
-# (makepkg lints it before it ever calls pkgver()); pkgver() below
-# re-reads __init__.py at build time and makepkg autobumps this value
-# if the two ever drift.
+# Shared pkgver source: phase1/cli/syntropia/__init__.py (bumped in lockstep
+# with syntropia-cli and syntropia-brews).
 pkgver=0.1.0
 
 pkgver() {
     local repo initpy
     repo="$(_repodir)" || { error "cannot locate repo (phase1/cli) from $startdir"; return 1; }
     initpy="$repo/phase1/cli/syntropia/__init__.py"
-    # The one place the version lives: phase1/cli/syntropia/__init__.py.
     sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$initpy" | head -1
 }
 
 build() {
     _repo="$(_repodir)" || { error "cannot locate repo (phase1/cli) from $startdir"; return 1; }
 
-    # Copy the Python package source into $srcdir for a clean build
-    # (builds never touch the repo checkout — the checkout carries a
-    # PEP 660 egg-info that breaks in-place wheel builds).
     msg "Copying phase1/cli/ -> $srcdir/cli"
     cp -r "$_repo/phase1/cli" "$srcdir/cli"
     chmod -R u+w "$srcdir/cli"
+    rm -rf "$srcdir/cli/syntropia.egg-info"
+    find "$srcdir/cli" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
 
-    cd "$srcdir/cli"
-    msg "Building Python wheel..."
-    # --no-isolation: use the python-setuptools/python-wheel makedepends
-    # instead of downloading a build env from PyPI. (pip is NOT guaranteed
-    # on a clean build box — python-build is the standard PEP 517 route.)
+    cd "$srcdir/cli/transform"
+    msg "Building syntropia wheel..."
     python -m build --wheel --no-isolation --outdir="$srcdir/dist" .
 }
 
 package() {
     _repo="$(_repodir)" || { error "cannot locate repo (phase1/cli) from $startdir"; return 1; }
 
-    # -- Python package -------------------------------------------------
-    msg "Installing Python package..."
+    msg "Installing syntropia..."
     python -m installer --destdir="$pkgdir" "$srcdir/dist/"*.whl
 
     # -- Branding assets ------------------------------------------------
@@ -106,13 +91,7 @@ package() {
         fi
     done
 
-    # grub/
-    if [[ -d "$_repo/Branding/syntropia/grub" ]]; then
-        cp -r "$_repo/Branding/syntropia/grub" "$_branding/grub"
-        chmod -R 755 "$_branding/grub"
-    fi
-
-    # plymouth/
+    # plymouth/ (the 88-frame triangle boot splash theme)
     if [[ -d "$_repo/Branding/syntropia/plymouth" ]]; then
         cp -r "$_repo/Branding/syntropia/plymouth" "$_branding/plymouth"
         chmod -R 755 "$_branding/plymouth"
@@ -126,24 +105,6 @@ package() {
 
     # calamares/ is deliberately excluded — it's ISO-only (~10 MB of
     # installer slides, useless on an already-installed system).
-
-    # -- Brew manifests (seed registry) ---------------------------------
-    _brews="$pkgdir/usr/share/syntropia/brews"
-    install -d "$_brews"
-    msg "Installing seed brew manifests..."
-    for brew in "$_repo/phase1/brews/"*.brew; do
-        install -m644 "$brew" "$_brews/"
-    done
-
-    # -- Systemd units --------------------------------------------------
-    _units="$pkgdir/usr/lib/systemd/system"
-    install -d "$_units"
-    msg "Installing systemd units..."
-    for unit in syntropia-registry-sync.service syntropia-registry-sync.timer; do
-        if [[ -f "$_repo/phase1/services/$unit" ]]; then
-            install -m644 "$_repo/phase1/services/$unit" "$_units/"
-        fi
-    done
 
     # -- License --------------------------------------------------------
     install -d "$pkgdir/usr/share/licenses/$pkgname"

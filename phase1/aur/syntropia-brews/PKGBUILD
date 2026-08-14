@@ -1,0 +1,123 @@
+# Maintainer: Syntropia Team <hello@project-syntropia.io>
+# Contributor: r4-ndm
+#
+# syntropia-brews — the Syntropia *app helper*: installs Windows DAWs and VST
+# plugins under Wine + yabridge from `.brew` manifests. Depends on
+# syntropia-cli (the `syntropia` command shell) but does NOT pull in the
+# rebrand — this is the package for users who just want the app installer.
+#
+# Build locally (from repo root):
+#   cd ~/Desktop/Project-Syntropia
+#   cp phase1/aur/syntropia-brews/PKGBUILD .
+#   makepkg -si
+#   rm PKGBUILD
+#
+# For AUR submission: replace the empty source=() with a released source
+# tarball + sha256sums.
+
+pkgname=syntropia-brews
+pkgrel=1
+pkgdesc="Syntropia app helper — install Windows DAWs and VSTs via Wine + yabridge"
+arch=('any')
+url="https://github.com/r4-ndm/Project-Syntropia"
+install=syntropia-brews.install
+license=('MIT')
+depends=('syntropia-cli' 'python')
+optdepends=(
+  'wine-staging: run Windows audio applications'
+  'winetricks: install Windows DLLs and components'
+  'yabridge: bridge Windows VST3 plugins to Linux'
+  'yabridgectl: manage yabridge-bridged plugins'
+)
+makedepends=('python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+
+source=()
+sha256sums=()
+
+_repodir() {
+    local dir="$startdir"
+    while [[ "$dir" != "/" ]]; do
+        if [[ -d "$dir/phase1/cli" ]]; then
+            printf '%s\n' "$dir"
+            return 0
+        fi
+        dir="$(dirname "$dir")"
+    done
+    return 1
+}
+
+# Shared pkgver source: phase1/cli/syntropia/__init__.py (bumped in lockstep
+# with syntropia-cli and syntropia).
+pkgver=0.1.0
+
+pkgver() {
+    local repo initpy
+    repo="$(_repodir)" || { error "cannot locate repo (phase1/cli) from $startdir"; return 1; }
+    initpy="$repo/phase1/cli/syntropia/__init__.py"
+    sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$initpy" | head -1
+}
+
+build() {
+    _repo="$(_repodir)" || { error "cannot locate repo (phase1/cli) from $startdir"; return 1; }
+
+    msg "Copying phase1/cli/ -> $srcdir/cli"
+    cp -r "$_repo/phase1/cli" "$srcdir/cli"
+    chmod -R u+w "$srcdir/cli"
+    rm -rf "$srcdir/cli/syntropia.egg-info"
+    find "$srcdir/cli" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
+
+    cd "$srcdir/cli/brews"
+    msg "Building syntropia-brews wheel..."
+    python -m build --wheel --no-isolation --outdir="$srcdir/dist" .
+}
+
+package() {
+    _repo="$(_repodir)" || { error "cannot locate repo (phase1/cli) from $startdir"; return 1; }
+
+    msg "Installing syntropia-brews..."
+    python -m installer --destdir="$pkgdir" "$srcdir/dist/"*.whl
+
+    # -- Brew manifests (seed registry) ---------------------------------
+    _brews="$pkgdir/usr/share/syntropia/brews"
+    install -d "$_brews"
+    msg "Installing seed brew manifests..."
+    for brew in "$_repo/phase1/brews/"*.brew; do
+        install -m644 "$brew" "$_brews/"
+    done
+
+    # -- Systemd units --------------------------------------------------
+    _units="$pkgdir/usr/lib/systemd/system"
+    install -d "$_units"
+    msg "Installing systemd units..."
+    for unit in syntropia-registry-sync.service syntropia-registry-sync.timer; do
+        if [[ -f "$_repo/phase1/services/$unit" ]]; then
+            install -m644 "$_repo/phase1/services/$unit" "$_units/"
+        fi
+    done
+
+    # -- License --------------------------------------------------------
+    install -d "$pkgdir/usr/share/licenses/$pkgname"
+    cat > "$pkgdir/usr/share/licenses/$pkgname/LICENSE" <<'LICEOF'
+MIT License
+
+Copyright (c) 2025-2026 Syntropia Project
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+LICEOF
+}

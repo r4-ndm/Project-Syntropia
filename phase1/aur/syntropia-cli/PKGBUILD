@@ -1,0 +1,114 @@
+# Maintainer: Syntropia Team <hello@project-syntropia.io>
+# Contributor: r4-ndm
+#
+# syntropia-cli — the Syntropia CLI *core*: the `syntropia` command and its
+# plugin host. It ships no features of its own — the brew engine
+# (syntropia-brews) and the rebrand (syntropia) register their subcommands
+# into it at startup via the `syntropia.plugins` entry-point group.
+#
+# Build locally (from repo root):
+#   cd ~/Desktop/Project-Syntropia
+#   cp phase1/aur/syntropia-cli/PKGBUILD .
+#   makepkg -si
+#   rm PKGBUILD
+#
+# The PKGBUILD also works in place (makepkg --printsrcinfo, namcap) — the
+# _repodir() helper walks up from $startdir until it finds phase1/cli.
+#
+# For AUR submission: replace the empty source=() with a released source
+# tarball + sha256sums. The build/package steps are already AUR-shaped
+# (python -m build + installer, no repo-root dependency beyond the version
+# file in pkgver()).
+
+pkgname=syntropia-cli
+pkgrel=1
+pkgdesc="Syntropia CLI core — plugin host for the brews and transform packages"
+arch=('any')
+url="https://github.com/r4-ndm/Project-Syntropia"
+license=('MIT')
+depends=('python' 'python-click')
+makedepends=('python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+
+# No remote source — the package builds from the surrounding repo checkout
+# (see the header comment). source=() is deliberately empty.
+source=()
+sha256sums=()
+
+# Walk up from $startdir (the directory holding this PKGBUILD) until the repo
+# root (the dir containing phase1/cli). Works whether the PKGBUILD sits at the
+# repo root or nested under phase1/aur/syntropia-cli/.
+_repodir() {
+    local dir="$startdir"
+    while [[ "$dir" != "/" ]]; do
+        if [[ -d "$dir/phase1/cli" ]]; then
+            printf '%s\n' "$dir"
+            return 0
+        fi
+        dir="$(dirname "$dir")"
+    done
+    return 1
+}
+
+# pkgver is derived from phase1/cli/syntropia/__init__.py (the single source
+# of truth shared by all three Syntropia packages) — bump the version THERE,
+# never here. pkgver() re-reads it at build time so makepkg autobumps if the
+# variable below ever drifts.
+pkgver=0.1.0
+
+pkgver() {
+    local repo initpy
+    repo="$(_repodir)" || { error "cannot locate repo (phase1/cli) from $startdir"; return 1; }
+    initpy="$repo/phase1/cli/syntropia/__init__.py"
+    # The one place the version lives: phase1/cli/syntropia/__init__.py.
+    sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$initpy" | head -1
+}
+
+build() {
+    _repo="$(_repodir)" || { error "cannot locate repo (phase1/cli) from $startdir"; return 1; }
+
+    # Copy the Python source into $srcdir for a clean build (builds never
+    # touch the repo checkout — the checkout carries a stale PEP 660 egg-info
+    # that breaks in-place wheel builds).
+    msg "Copying phase1/cli/ -> $srcdir/cli"
+    cp -r "$_repo/phase1/cli" "$srcdir/cli"
+    chmod -R u+w "$srcdir/cli"
+    rm -rf "$srcdir/cli/syntropia.egg-info"
+    find "$srcdir/cli" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
+
+    cd "$srcdir/cli"
+    msg "Building syntropia-cli wheel..."
+    # --no-isolation: use the python-setuptools/python-wheel makedepends
+    # instead of downloading a build env from PyPI.
+    python -m build --wheel --no-isolation --outdir="$srcdir/dist" .
+}
+
+package() {
+    msg "Installing syntropia-cli..."
+    python -m installer --destdir="$pkgdir" "$srcdir/dist/"*.whl
+
+    # -- License --------------------------------------------------------
+    install -d "$pkgdir/usr/share/licenses/$pkgname"
+    cat > "$pkgdir/usr/share/licenses/$pkgname/LICENSE" <<'LICEOF'
+MIT License
+
+Copyright (c) 2025-2026 Syntropia Project
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+LICEOF
+}

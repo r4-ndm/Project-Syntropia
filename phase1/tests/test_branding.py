@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from syntropia import branding as B
+from syntropia_transform import branding as B
 
 
 def make_assets(tmp_path: Path) -> Path:

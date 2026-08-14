@@ -1,11 +1,12 @@
-"""syntropia update — pull latest CLI + brews and re-apply branding.
+"""syntropia update — pull the latest Syntropia packages + brews and re-apply branding.
 
 Detects how syntropia was installed and updates from the appropriate
 source, then re-runs the transform to apply any updated branding assets
 or configs. For pacman-tracked installs this runs ``paru -Syu``
-(``yay -Syu`` fallback) — once syntropia is on the AUR, paru is the
-whole CLI-update story, and syntropia update layers the brew registry
-pull + branding re-apply on top.
+(``yay -Syu`` fallback) — paru updates all three packages
+(``syntropia-cli``, ``syntropia-brews``, ``syntropia``), and
+``syntropia update`` layers the brew registry pull + branding re-apply
+on top.
 
 Install sources detected (in priority order):
 * **aur** — installed via pacman (``pacman -Q syntropia``), whether
@@ -19,12 +20,13 @@ Install sources detected (in priority order):
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import shutil
 import subprocess
 from pathlib import Path
 
-from .process import run_command
+from syntropia.process import run_command
 
 
 class UpdateError(Exception):
@@ -159,7 +161,7 @@ def _update_via_pacman(check: bool = False) -> None:
     if check:
         print(f"  [--check] would run: {helper} -Syu")
         return
-    print(f"  🔄 Running {helper} -Syu (this also updates the syntropia package)...")
+    print(f"  🔄 Running {helper} -Syu (this also updates the syntropia packages)...")
     result = subprocess.run([helper, "-Syu"])
     if result.returncode != 0:
         print(
@@ -167,7 +169,7 @@ def _update_via_pacman(check: bool = False) -> None:
             "continuing with brews + transform"
         )
     else:
-        print("  ✅ system packages updated (incl. syntropia)")
+        print("  ✅ system packages updated (incl. syntropia packages)")
 
 
 def _rerun_transform(check: bool = False) -> None:
@@ -234,7 +236,7 @@ def run_update(*, check: bool = False) -> None:
 
     # ── Step 1: pull the CLI / core ──────────────────────────────────
     if source == "aur":
-        print("  📦 Installed via: pacman (syntropia tracked by pacman — AUR or local package)")
+        print("  📦 Installed via: pacman (syntropia packages tracked by pacman — AUR or local package)")
         _update_via_pacman(check=check)
         # Once syntropia is on the AUR, paru -Syu is the whole CLI-update
         # story; we still pull brews and re-run the transform below.
@@ -257,28 +259,35 @@ def run_update(*, check: bool = False) -> None:
     elif source == "pip":
         print("  📦 Installed via: pip")
         if check:
-            print("  [--check] would pip install --upgrade syntropia")
-        # Pip-installed: try to rebuild from the repo if one exists
-        # alongside, otherwise tell the user.
+            print("  [--check] would pip install --upgrade the three packages from the repo")
+        # Pip-installed: try to rebuild all three packages from the repo if
+        # one exists alongside, otherwise tell the user.
         repo = _repo_root()
         if repo is not None:
             print(f"  (found repo at {repo} — rebuilding from source)")
             if not check:
                 result = run_command(
-                    ["pip", "install", "--upgrade", "--no-deps", str(repo / "phase1" / "cli")]
+                    [
+                        "pip", "install", "--upgrade", "--no-deps",
+                        str(repo / "phase1" / "cli"),
+                        str(repo / "phase1" / "cli" / "brews"),
+                        str(repo / "phase1" / "cli" / "transform"),
+                    ]
                 )
                 if result.returncode != 0:
                     raise UpdateError(f"pip install failed: {result.stderr.strip()}")
                 updated_any = True
         else:
-            print("  no local repo found — run: pip install --upgrade syntropia")
+            print("  no local repo found — run: pip install --upgrade syntropia syntropia-cli syntropia-brews")
     else:
         print("  ⚠️  Unknown install source — nothing to pull.")
         print("  If you cloned the repo, set $SYNTROPIA_SRC and try again.")
 
-    # ── Step 2: pull the brew registry ───────────────────────────────
+    # ── Step 2: pull the brew registry (only when brews is installed) ──
     print()
-    if check:
+    if importlib.util.find_spec("syntropia_brews") is None:
+        print("  🍺 syntropia-brews not installed — skipping the brew registry pull")
+    elif check:
         print("  [--check] would pull the brew registry")
     else:
         updated, msg = pull_brews()

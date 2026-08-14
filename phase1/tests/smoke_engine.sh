@@ -18,7 +18,10 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BREW="$REPO_ROOT/phase1/tests/engine-smoke.brew"
 PREFIX="$HOME/.local/share/syntropia/prefixes/engine-smoke-test"
-CLI=(env PYTHONPATH="$REPO_ROOT/phase1/cli" python3 -m syntropia.cli)
+# The three Python distributions live under phase1/cli/ (core, brews/,
+# transform/) — all three must be on PYTHONPATH so `syntropia install`
+# (brews) and the plugin discovery resolve from a bare checkout.
+CLI=(env PYTHONPATH="$REPO_ROOT/phase1/cli:$REPO_ROOT/phase1/cli/brews:$REPO_ROOT/phase1/cli/transform" python3 -m syntropia.cli)
 PTY_TS="$(mktemp)"
 
 # Run the CLI under a PTY (via `script`) so the spinner animates on a real

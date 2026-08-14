@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from syntropia import plugins as PL
+from syntropia_brews import plugins as PL
 
 
 class FakeResult:

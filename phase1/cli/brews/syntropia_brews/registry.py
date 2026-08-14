@@ -16,7 +16,7 @@ from subprocess import CompletedProcess
 from pathlib import Path
 
 from .brew import BrewError, load_brew
-from .process import run_command
+from syntropia.process import run_command
 
 SHARED_REGISTRY_URL = "https://github.com/r4-ndm/syntropia-brews"
 

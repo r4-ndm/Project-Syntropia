@@ -29,11 +29,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .brew import Brew, DEFAULT_SOURCE_LOOK_IN, WINE_BUILD_BIN_DIRS
-from .process import expand_path, run_command
+from syntropia.process import expand_path, run_command
 from .vendor import VendorError, link_vendor_data
 
 if TYPE_CHECKING:
-    from .progress import ProgressBar, StepProgress
+    from syntropia.progress import ProgressBar, StepProgress
 
 DLL_OVERRIDES_REGKEY = r"HKCU\Software\Wine\DllOverrides"
 
@@ -465,7 +465,7 @@ class WineInstaller:
 
     def _download_with_progress(self, url: str, dest: Path) -> None:
         """Download *url* to *dest* with a determinate progress bar."""
-        from .progress import ProgressBar
+        from syntropia.progress import ProgressBar
 
         # Get content-length first.
         import urllib.request

@@ -11,7 +11,9 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from syntropia.cli import cli
+from syntropia.cli import cli, register_plugins
+
+register_plugins(cli)
 
 ABLETON_BREW = """\
 # minimal manifest

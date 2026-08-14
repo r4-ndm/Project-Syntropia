@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from syntropia import wine_helper as WH
-from syntropia.brew import parse_brew
+from syntropia_brews import wine_helper as WH
+from syntropia_brews.brew import parse_brew
 
 SERUM_MANIFEST = {
     "brew": {
@@ -305,7 +305,7 @@ def test_step_vendor_data_links_into_own_prefix(tmp_path: Path, monkeypatch: pyt
     seen: dict = {}
 
     def fake_link(vendor, source_prefix, target_prefixes=None, home=None, dry_run=False):
-        from syntropia.vendor import LinkResult
+        from syntropia_brews.vendor import LinkResult
 
         seen.update(
             vendor=vendor,
@@ -322,7 +322,7 @@ def test_step_vendor_data_links_into_own_prefix(tmp_path: Path, monkeypatch: pyt
             dry_run=dry_run,
         )
 
-    monkeypatch.setattr("syntropia.wine_helper.link_vendor_data", fake_link)
+    monkeypatch.setattr("syntropia_brews.wine_helper.link_vendor_data", fake_link)
     installer.step_vendor_data()
 
     assert seen["vendor"] == "Arturia"
@@ -341,12 +341,12 @@ def test_step_vendor_data_dry_run_plans_without_linking(
     seen: dict = {}
 
     def fake_link(vendor, source_prefix, target_prefixes=None, home=None, dry_run=False):
-        from syntropia.vendor import LinkResult
+        from syntropia_brews.vendor import LinkResult
 
         seen["dry_run"] = dry_run
         return LinkResult(vendor, Path(source_prefix), target_prefixes or [], dry_run=dry_run)
 
-    monkeypatch.setattr("syntropia.wine_helper.link_vendor_data", fake_link)
+    monkeypatch.setattr("syntropia_brews.wine_helper.link_vendor_data", fake_link)
     installer.step_vendor_data()
 
     assert seen["dry_run"] is True
@@ -359,10 +359,10 @@ def test_step_vendor_data_missing_vendor_warns_not_fails(
     installer = WH.WineInstaller(
         parse_brew(_manifest_with_vendor(["Arturia"]), "x.brew"), home=tmp_path
     )
-    from syntropia.vendor import VendorError
+    from syntropia_brews.vendor import VendorError
 
     def fake_link(vendor, source_prefix, target_prefixes=None, home=None, dry_run=False):
         raise VendorError("no 'Arturia' data or registry keys found")
 
-    monkeypatch.setattr("syntropia.wine_helper.link_vendor_data", fake_link)
+    monkeypatch.setattr("syntropia_brews.wine_helper.link_vendor_data", fake_link)
     installer.step_vendor_data()  # must not raise

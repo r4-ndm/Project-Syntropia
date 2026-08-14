@@ -54,10 +54,15 @@ Edit in GIMP (normal PNGs — no format tricks). Keep the same filenames and
 dimensions so they drop straight back in.
 
 ## 3. AUR
-- `syntropia-git` is built and verified (final logo, white map, paru update
-  code) — pending AUR submission.
-- The stable `syntropia` needs a release tarball + sha256sums (see
-  `phase1/aur/PKGBUILD` header).
+- Split into three packages — `syntropia-cli` (core command + plugin host),
+  `syntropia-brews` (app helper), `syntropia` (the rebrand). Local-build
+  PKGBUILDs live under `phase1/aur/<pkgname>/`, all reading pkgver from
+  `phase1/cli/syntropia/__init__.py` (single source).
+- Each needs a release tarball + sha256sums before AUR submission (see the
+  header of each PKGBUILD).
+- The pre-split `syntropia-git` VCS submission was retired — the three stable
+  packages above supersede it. Regenerate a `-git` flavor from them if a
+  VCS package is ever wanted.
 
 ## Verify
 ```bash

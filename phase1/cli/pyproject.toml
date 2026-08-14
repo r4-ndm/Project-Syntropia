@@ -3,11 +3,11 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "syntropia"
+name = "syntropia-cli"
 # Version comes from syntropia/__init__.py (the single source of truth) —
-# the CLI and the AUR PKGBUILD read the same value.
+# the CLI and all three AUR PKGBUILDs' pkgver() read the same value.
 dynamic = ["version"]
-description = "Syntropia — the living computer's CLI"
+description = "Syntropia CLI core — plugin host for the brews and transform packages"
 requires-python = ">=3.11"
 dependencies = ["click>=8.0"]
 
@@ -17,5 +17,8 @@ version = {attr = "syntropia.__version__"}
 [project.scripts]
 syntropia = "syntropia.cli:main"
 
+# The core is the plugin HOST. Feature packages (syntropia-brews,
+# syntropia-transform) declare their own `syntropia.plugins` entry points in
+# their own pyproject.toml files; this project registers none.
 [tool.setuptools]
 packages = ["syntropia"]

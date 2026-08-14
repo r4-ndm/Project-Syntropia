@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .brew import WINE_BUILD_BIN_DIRS
-from .process import run_command
+from syntropia.process import run_command
 
 
 class VendorError(Exception):

@@ -135,7 +135,7 @@ All in Arch/CachyOS repos. The script checks these and exits early if missing.
 
 ### os-release identity drift
 **Cause**: the ISO and `syntropia transform` each carry the identity; a second copy would drift.
-**Fix**: single source of truth = `OS_RELEASE_CONTENT` in `phase1/cli/syntropia/transform.py`. `build.sh` AST-extracts it at build time, and `test_transform.py::test_os_release_identity_contract` pins `ID=syntropia` + `ID_LIKE="arch cachyos"`. Change it in transform.py only.
+**Fix**: single source of truth = `OS_RELEASE_CONTENT` in `phase1/cli/transform/syntropia_transform/transform.py`. `build.sh` AST-extracts it at build time, and `test_transform.py::test_os_release_identity_contract` pins `ID=syntropia` + `ID_LIKE="arch cachyos"`. Change it in transform.py only.
 
 ### "boost.python error in mount job" during Calamares install
 **Cause**: squashfs was rebuilt without proper ownership (e.g., as non-root user with fakeroot).

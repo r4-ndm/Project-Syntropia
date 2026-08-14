@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from syntropia import transform as T
+from syntropia_transform import transform as T
 
 
 class FakeResult:

@@ -1,10 +1,10 @@
 # 😈 Syntropia Apps Wizard
 
 A first-boot "pick your favorites" installer: one grouped checkbox dialog
-(Chat, Browser, DAW, Audio, AI, Terminal, CLI, Video, Graphics, Wallet) that
-installs whatever you check via **paru** — which handles both official-repo
-and AUR packages — with live output in the terminal. All picks install in one
-`paru -S` transaction.
+(Syntropia, Chat, Browser, DAW, Audio, AI, Terminal, CLI, Video, Graphics,
+Wallet) that installs whatever you check via **paru** — which handles both
+official-repo and AUR packages — with live output in the terminal. All picks
+install in one `paru -S` transaction.
 
 It's intentionally a *wrapper around `paru`*: no baked packages, no ISO
 rebuilds, no Calamares surgery. The app list is just a text file, so adding
@@ -75,6 +75,11 @@ after the package install.
 
 ## Notes
 
+- **Syntropia's own packages** are the first category: `syntropia` (the
+  rebrand tooling — `transform`/`update`) and `syntropia-brews` (the optional
+  Windows-app helper). They're plain AUR packages, so a user who wants
+  Syntropia *without* Wine just leaves Brews unchecked; `syntropia-cli` is a
+  dependency of both and is pulled automatically.
 - Windows apps (Ableton, FL Studio) deliberately live **outside** this wizard
   — they need Wine prefixes, which is the `.brew` engine's job
   (`syntropia install ableton-live-12`). This wizard is for native apps.
