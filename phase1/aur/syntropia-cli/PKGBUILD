@@ -11,9 +11,16 @@
 #   makepkg -si
 #
 # The source tarball is shared by all three Syntropia packages; regenerate
-# it from the repo root with:
-#   git archive --format=tar.gz --prefix="syntropia-$pkgver/" \
-#     -o release/syntropia-$pkgver.tar.gz HEAD
+# it from the repo root with — three rules keep the sha256 STABLE across
+# rebuilds: (1) phase1/aur is excluded — it's the packaging itself, which
+# lives in the AUR repos, not in the source tarball; (2) archive HEAD^{tree},
+# not HEAD — HEAD embeds a commit-id pax comment that changes the hash on
+# every commit even when the files don't; (3) ship a plain uncompressed
+# .tar, not .tar.gz — gzip output varies by zlib version, so a compressed
+# hash differs between machines. --mtime is pinned for the same reason:
+#   git archive --format=tar --prefix="syntropia-$pkgver/" \
+#     --mtime="2026-08-14 12:00:00 UTC" \
+#     -o release/syntropia-$pkgver.tar HEAD^{tree} -- . ':(exclude)phase1/aur'
 
 pkgname=syntropia-cli
 pkgrel=1
@@ -29,8 +36,8 @@ makedepends=('python-build' 'python-installer' 'python-setuptools' 'python-wheel
 # them together) — bump it here on each release.
 pkgver=0.1.0
 
-source=("syntropia-$pkgver.tar.gz::https://github.com/r4-ndm/Project-Syntropia/releases/download/v$pkgver/syntropia-$pkgver.tar.gz")
-sha256sums=('68032a768154b75a370f4871979e09c500de604e16c14d9d3fb9dff9d9c0a01d')
+source=("syntropia-$pkgver.tar::https://github.com/r4-ndm/Project-Syntropia/releases/download/v$pkgver/syntropia-$pkgver.tar")
+sha256sums=('358e6be4d4e9c39b26a6e3600033f61e2bbe5ba9c9ef0829d1677fdcfad91802')
 
 build() {
     _repo="$srcdir/syntropia-$pkgver"
@@ -54,6 +61,20 @@ build() {
 package() {
     msg "Installing syntropia-cli..."
     python -m installer --destdir="$pkgdir" "$srcdir/dist/"*.whl
+
+    # -- AUR security audit (standalone stdlib-only script) -------------
+    msg "Installing aur-audit..."
+    install -Dm755 "$_repo/phase1/tools/aur_audit.py" "$pkgdir/usr/bin/aur-audit"
+
+    # -- Systemd units --------------------------------------------------
+    _units="$pkgdir/usr/lib/systemd/system"
+    install -d "$_units"
+    msg "Installing systemd units..."
+    for unit in syntropia-aur-audit.service syntropia-aur-audit.timer; do
+        if [[ -f "$_repo/phase1/services/$unit" ]]; then
+            install -m644 "$_repo/phase1/services/$unit" "$_units/"
+        fi
+    done
 
     # -- License --------------------------------------------------------
     install -d "$pkgdir/usr/share/licenses/$pkgname"
