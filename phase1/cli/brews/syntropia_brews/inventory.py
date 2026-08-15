@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .brew import BrewError, find_brews, load_brew
+from syntropia.process import expand_path
 
 DEFAULT_PREFIX_DIR = "~/.local/share/syntropia/prefixes"
 DEFAULT_DROP_DIR = "~/VST3"
@@ -30,7 +31,12 @@ DEFAULT_REGISTRY = "~/.config/syntropia/brews"
 
 
 def _expand(path: str | Path) -> Path:
-    return Path(os.path.expanduser(str(path)))
+    """Resolve ``~``/``$VAR`` in a path for inventory scanning.
+
+    Thin convenience over ``syntropia.process.expand_path`` (the shared
+    source of truth) so scan call sites stay terse.
+    """
+    return expand_path(str(path), Path.home())
 
 
 # ── Dataclasses ------------------------------------------------------------
