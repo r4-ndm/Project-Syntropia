@@ -37,7 +37,7 @@ makedepends=('python-build' 'python-installer' 'python-setuptools' 'python-wheel
 pkgver=0.1.0
 
 source=("syntropia-$pkgver.tar::https://github.com/r4-ndm/Project-Syntropia/releases/download/v$pkgver/syntropia-$pkgver.tar")
-sha256sums=('358e6be4d4e9c39b26a6e3600033f61e2bbe5ba9c9ef0829d1677fdcfad91802')
+sha256sums=('5bb16239d39b9e61e1de58f62c659e662981ab440fb0c18fa8bba176c7bf340e')
 
 build() {
     _repo="$srcdir/syntropia-$pkgver"
