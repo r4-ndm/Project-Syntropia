@@ -1,5 +1,12 @@
 # 😈 Syntropia Apps Wizard
 
+> ⚠️ **DEPRECATED — do not edit this copy.** The wizard now lives in the
+> standalone **app-wiz4rd** repo (`github.com/r4-ndm/app-wiz4rd`), and the ISO
+> ships from its release tarball (`iso/vendor/app-wiz4rd-*.tar.gz`, pinned by
+> `APP_WIZ4RD_SHA256` in `iso/build.sh`). Change the wizard there, regenerate
+> the tarball, and bump the pinned sha — this `phase1/wizard/` copy is kept
+> only for historical reference and is no longer consumed by the build.
+
 A first-boot "pick your favorites" installer: one grouped checkbox dialog
 (Syntropia, Chat, Browser, DAW, Audio, AI, Terminal, CLI, Video, Graphics,
 Wallet) that installs whatever you check via **paru** — which handles both

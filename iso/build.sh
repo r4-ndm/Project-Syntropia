@@ -29,6 +29,22 @@ CACHYOS_PROFILE_DIR="$WORK_DIR/CachyOS-Live-ISO/archiso"
 # truth. Edit slide{1..6}.png + .jxl in calamares/slides/, nothing else.
 BRANDING_SRC="$REPO_ROOT/Branding/syntropia/calamares/slides"
 
+# Apps wizard: shipped from the app-wiz4rd RELEASE TARBALL (vendored in
+# iso/vendor/, sha256-pinned) so the ISO tracks the standalone repo instead of
+# an in-repo copy — the app-wiz4rd repo is the single source of truth for the
+# wizard. Regenerate from the app-wiz4rd repo root — or just run its
+# scripts/release.sh, which builds both artifacts and prints the sha256sums:
+#   git archive --format=tar --prefix="app-wiz4rd-$APP_WIZ4RD_VERSION/" \
+#     --mtime="2026-08-14 12:00:00 UTC" \
+#     -o release/app-wiz4rd-$APP_WIZ4RD_VERSION.tar HEAD^{tree} -- . ':(exclude)aur' ':(exclude)scripts' ':(exclude).github'
+#   (plain tar, not tar.gz — gzip output varies by zlib version; archive
+#   HEAD^{tree}, not HEAD — HEAD embeds a commit-id pax comment that changes
+#   the hash on every commit even when the files don't)
+# then copy it into iso/vendor/ and set APP_WIZ4RD_SHA256 (sha256sum).
+APP_WIZ4RD_VERSION="0.1.0"
+APP_WIZ4RD_SHA256="429f90ac37e656320813bc4179e732cff7da195466b551093683337d3a2c7773"
+APP_WIZ4RD_TARBALL="$REPO_ROOT/iso/vendor/app-wiz4rd-$APP_WIZ4RD_VERSION.tar"
+
 ISO_DATE="${SOURCE_DATE_EPOCH:-$(date +%s)}"
 ISO_DATE=$(date --date="@$ISO_DATE" +%Y.%m.%d)
 ISO_NAME="syntropia-${ISO_DATE}-x86_64"
@@ -268,15 +284,26 @@ PYEOF
 
     # Step 3.6: Ship the apps wizard into /etc/syntropia/ so the first-boot
     # "pick your favorites" dialog is available on freshly-installed systems.
+    # The wizard is shipped from the app-wiz4rd RELEASE TARBALL (vendored in
+    # iso/vendor/, sha256-pinned) — the standalone app-wiz4rd repo is the
+    # single source of truth, so there is no in-repo copy that can drift.
     # The wizard resolves the catalog as: --config, ~/.config/syntropia/apps.list
     # (user override), /etc/syntropia/apps.list (shipped here), bundled fallback.
-    info "Shipping apps wizard to /etc/syntropia/..."
-    local wizard_src="$REPO_ROOT/phase1/wizard"
+    info "Shipping apps wizard from app-wiz4rd $APP_WIZ4RD_VERSION tarball..."
     local syn_dir="rootfs/etc/syntropia"
+    local wiz_x wiz_sha
+    [[ -f "$APP_WIZ4RD_TARBALL" ]] \
+        || err "app-wiz4rd tarball missing: $APP_WIZ4RD_TARBALL — regenerate it (see APP_WIZ4RD_* at top)"
+    wiz_sha="$(sha256sum "$APP_WIZ4RD_TARBALL" | awk '{print $1}')"
+    [[ "$wiz_sha" == "$APP_WIZ4RD_SHA256" ]] \
+        || err "app-wiz4rd tarball sha256 mismatch — regenerate it and update APP_WIZ4RD_SHA256"
+    wiz_x="$(mktemp -d /tmp/app-wiz4rd.XXXXXX)"
+    bsdtar -xf "$APP_WIZ4RD_TARBALL" -C "$wiz_x"
+    local wizard_src="$wiz_x/app-wiz4rd-$APP_WIZ4RD_VERSION"
     mkdir -p "$syn_dir"
-    cp "$wizard_src/syntropia-apps-wizard.sh" "$syn_dir/"
-    cp "$wizard_src/apps.list" "$syn_dir/"
-    chmod +x "$syn_dir/syntropia-apps-wizard.sh"
+    cp "$wizard_src/app-wiz4rd" "$syn_dir/app-wiz4rd"
+    cp "$wizard_src/apps.list" "$syn_dir/apps.list"
+    chmod +x "$syn_dir/app-wiz4rd"
 
     # The TUI dialog (dialog/syntropia-apps-tui) is the wizard's only
     # frontend — a static binary with zero runtime deps. Ship its source AND
@@ -303,13 +330,16 @@ PYEOF
     cp "$SCRIPT_DIR/hook-scripts/hook-branding-users.sh" "$syn_dir/"
     chmod +x "$syn_dir/hook-branding-users.sh"
 
-    # First-boot autostart entry → /etc/xdg/autostart/: shows the dialog once
-    # at first login (the wizard self-disables via its --once done-marker).
-    mkdir -p rootfs/etc/xdg/autostart
-    sed "s|@SCRIPT@|/etc/syntropia/syntropia-apps-wizard.sh|" \
+    # First-boot autostart entry: shipped as a template in /etc/syntropia/ —
+    # NOT /etc/xdg/autostart/ — so the wizard does NOT fire in the live
+    # session. Step 3.7 copies it into the INSTALLED system's autostart dir,
+    # which is where it belongs (the standalone wizard has no live-env guard
+    # by design; the live/installed gating lives here, not in the wizard).
+    sed "s|@SCRIPT@|/etc/syntropia/app-wiz4rd|" \
         "$wizard_src/syntropia-apps.desktop" \
-        > rootfs/etc/xdg/autostart/syntropia-apps.desktop
-    ok "Apps wizard shipped (/etc/syntropia/ + first-boot autostart)"
+        > "$syn_dir/syntropia-apps.desktop"
+    rm -rf "$wiz_x"
+    ok "Apps wizard shipped (/etc/syntropia/ from app-wiz4rd tarball)"
 
     # Step 3.7: Make the wizard survive the INSTALL — Calamares builds a
     # fresh /etc for the target and does NOT copy our /etc/syntropia or the
@@ -327,7 +357,7 @@ script:
     # a failed install leaves the real error on disk instead of only in the
     # live env's RAM. set -o pipefail keeps the original exit code so a
     # failing command still aborts the install as before.
-    - command: "bash -c 'set -o pipefail; { echo \"=== syntropia_wizard:start $(date) ===\"; mkdir -p ${ROOT}/etc/syntropia && cp -a /etc/syntropia/. ${ROOT}/etc/syntropia/ && mkdir -p ${ROOT}/etc/xdg/autostart && cp -a /etc/xdg/autostart/syntropia-apps.desktop ${ROOT}/etc/xdg/autostart/; echo \"=== syntropia_wizard:exit $? ===\"; } 2>&1 | tee -a ${ROOT}/var/log/syntropia-hooks.log'"
+    - command: "bash -c 'set -o pipefail; { echo \"=== syntropia_wizard:start $(date) ===\"; mkdir -p ${ROOT}/etc/syntropia && cp -a /etc/syntropia/. ${ROOT}/etc/syntropia/ && mkdir -p ${ROOT}/etc/xdg/autostart && cp -a /etc/syntropia/syntropia-apps.desktop ${ROOT}/etc/xdg/autostart/; echo \"=== syntropia_wizard:exit $? ===\"; } 2>&1 | tee -a ${ROOT}/var/log/syntropia-hooks.log'"
       timeout: 120
       verbose: true
 WIZCONF

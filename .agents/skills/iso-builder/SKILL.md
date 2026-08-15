@@ -49,9 +49,9 @@ Located at `iso/build.sh`. Two phases:
 2. **Slides**: copy `slide{1-6}.jxl` into `/usr/share/calamares/branding/cachyos/`
 3. **pacman.conf NoUpgrade+NoExtract** (must stay inside `[options]`): protects the slides AND the Calamares configs we patch — `settings_online.conf`, `settings_offline.conf`, `etc/calamares/modules/pacstrap.conf`, `etc/calamares/modules/users.conf` — from the live-boot `cachyos-calamares-next` update
 4. **display-manager symlink** (plasmalogin, fallback sddm) so the live desktop auto-starts
-5. **Apps wizard + TUI** → `/etc/syntropia/`: `syntropia-apps-wizard.sh` (TUI-only driver), `apps.list`, and `dialog/` (source + a freshly built static TUI binary). First-boot autostart entry → `/etc/xdg/autostart/syntropia-apps.desktop`
+5. **Apps wizard + TUI** → `/etc/syntropia/`: `app-wiz4rd` (TUI-only driver), `apps.list`, and `dialog/` (source + a freshly built static TUI binary), extracted from the vendored `iso/vendor/app-wiz4rd-*.tar.gz` (sha256-pinned — the **app-wiz4rd repo** is the single source of truth; there is no in-repo copy). Autostart entry ships as a template in `/etc/syntropia/syntropia-apps.desktop` (NOT the live autostart dir — see step 6)
 6. **Calamares install wiring** (patched into `settings_online/offline.conf`):
-   - `syntropia_wizard` shellprocess — copies the wizard + autostart entry into the installed root
+   - `syntropia_wizard` shellprocess — copies the wizard + autostart entry into the installed root (autostart comes from `/etc/syntropia/syntropia-apps.desktop`, so the live session stays vanilla)
    - `paru` added to pacstrap `basePackages` — every install ships paru (NoUpgrade-protected)
    - `syntropia_branding` shellprocess — copies branding + identity into the installed root
 7. **Terminal ASCII art** → `/usr/share/syntropia/` (logo.txt, `branding/fastfetch-color.json`) + `/etc/skel/.config/fastfetch/config.jsonc` (generated from the repo's `build_fastfetch_conf` — same single source as `syntropia transform`)
@@ -84,6 +84,45 @@ Phase 1 builds the stock ISO from **CachyOS-Live-ISO git HEAD**, not from CachyO
 ```
 
 This keeps ISO behavior reproducible and turns "why is this ISO different?" into a one-grep answer. Log it in the same commit as the build if you commit one.
+
+## Release source tarball (AUR) — deterministic hash rules
+
+The three AUR PKGBUILDs (`phase1/aur/syntropia-cli`, `-brews`, `syntropia`) all
+fetch one shared source tarball (`release/syntropia-$pkgver.tar`, gitignored)
+and pin its sha256 in `sha256sums=()`. Four rules keep that hash **stable
+across rebuilds** — breaking any one silently breaks the AUR install:
+
+1. **Exclude `phase1/aur` from the tarball.** It's the packaging itself and
+   lives in the AUR repos, not in the source archive. If it's included, editing
+   the sha256sums inside the PKGBUILDs changes the tarball's own hash — a
+   circular dependency that makes the sums unreproducible.
+2. **Archive `HEAD^{tree}`, not `HEAD`.** `git archive HEAD` embeds a
+   `comment=<commit-id>` pax header, so the hash changes on *every* commit even
+   when the shipped files are byte-identical. Archiving the tree drops that
+   header — the hash then depends only on the files, not the commit id.
+3. **Ship plain uncompressed `.tar`, not `.tar.gz`.** gzip output varies by
+   zlib version, so the same files compress to different bytes on Arch vs
+   Ubuntu CI — the sha would pass locally but fail on any other machine. The
+   source is small enough (~11 MB) that compression buys nothing.
+4. **Pin `--mtime`.** Otherwise `git archive` stamps the *current time* as entry
+   mtimes, so the tarball hash changes on every run (same tree, different
+   bytes).
+
+Regenerate command (documented in each PKGBUILD header):
+
+```bash
+git archive --format=tar --prefix="syntropia-$pkgver/" \
+  --mtime="2026-08-14 12:00:00 UTC" \
+  -o release/syntropia-$pkgver.tar HEAD^{tree} -- . ':(exclude)phase1/aur'
+```
+
+After regenerating, update all three `sha256sums=` and regenerate each
+`.SRCINFO` (`makepkg --printsrcinfo > .SRCINFO`). Verify with `makepkg -o` on a
+scratch copy — it must report `Validating source files with sha256sums… Passed`.
+
+> `app-wiz4rd` follows the same rules (it was where both the `HEAD^{tree}` and
+> plain-`.tar` lessons were learned), with the extra exclusion of `.github/`
+> and `scripts/` from its source archive.
 
 ## Why two phases?
 
@@ -159,10 +198,10 @@ All in Arch/CachyOS repos. The script checks these and exits early if missing.
 
 ## Typical workflow
 
-1. Edit the source of truth (slides PNGs, `phase1/wizard/apps.list`, `dialog/main.go`, `transform.py` OS_RELEASE_CONTENT, etc.) and commit
+1. Edit the source of truth (slides PNGs, `transform.py` OS_RELEASE_CONTENT, etc.) and commit. Wizard changes happen in the **app-wiz4rd repo** (`github.com/r4-ndm/app-wiz4rd`): edit there, regenerate its release tarball into `iso/vendor/`, and update `APP_WIZ4RD_SHA256` in `build.sh` (see the header comment there for the exact `git archive` command)
 2. **Only when refreshing the base:** run phase 1 (`iso/build.sh --phase1`), then append the one-line entry to `iso/BASE-REFRESH.md` (date, upstream commit, known breakage) per the base-refresh policy above
 3. Build: `sudo env SOURCE_DATE_EPOCH=$(date -d <stock-date> +%s) iso/build.sh --phase2`
-4. Verify it baked in: `bsdtar -xf` the ISO, `unsquashfs` the sfs, and diff the shipped files against the repo (wizard script, os-release, apps.list, TUI binary)
+4. Verify it baked in: `bsdtar -xf` the ISO, `unsquashfs` the sfs, and diff the shipped files against the vendored tarball (wizard script, os-release, apps.list, TUI binary)
 5. Fresh-install test in the VM: reset the disk (fresh qcow2), attach the ISO as cdrom (boot order 1), boot, run Calamares, reboot from disk
 6. Verify: wizard fires at first login, `fastfetch`/`lsb_release`/hostname report Syntropia, no limine-snapper notification
 

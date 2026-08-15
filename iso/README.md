@@ -42,7 +42,7 @@ The CachyOS branding slides come from the `cachyos-calamares-next` package. We c
 Output: `iso/out/syntropia-YYYY.MM.DD-x86_64.iso`
 
 Phase 2 also ships the rest of the Syntropia install experience (not just slides):
-the apps wizard + TUI (`/etc/syntropia/`), paru in pacstrap `basePackages`, the
+the apps wizard + TUI (`/etc/syntropia/`, from the vendored app-wiz4rd release tarball in `iso/vendor/`), paru in pacstrap `basePackages`, the
 fastfetch ASCII-art branding (`/usr/share/syntropia/`), the **Syntropia identity**
 (`os-release`/`lsb-release` generated from `transform.py`, copied into the installed
 `/etc/` at install time), the `syntropia-${cpu}` hostname default, and the limine
