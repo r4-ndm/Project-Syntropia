@@ -13,9 +13,10 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+
+from syntropia.process import run_command, scan_processes
 
 from .branding import Branding, BrandingPaths
 
@@ -37,6 +38,10 @@ SYNTROPIA_DIRS_REL = [
 ]
 
 PIPEWIRE_QUANTUM = 128
+
+# Packaged branding asset dir — single source of truth, reused by update.py
+# and the transform CLI so the path can't drift between modules.
+BRANDING_DIR = "/usr/share/syntropia/branding"
 
 OS_RELEASE_CONTENT = (
     'NAME="Syntropia"\n'
@@ -157,7 +162,7 @@ class TransformPaths:
     os_release: Path = Path("/etc/os-release")
     logo_dir: Path = Path("/usr/share/syntropia")
     usr_local_bin: Path = Path("/usr/local/bin")
-    branding_dir: Path = Path("/usr/share/syntropia/branding")
+    branding_dir: Path = Path(BRANDING_DIR)
 
     @property
     def logo_path(self) -> Path:
@@ -226,11 +231,6 @@ class TransformPaths:
         return None
 
 
-def run_command(cmd: list[str]) -> subprocess.CompletedProcess:
-    """Run a command and capture output. Wrapped for test mocking."""
-    return subprocess.run(cmd, capture_output=True, text=True)
-
-
 class Transform:
     def __init__(self, paths: TransformPaths, *, dry_run: bool) -> None:
         self.paths = paths
@@ -262,17 +262,7 @@ class Transform:
         its prefix's wineserver up — would be disrupted mid-flight.
         """
         servers: list[str] = []
-        try:
-            entries = sorted(proc_root.iterdir(), key=lambda p: p.name)
-        except OSError:
-            return servers
-        for entry in entries:
-            if not entry.name.isdigit():
-                continue
-            try:
-                cmdline = (entry / "cmdline").read_bytes().decode("utf-8", "replace")
-            except OSError:
-                continue
+        for _pid, _environ, cmdline in scan_processes(proc_root):
             argv = cmdline.split("\0")
             if argv and "wineserver" in argv[0]:
                 servers.append(argv[0])

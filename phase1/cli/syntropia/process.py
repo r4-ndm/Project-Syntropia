@@ -38,3 +38,32 @@ def expand_path(value: str, home: Path) -> Path:
     if not path.is_absolute():
         path = home / path
     return path
+
+
+def scan_processes(proc_root: Path = Path("/proc")) -> list[tuple[int, str, str]]:
+    """Scan ``/proc`` and return ``(pid, environ, cmdline)`` per process.
+
+    ``environ`` is best-effort (``""`` when unreadable — kernel threads, or
+    test fixtures that only create ``cmdline``); ``cmdline`` is required and
+    unreadable entries are skipped. Both are decoded lossily
+    (``errors="replace"``) — good enough for matching a prefix path or
+    binary name, never for exact byte round-trips.
+    """
+    results: list[tuple[int, str, str]] = []
+    try:
+        entries = sorted(proc_root.iterdir(), key=lambda p: p.name)
+    except OSError:
+        return results
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        try:
+            cmdline = (entry / "cmdline").read_bytes().decode("utf-8", "replace")
+        except OSError:
+            continue
+        try:
+            environ = (entry / "environ").read_bytes().decode("utf-8", "replace")
+        except OSError:
+            environ = ""
+        results.append((int(entry.name), environ, cmdline))
+    return results

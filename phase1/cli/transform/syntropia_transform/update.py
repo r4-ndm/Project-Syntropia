@@ -28,6 +28,8 @@ from pathlib import Path
 
 from syntropia.process import run_command
 
+from .transform import BRANDING_DIR
+
 
 class UpdateError(Exception):
     """An update step failed."""
@@ -133,8 +135,6 @@ def pull_brews() -> tuple[bool, str]:
     return pull_git(registry)
 
 
-TRANSFORM_BRANDING_DIR = "/usr/share/syntropia/branding"
-
 AUR_HELPERS = ("paru", "yay")
 
 
@@ -192,7 +192,7 @@ def _rerun_transform(check: bool = False) -> None:
     if os.geteuid() == 0:
         from .transform import run_transform as _run_transform
 
-        _run_transform(check=False, yes=True, branding_dir=TRANSFORM_BRANDING_DIR)
+        _run_transform(check=False, yes=True, branding_dir=BRANDING_DIR)
         return
 
     binary = shutil.which("syntropia")
@@ -212,16 +212,6 @@ def _rerun_transform(check: bool = False) -> None:
         raise UpdateError(
             f"transform re-run failed (exit {result.returncode}) — see output above"
         )
-
-
-def changelog(repo: Path, n: int = 5) -> str:
-    """Show the last n commits in the repo."""
-    if not (repo / ".git").is_dir():
-        return ""
-    result = run_command(
-        ["git", "log", "--oneline", f"-{n}"], cwd=repo
-    )
-    return result.stdout.strip()
 
 
 def run_update(*, check: bool = False) -> None:

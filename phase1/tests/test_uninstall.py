@@ -48,9 +48,13 @@ def _set_up_stragglers(home: Path) -> dict:
     desktop.write_text("[Desktop Entry]\nName=Ableton Live 12\n", encoding="utf-8")
 
     # Our kill script
-    kill = home / ".local/bin/ableton-kill"
+    kill = home / ".local/bin/ableton-live-12-kill"
     kill.parent.mkdir(parents=True, exist_ok=True)
     kill.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    # Our launcher script
+    launcher = home / ".local/bin/ableton-live-12"
+    launcher.write_text("#!/bin/sh\nexec wine start\n", encoding="utf-8")
 
     # Icon + straggler frames
     icons = home / ".local/share/icons/hicolor/256x256/apps"
@@ -135,7 +139,8 @@ def test_uninstall_sweeps_all_stragglers(tmp_path: Path, monkeypatch):
     # Everything must be gone
     assert not dirs["prefix"].exists()
     assert not (home / ".local/share/applications/ableton-live-12.desktop").exists()
-    assert not (home / ".local/bin/ableton-kill").exists()
+    assert not (home / ".local/bin/ableton-live-12-kill").exists()
+    assert not (home / ".local/bin/ableton-live-12").exists()
     assert not (dirs["icons"] / "ableton-live-12.png").exists()
     assert not (dirs["icons"] / "ableton-live-12-3.png").exists()
     assert not (

@@ -171,28 +171,6 @@ def test_pull_brews_no_registry_cloned(
     assert "not cloned" in msg
 
 
-# -- changelog ----------------------------------------------------------
-
-
-def test_changelog_returns_log(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    (repo / ".git").mkdir()
-
-    def fake_run(cmd: list, cwd=None) -> FakeResult:
-        return FakeResult(0, stdout="1 commit\n2 commit\n3 commit\n")
-
-    monkeypatch.setattr(U, "run_command", fake_run)
-    log = U.changelog(repo, n=3)
-    assert "1 commit" in log
-
-
-def test_changelog_empty_for_non_repo(tmp_path: Path):
-    assert U.changelog(tmp_path) == ""
-
-
 # -- _update_via_pacman ----------------------------------------------
 
 

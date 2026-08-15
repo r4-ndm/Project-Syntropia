@@ -22,9 +22,10 @@ from __future__ import annotations
 import hashlib
 import re
 import shutil
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+
+from syntropia.process import run_command
 
 MARKER = ".syntropia-branded"
 
@@ -33,11 +34,6 @@ PLYMOUTH_THEME_NAME = "syntropia"
 
 class BrandingError(Exception):
     """A branding step failed or the asset set is incomplete."""
-
-
-def run_command(cmd: list[str]) -> subprocess.CompletedProcess:
-    """Run a command and capture output. Wrapped for test mocking."""
-    return subprocess.run(cmd, capture_output=True, text=True)
 
 
 def _dir_hash(directory: Path) -> str:

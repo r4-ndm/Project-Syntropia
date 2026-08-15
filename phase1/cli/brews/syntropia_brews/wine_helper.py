@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .brew import Brew, DEFAULT_SOURCE_LOOK_IN, WINE_BUILD_BIN_DIRS
-from syntropia.process import expand_path, run_command
+from syntropia.process import expand_path, run_command, scan_processes
 from .vendor import VendorError, link_vendor_data
 
 if TYPE_CHECKING:
@@ -223,18 +223,7 @@ class WineInstaller:
         """
         target = os.path.realpath(self.prefix)
         holders: set[str] = set()
-        try:
-            entries = sorted(proc_root.iterdir(), key=lambda p: p.name)
-        except OSError:
-            return []
-        for entry in entries:
-            if not entry.name.isdigit():
-                continue
-            try:
-                environ = (entry / "environ").read_bytes().decode("utf-8", "replace")
-                cmdline = (entry / "cmdline").read_bytes().decode("utf-8", "replace")
-            except OSError:
-                continue  # not ours to read — can't be our prefix's server
+        for _pid, environ, cmdline in scan_processes(proc_root):
             has_prefix = False
             for part in environ.split("\0"):
                 if part.startswith("WINEPREFIX="):

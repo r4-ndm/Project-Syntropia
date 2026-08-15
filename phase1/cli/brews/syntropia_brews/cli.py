@@ -13,6 +13,7 @@ from .brew import BrewError, brew_filename, find_brews, lint_brew, load_brew, re
 from .plugins import PluginsError, drop_folder, ensure_drop_folder, stub_for, sync_plugins
 from .vendor import VendorError, link_vendor_data
 from .registry import RegistryError, submit_brew
+from .uninstall import uninstall_brew
 from .wine_helper import STEP_LABELS, WineHelperError, WineInstaller
 
 DEFAULT_REGISTRY = "~/.config/syntropia/brews"
@@ -219,185 +220,13 @@ def uninstall(name: str, registry: str, yes: bool) -> None:
             f"and all associated files -- pass --yes to confirm"
         )
 
-    import glob as _glob
-    import shutil
-    import subprocess
-
-    from .brew import slugify_name
-
-    slug = slugify_name(brew.name)
-    prefix = Path(brew.wine_prefix).expanduser()
-    removed: list[str] = []
-
-    # --- Kill ALL wine processes using this prefix ---
-    # `wineserver -k` alone leaves orphaned children (winedevice.exe etc.) that
-    # keep a zombie launcher on the taskbar's window list. Scan /proc for any
-    # process whose WINEPREFIX or cmdline references the prefix and kill it.
-    import os
-    import signal as _signal
-
-    prefix_str = str(prefix)
-    killed = 0
-    for pid in os.listdir("/proc"):
-        if not pid.isdigit():
-            continue
-        try:
-            with open(f"/proc/{pid}/environ", "rb") as fh:
-                env_text = fh.read().decode("utf-8", errors="replace")
-            with open(f"/proc/{pid}/cmdline", "rb") as fh:
-                cmd_text = fh.read().decode("utf-8", errors="replace").replace("\0", " ")
-        except OSError:
-            continue
-        if f"WINEPREFIX={prefix_str}" in env_text or prefix_str in cmd_text:
-            try:
-                os.kill(int(pid), _signal.SIGKILL)
-                killed += 1
-            except ProcessLookupError:
-                pass
-            except PermissionError:
-                pass
-    click.echo(f"  killed {killed} wine process(es) for {prefix}")
-
-    # --- Remove prefix ---
-    if prefix.exists():
-        shutil.rmtree(prefix, ignore_errors=True)
-        removed.append(str(prefix))
-        click.echo(f"  removed prefix {prefix}")
-    else:
-        click.echo(f"  prefix already absent: {prefix}")
-
-    # --- Remove desktop file ---
-    desktop_dir = Path.home() / ".local/share/applications"
-    for cand in (
-        desktop_dir / f"{slug}.desktop",
-        desktop_dir / "ableton-live-12.desktop",  # legacy hard-coded name
-    ):
-        if cand.exists():
-            cand.unlink()
-            removed.append(str(cand))
-            click.echo(f"  removed {cand}")
-
-    # --- Remove kill script ---
-    for cand in (
-        Path.home() / ".local/bin" / f"{slug}-kill",
-        Path.home() / ".local/bin" / "ableton-kill",  # legacy
-    ):
-        if cand.exists():
-            cand.unlink()
-            removed.append(str(cand))
-            click.echo(f"  removed {cand}")
-
-    # --- Remove icons (base + straggler frames from ICO extraction) ---
-    icon_dir = Path.home() / ".local/share/icons/hicolor/256x256/apps"
-    for pattern in (f"{slug}.png", f"{slug}-*.png"):
-        for icon in sorted(_glob.glob(str(icon_dir / pattern))):
-            Path(icon).unlink()
-            removed.append(icon)
-            click.echo(f"  removed icon straggler {icon}")
-
-    # --- Legacy icon sweep (pre-slugify era) ---
-    for legacy_pattern in ("ableton-live-12.png", "ableton-live-12-*.png"):
-        for icon in sorted(_glob.glob(str(icon_dir / legacy_pattern))):
-            Path(icon).unlink()
-            removed.append(icon)
-            click.echo(f"  removed legacy icon {icon}")
-
-    # --- Wine menu stragglers (winemenubuilder entries) ---
-    # winemenubuilder.exe drops .desktop entries under applications/wine/ that
-    # reference the brew's prefix directly (Exec=/Path= point inside it) plus a
-    # wine-protocol-<name>.desktop and hashed icons under hicolor. Sweep any
-    # desktop file whose contents mention the prefix, then remove the icons it
-    # referenced and prune now-empty directories.
-    wine_apps = Path.home() / ".local/share/applications/wine"
-    removed_desktops: list[Path] = []
-    if wine_apps.exists():
-        for cand in sorted(wine_apps.rglob("*.desktop")):
-            try:
-                text = cand.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            if str(prefix) in text or f"{slug}.desktop" in text:
-                cand.unlink(missing_ok=True)
-                removed.append(str(cand))
-                removed_desktops.append(cand)
-                click.echo(f"  removed wine menu entry {cand}")
-                # Remove icons referenced by this entry (hashed wine icon names)
-                for line in text.splitlines():
-                    if line.startswith("Icon=") and line.strip() != "Icon=":
-                        icon_name = line[5:].strip().rstrip("\r")
-                        for icon_hit in _glob.glob(
-                            str(Path.home() / ".local/share/icons/hicolor" / "*" / "apps" / f"{icon_name}.png")
-                        ):
-                            Path(icon_hit).unlink(missing_ok=True)
-                            removed.append(icon_hit)
-                            click.echo(f"  removed wine icon {icon_hit}")
-        # Prune empty dirs left behind by the sweep
-        for empty in sorted(
-            (d for d in wine_apps.rglob("*") if d.is_dir() and not any(d.iterdir())),
-            key=lambda p: -len(p.parts),
-        ):
-            empty.rmdir()
-
-    # --- wine-protocol-<name>.desktop (MIME handler) ---
-    protocol_file = Path.home() / ".local/share/applications" / f"wine-protocol-{slug}.desktop"
-    if protocol_file.exists():
-        protocol_file.unlink()
-        removed.append(str(protocol_file))
-        click.echo(f"  removed {protocol_file}")
-
-    # --- Cinnamon taskbar/menu stragglers ---
-    # The panel's window list (grouped-window-list) pins launchers and the
-    # Cinnamenu applet keeps a recent-apps list — both store .desktop names in
-    # JSON. Dead entries there survive file deletion and keep an icon pinned.
-    import json as _json
-
-    _cinnamon_swept = 0
-    spices_dir = Path.home() / ".config/cinnamon/spices"
-    if spices_dir.exists():
-        for cfg in sorted(spices_dir.rglob("*.json")):
-            try:
-                raw = cfg.read_text(encoding="utf-8", errors="replace")
-                data = _json.loads(raw)
-            except (OSError, ValueError):
-                continue
-            changed = False
-
-            def _strip_app(refs: list) -> list:
-                nonlocal changed
-                kept = []
-                for ref in refs:
-                    ref_s = str(ref)
-                    if (
-                        ref_s == f"{slug}.desktop"
-                        or f"wine-Programs-{slug}" in ref_s.replace(" ", "-").lower()
-                        or any(x in ref_s.lower() for x in (slug, brew.name.lower()))
-                    ):
-                        changed = True
-                        continue
-                    kept.append(ref)
-                return kept
-
-            def _walk(node) -> None:
-                if isinstance(node, dict):
-                    for k, v in node.items():
-                        if isinstance(v, list):
-                            node[k] = _strip_app(v)
-                        else:
-                            _walk(v)
-                elif isinstance(node, list):
-                    for item in node:
-                        _walk(item)
-
-            _walk(data)
-            if changed:
-                cfg.write_text(_json.dumps(data, indent=4), encoding="utf-8")
-                _cinnamon_swept += 1
-                click.echo(f"  removed {brew.name} from {cfg}")
-    if _cinnamon_swept:
-        removed.append(f"{_cinnamon_swept} cinnamon config(s)")
-
+    removed = uninstall_brew(brew, echo=click.echo)
     if removed:
-        click.echo(click.style(f"Uninstalled {brew.name} -- {len(removed)} items removed", fg="green"))
+        click.echo(
+            click.style(
+                f"Uninstalled {brew.name} -- {len(removed)} items removed", fg="green"
+            )
+        )
     else:
         click.echo("Nothing to remove -- already clean.")
 

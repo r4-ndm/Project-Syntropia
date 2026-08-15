@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import click
 
-from .transform import TransformError, run_transform
+from .transform import BRANDING_DIR, TransformError, run_transform
 from .update import UpdateError, run_update
-
-DEFAULT_BRANDING_DIR = "/usr/share/syntropia/branding"
 
 
 @click.group(name="syntropia-transform")
@@ -22,7 +20,7 @@ def cli() -> None:
 @click.option(
     "--branding-dir",
     "branding_dir",
-    default=DEFAULT_BRANDING_DIR,
+    default=BRANDING_DIR,
     show_default=True,
     metavar="DIR",
     help="Directory with amended assets (plymouth/, wallpaper.png, menu-icon.png, splash/).",
