@@ -17,6 +17,7 @@ engine for those.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -48,6 +49,30 @@ class InstalledApp:
     @property
     def location(self) -> str:
         return str(self.prefix_path)
+
+
+@dataclass
+class WindowsProgram:
+    """One program installed *inside* a Wine prefix.
+
+    Read from the prefix registry's Add/Remove Programs entries, so it
+    reflects what the Windows installer actually registered — not just
+    the prefix directory name.
+    """
+
+    name: str
+    prefix_path: Path
+    # The Uninstall subkey name (usually a GUID) — what ``wine uninstaller
+    # --remove`` accepts to run that program's own uninstaller.
+    registry_key: str = ""
+    version: str = ""
+    publisher: str = ""
+    # Windows InstallLocation path, e.g. ``C:\\Program Files\\Arturia``.
+    location: str = ""
+    uninstall_string: str = ""
+    # The brew manifest's [wine] version for this prefix ("" = system wine),
+    # so a custom build (ableton-wine) can be resolved when uninstalling.
+    wine_version: str = ""
 
 
 @dataclass
@@ -97,6 +122,7 @@ class Inventory:
     """The full picture, as the GUI shows it."""
 
     installed_apps: list[InstalledApp] = field(default_factory=list)
+    windows_programs: list[WindowsProgram] = field(default_factory=list)
     windows_plugins: list[WindowsPlugin] = field(default_factory=list)
     linux_plugins: list[LinuxPlugin] = field(default_factory=list)
     registry_brews: list[RegistryBrew] = field(default_factory=list)
@@ -104,6 +130,7 @@ class Inventory:
     def counts(self) -> dict[str, int]:
         return {
             "apps": len(self.installed_apps),
+            "windows_programs": len(self.windows_programs),
             "windows_vsts": len(self.windows_plugins),
             "linux_vsts": len(self.linux_plugins),
             "brews": len(self.registry_brews),
@@ -173,6 +200,178 @@ def scan_installed_apps(
         size = _dir_size(entry) if with_sizes else 0
         apps.append(InstalledApp(name=name, prefix_path=entry, brew=brew_path, size_bytes=size))
     return apps
+
+
+# ── Windows program discovery (prefix registry) ----------------------------
+
+# Top-level Add/Remove Programs keys, per hive. Keys are written with each
+# backslash doubled (Wine's text registry escapes '\'); we match the unescaped
+# path so both the 64-bit and WOW6432Node hives resolve to the same check.
+_HKLM_UNINSTALL = (
+    r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
+    r"Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+)
+
+# Entries whose ReleaseType marks them as a patch/update, not an app — the
+# same filter Windows' own Add/Remove Programs applies.
+_SKIP_RELEASE_TYPES = {"update", "hotfix", "security update", "service pack"}
+
+# Noise every Wine prefix ships: Wine's own Mono/Gecko support components and
+# MSVC redistributables. Neither is a user-facing app, so hiding them keeps
+# the list focused on what was actually installed on top.
+_SKIP_PUBLISHERS = {"the wine project"}
+_SKIP_NAME_PREFIXES = ("microsoft visual c++",)
+
+_VALUE_RE = re.compile(r'^"([^"]+)"=(.*)$')
+
+
+def _section_key(line: str) -> str | None:
+    """Return the unescaped registry key path for a section-header line.
+
+    ``[Software\\Microsoft\\...]`` -> ``Software\\Microsoft\\...``. Returns
+    ``None`` when the line is not a section header.
+    """
+    line = line.strip()
+    if not line.startswith("[") or "]" not in line:
+        return None
+    return line[1 : line.index("]")].replace("\\\\", "\\")
+
+
+def _parse_value(line: str) -> tuple[str, str]:
+    """Parse one ``"Name"="value"`` (or typed) registry line -> (name, value).
+
+    Non-string values (dword/hex) return an empty value — the Uninstall
+    fields we surface are all strings.
+    """
+    m = _VALUE_RE.match(line)
+    if not m:
+        return "", ""
+    name = m.group(1)
+    raw = m.group(2).strip()
+    if raw.startswith('"'):
+        body = raw[1:]
+        if body.endswith('"'):
+            body = body[:-1]
+        return name, body.replace('\\"', '"').replace("\\\\", "\\")
+    if ":" in raw:
+        payload = raw.partition(":")[2].strip()
+        if payload.startswith('"') and payload.endswith('"'):
+            return name, payload[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+    return name, ""
+
+
+def _collect_uninstall(
+    programs: list[WindowsProgram],
+    lines: list[str],
+    prefix: Path,
+    wine_version: str,
+    seen: set[str],
+) -> None:
+    """Extract Add/Remove Programs entries from one registry file's lines."""
+    current_key = ""
+    current: dict[str, str] = {}
+    is_system_component = False
+
+    def flush() -> None:
+        nonlocal current, is_system_component
+        name = current.get("DisplayName", "")
+        if (
+            name
+            and not is_system_component
+            and "ParentKeyName" not in current
+            and current.get("ReleaseType", "").lower() not in _SKIP_RELEASE_TYPES
+            and current.get("Publisher", "").strip().lower() not in _SKIP_PUBLISHERS
+            and not any(name.lower().startswith(p) for p in _SKIP_NAME_PREFIXES)
+            and name not in seen
+        ):
+            seen.add(name)
+            programs.append(
+                WindowsProgram(
+                    name=name,
+                    prefix_path=prefix,
+                    registry_key=current_key,
+                    version=current.get("DisplayVersion", ""),
+                    publisher=current.get("Publisher", ""),
+                    location=current.get("InstallLocation", ""),
+                    uninstall_string=current.get("UninstallString", ""),
+                    wine_version=wine_version,
+                )
+            )
+        current = {}
+        is_system_component = False
+
+    for line in lines:
+        if line.startswith("["):
+            flush()
+            key = _section_key(line)
+            current_key = ""
+            if key is not None:
+                for base in _HKLM_UNINSTALL:
+                    if key.startswith(base + "\\"):
+                        name = key[len(base) + 1 :]
+                        # A subkey (e.g. {GUID}\variables) still has a
+                        # backslash in its name — only the entry key itself
+                        # is a plain component.
+                        if name and "\\" not in name:
+                            current_key = name
+                        break
+            continue
+        if not current_key:
+            continue
+        if line.startswith('"SystemComponent"=dword:'):
+            is_system_component = True
+            continue
+        name, value = _parse_value(line)
+        if name:
+            current[name] = value
+    flush()
+
+
+def scan_windows_programs(
+    prefix_dir: str | Path = DEFAULT_PREFIX_DIR,
+    wine_versions: dict[str, str] | None = None,
+) -> list[WindowsProgram]:
+    """List the programs installed inside each Wine prefix.
+
+    Reads each provisioned prefix's ``system.reg`` and ``user.reg`` and
+    collects the top-level Add/Remove Programs entries (64-bit and
+    WOW6432Node hives). System components, patches, and child update keys
+    are skipped, mirroring Windows' own Add/Remove Programs filter.
+    """
+    root = _expand(prefix_dir)
+    versions = wine_versions or {}
+    programs: list[WindowsProgram] = []
+
+    if not root.is_dir():
+        return programs
+
+    for prefix in sorted(root.iterdir()):
+        if not prefix.is_dir() or not (prefix / "drive_c").is_dir():
+            continue
+        seen: set[str] = set()  # dedupe across hives and registry files
+        wine_version = versions.get(str(prefix), "")
+        for reg_file in (prefix / "system.reg", prefix / "user.reg"):
+            if not reg_file.is_file():
+                continue
+            try:
+                lines = reg_file.read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError:
+                continue
+            _collect_uninstall(programs, lines, prefix, wine_version, seen)
+    return programs
+
+
+def windows_location_to_host(prefix: Path, location: str) -> Path | None:
+    """Map a Windows install path to its host filesystem location.
+
+    ``C:\\Program Files\\Arturia`` -> ``<prefix>/drive_c/Program Files/Arturia``.
+    Returns ``None`` when *location* is not a rooted drive path.
+    """
+    norm = location.strip().replace("\\", "/")
+    m = re.match(r"^([A-Za-z]):/?(.*)$", norm)
+    if not m:
+        return None
+    return prefix / f"drive_{m.group(1).lower()}" / m.group(2)
 
 
 def scan_windows_plugins(
@@ -272,8 +471,21 @@ def scan_all(
     with_sizes: bool = False,
 ) -> Inventory:
     """Scan everything at once — one call the GUI uses at startup."""
+    apps = scan_installed_apps(prefix_dir, registry, with_sizes=with_sizes)
+    # Carry each prefix's wine version (from its brew manifest) into the
+    # program scan, so the GUI can resolve a custom build (ableton-wine)
+    # when it runs a program's uninstaller.
+    wine_versions: dict[str, str] = {}
+    for app in apps:
+        if app.brew is None:
+            continue
+        try:
+            wine_versions[str(app.prefix_path)] = load_brew(app.brew).wine_version
+        except BrewError:
+            continue
     return Inventory(
-        installed_apps=scan_installed_apps(prefix_dir, registry, with_sizes=with_sizes),
+        installed_apps=apps,
+        windows_programs=scan_windows_programs(prefix_dir, wine_versions),
         windows_plugins=scan_windows_plugins(drop_dir, linux_vst3_dir),
         linux_plugins=scan_linux_plugins(linux_vst3_dir),
         registry_brews=scan_registry(registry),
