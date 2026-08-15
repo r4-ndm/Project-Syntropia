@@ -41,7 +41,7 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 ### Health Checks
 - [x] **Implement pre-flight checks** - Verify system compatibility before transformation
 - [x] **Add rollback capability** - snapper snapshot before transform (safety rule)
-- [x] **Create validation tests** - 242 pytest tests all passing
+- [x] **Create validation tests** - 270 pytest tests all passing
 
 ---
 
@@ -54,7 +54,7 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 
 ### Boot Experience
 - [x] **Design GRUB theme** - Dark cosmic theme splash installed by transform
-- [ ] **Create custom Plymouth animation** - 36 frames exist but are **stock CachyOS**. Need Syntropia-themed infinity swarm assembling animation.
+- [x] **Create custom Plymouth animation** - 88-frame triangle particle swarm (Branding/syntropia/plymouth/, generate_bootanimation.py) replaced the stock CachyOS frames
 - [x] **Package boot assets** - GRUB splash, Plymouth theme, wallpaper all in `Branding/syntropia/`
 
 ### System Identity
@@ -79,7 +79,7 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 ### Winetricks Integration
 - [x] **Automate `winetricks` package installation** - Install required DLLs and components
 - [ ] **Create package cache** - Cache downloaded winetricks packages
-- [ ] **Add progress reporting** - Show installation progress to user
+- [x] **Add progress reporting** - Show installation progress to user (StepProgress + elapsed timer)
 
 ### Registry System (AUR-style)
 - [x] **Implement Nidavellir local registry** - Directory storage at `~/.config/syntropia/brews/` (your personal AUR checkout)
@@ -119,7 +119,7 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 
 ### VST3 Directory Management
 - [x] **Ensure VST3 drop folder creation** - Auto-create `~/VST3` if missing (brew installs and manual drops both land here)
-- [ ] **Implement plugin scanning** - Detect installed VST3 plugins
+- [x] **Implement plugin scanning** - Detect installed VST3 plugins (inventory.py scans drop-folder + native VST3s)
 - [ ] **Add directory verification** - Check permissions and accessibility
 
 ### Yabridge Integration
@@ -135,7 +135,7 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 ### Performance Optimization
 - [ ] **Implement caching system** - Cache downloaded installers and components
 - [ ] **Add parallel processing** - Install multiple components concurrently where safe
-- [ ] **Create progress indicators** - Show installation progress and estimated time
+- [x] **Create progress indicators** - Show installation progress (StepProgress/ProgressBar)
 
 ---
 
@@ -144,7 +144,7 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 ### AUR Package
 - [x] **Create the three `PKGBUILD`s** - `phase1/aur/{syntropia-cli,syntropia-brews,syntropia}/` each wrap their own `phase1/cli/` project (python -m build + installer, installs to `/usr/`): `syntropia-cli` ships the core command, `syntropia-brews` ships the engine + seed manifests + systemd units, `syntropia` ships the transform + branding assets + `syntropia.install` scriptlet; all three read pkgver from `phase1/cli/syntropia/__init__.py` (single source of truth)
 - [x] **Test `makepkg -si`** - all three `makepkg` builds verified (0.1.0-1, correct file split: core / brews+units / branding); wheels build and entry-point plugin discovery works (core-only shows no commands, brews-only shows only brews)
-- [ ] **Submit to AUR** - Push the three PKGBUILDs to the AUR so `paru -S syntropia` (rebrand) and `paru -S syntropia-brews` (app helper) work (each needs a released source tarball + sha256sums per the header comment)
+- [ ] **Submit to AUR** - Push the three PKGBUILDs to the AUR so `paru -S syntropia` (rebrand) and `paru -S syntropia-brews` (app helper) work. Source tarball released + sha256sums pinned (v0.1.0); blocked only on the AUR account.
 - [x] **Add `syntropia update` subcommand** - Pull brews, check AUR, re-run transform (verified with a real transform re-run on the local machine)
 
 ### One-liner Installer
@@ -156,7 +156,7 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 - [x] **VM boot testing** - Verified in QEMU/KVM, ISO boots and Calamares runs
 - [x] **Calamares slides** - 6 slides baked in, single source of truth in `Branding/syntropia/calamares/slides/`
 - [ ] `syntropia download-iso` - CLI command for ISO discovery (deferred)
-- [ ] SHA256 checksums - For release distribution (deferred)
+- [x] SHA256 checksums - Release tarball sha256 pinned in all three PKGBUILDs + .SRCINFO (v0.1.0)
 
 ---
 
@@ -188,7 +188,7 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 - [x] **Test registry ops** - Save, remove, submit, validation
 - [x] **Test PNG-to-ASCII** - Logo conversion pipeline
 - [x] **Test wine helper** - Env building, prefix provisioning, dry-run, toolchain checks
-- **Result**: 242 tests, all passing ✅
+- **Result**: 270 tests, all passing ✅
 
 ### Integration Testing
 - [ ] **Test complete brew installation** - End-to-end test of `syntropia install` with real installer
@@ -219,7 +219,7 @@ A first-boot **popup GUI with checkboxes** for popular apps (Telegram, Wezterm, 
 - [x] ~~**Write `syntropia-apps-dialog.py`**~~ - REMOVED (superseded by the TUI): the PySide6/qt grid, kdialog and zenity fallbacks were deleted when the TUI became the only frontend — the wizard is a thin TUI-only driver now
 - [x] **Autostart-once desktop entry** - `syntropia-apps.desktop` template; `--once` self-disables via done-marker
 - [x] **Ship in ISO** - `iso/build.sh` phase 2 copies wizard + `apps.list` + dialog into rootfs `/etc/syntropia/` and installs a first-boot autostart entry (`/etc/xdg/autostart/`); shipped copy resolves its bundled catalog (verified against a scratch rootfs); the `syntropia_toolchain` hook that preinstalled **brave-bin + paru** was REMOVED — the ISO stays stock CachyOS and the TUI bootstraps paru itself at first use; branding hook now also copies the fastfetch config + fish greeting into **existing** target user homes (skel is written after Calamares creates the user, so skel-only writes never reach the first user)
-- [ ] **Ship via transform** - Same files into installed systems (`syntropia transform` + `--install-autostart`)
+- [x] ~~**Ship via transform**~~ - SUPERSEDED: the wizard is the standalone app-wiz4rd repo and ships in the ISO from its release tarball (build.sh step 3.6), not via `syntropia transform`
 - [x] **paru dependency solved for ISO installs** - the TUI bootstraps paru inline (`sudo pacman -S paru`) when missing; kdialog/qt/zenity paths fail with a clear message (not a crash) when no toolkit exists
 - [x] ~~**Brave = default browser**~~ - REVERTED (keep CachyOS vanilla): no default-browser hack; Brave is a normal first-boot pick in the dialog like every other app
 - [x] ~~**No wallet prompt over the grid**~~ - REMOVED with the browser dialog: the `kwalletrc` `[KSecretD]` hack died with the web dialog — the TUI needs no browser, so no keyring request exists to silence
@@ -260,7 +260,7 @@ Every Syntropia install ships **intelligence alongside the app**: a `SKILL.md` d
 
 ### In Progress (Week 3 equiv.)
 - [ ] Phase 1.3: Prove a brew end-to-end with a real Windows installer
-- [ ] Phase 1.2: Custom Plymouth animation (replace stock CachyOS frames)
+- [x] Phase 1.2: Custom Plymouth animation (replace stock CachyOS frames)
 
 ### New (Agent Skill Layer)
 - [ ] Phase 1.8: Per-brew `SKILL.md` installed by `syntropia install` (stack, fixes, logs, uninstall)
@@ -272,10 +272,10 @@ Every Syntropia install ships **intelligence alongside the app**: a `SKILL.md` d
 - [x] Phase 1.9: Wizard shipped via ISO `/etc/syntropia/` (build.sh phase 2); transform path still open
 
 ### Remaining (Week 4 equiv.)
-- [ ] Phase 1.5: AUR PKGBUILD + `syntropia update` subcommand
+- [x] Phase 1.5: AUR PKGBUILD + `syntropia update` subcommand
 - [ ] Phase 1.6: Git Butler `syn` script
 - [ ] Phase 1.7: Integration testing, documentation
 
 ---
 
-**Last Updated**: `syntropia update` real-run fixed — step 3 re-applies the transform via a fresh `sudo syntropia transform --yes` subprocess (clean `UpdateError` instead of an uncaught `TransformError`); update was previously crashing on non-root machines. Phase 1.9 wizard + ISO path still open
+**Last Updated**: v0.1.0 source tarball released on GitHub (sha `5bb16239`) + pushed to origin/main; uninstall extraction, Windows Programs tab, and the shared-helper dedupe all committed. Remaining Phase 1.5 step is the AUR push (blocked on account).

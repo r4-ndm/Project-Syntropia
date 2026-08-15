@@ -259,7 +259,7 @@ Project-Syntropia/
 │   ├── tools/                   # Dev utilities
 │   │   ├── png_to_ascii.py      # PNG to ASCII art converter
 │   │   └── generate_bootanimation.py  # Plymouth boot-animation generator
-│   ├── tests/                   # pytest suite (242 tests, all passing)
+│   ├── tests/                   # pytest suite (270 tests, all passing)
 │   │   ├── conftest.py
 │   │   ├── test_brew.py
 │   │   ├── test_cli.py
@@ -306,12 +306,12 @@ Project-Syntropia/
 - [ ] `syntropia install` proves end-to-end with a real installer (Serum or Vital)
 - [ ] VST3 runs in a DAW with <=10ms round-trip latency
 - [ ] AUR packages real and installable (`makepkg -si` succeeds, `paru -S syntropia` / `paru -S syntropia-brews` work)
-- [ ] `syntropia update` subcommand works (pull brews + re-apply transform)
-- [ ] Custom Plymouth boot animation (replace stock CachyOS frames)
+- [x] `syntropia update` subcommand works (pull brews + re-apply transform)
+- [x] Custom Plymouth boot animation (replace stock CachyOS frames)
 
 ### Quality Gates
 - **Performance**: Audio latency <=10ms round-trip
-- **Reliability**: Transform script idempotent and safe (242 tests, all passing)
+- **Reliability**: Transform script idempotent and safe (270 tests, all passing)
 - **Usability**: CLI intuitive and well-documented
 - **Compatibility**: Works on target hardware configurations
 
