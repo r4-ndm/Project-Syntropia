@@ -12,6 +12,8 @@ description = "Syntropia app helper — install Windows DAWs and VSTs via Wine +
 requires-python = ">=3.11"
 # Runtime needs the syntropia core (syntropia.process / syntropia.progress);
 # enforced by the AUR PKGBUILD's depends=(syntropia-cli), not by PyPI.
+# textual is only used by `syntropia brews-gui` — on Arch it's the
+# python-textual package (added to the AUR PKGBUILD's depends), not PyPI.
 dependencies = ["click>=8.0"]
 
 # Registers install/save/submit/plugins/... into the core `syntropia` group.

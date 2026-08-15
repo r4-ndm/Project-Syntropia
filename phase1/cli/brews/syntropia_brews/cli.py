@@ -27,6 +27,19 @@ def cli() -> None:
     """Install Windows DAWs and VSTs via Wine + yabridge."""
 
 
+@cli.command("brews-gui")
+def brews_gui() -> None:
+    """Open the Textual GUI — inventory, locations, install/uninstall."""
+    try:
+        from .gui import run
+    except ImportError as exc:
+        raise click.ClickException(
+            "the brew GUI needs the 'textual' package — "
+            "install python-textual (Arch: pacman -S python-textual)"
+        ) from exc
+    run()
+
+
 @cli.command()
 @click.argument("brew", metavar="NAME_OR_FILE")
 @click.option("--registry", default=DEFAULT_REGISTRY, show_default=True, help="Registry directory to resolve brew names against.")
