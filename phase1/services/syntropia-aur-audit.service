@@ -1,0 +1,15 @@
+[Unit]
+Description=Weekly AUR security audit (compromised-package cross-check)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Read-only audit: lists foreign packages (pacman -Qm), cross-checks them
+# against the known-compromised lists, scans build caches, and flags
+# installs inside attack windows. Does NOT install, modify, or remove
+# anything — no elevated action beyond reading pacman's database.
+#
+# Exit codes: 0 = clean, 1 = issues found (unit shows as failed, so
+# `systemctl --failed` surfaces it), 2 = audit error (e.g. pacman missing).
+ExecStart=/usr/bin/aur-audit

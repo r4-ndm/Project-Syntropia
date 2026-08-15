@@ -1,0 +1,12 @@
+[Unit]
+Description=Weekly AUR security audit
+
+[Timer]
+# Weekly — the compromised-package lists update irregularly, and the audit
+# itself is fast (~seconds) so a catch-up run after downtime is cheap.
+OnCalendar=weekly
+Persistent=true
+RandomizedDelaySec=30min
+
+[Install]
+WantedBy=timers.target

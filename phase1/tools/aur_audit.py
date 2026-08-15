@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -169,13 +170,23 @@ def fetch_compromised() -> list[str]:
 
 
 def scan_caches() -> list[Path]:
-    """Find suspicious-named binaries in ~/.cache/paru and ~/.cache/yay."""
+    """Find suspicious-named binaries in ~/.cache/paru and ~/.cache/yay.
+
+    Covers the current user's cache plus, when running as root (e.g. from a
+    systemd timer), every real user's cache under /home/*.
+    """
     hits: list[Path] = []
-    for cache_dir in (Path.home() / ".cache" / "paru", Path.home() / ".cache" / "yay"):
-        if not cache_dir.is_dir():
-            continue
-        for pattern in SUSPICIOUS_NAMES:
-            hits.extend(cache_dir.glob(f"**/{pattern}"))
+    cache_roots = [Path.home()]
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        for entry in Path("/home").iterdir() if Path("/home").is_dir() else []:
+            if entry.is_dir():
+                cache_roots.append(entry)
+    for root in cache_roots:
+        for cache_dir in (root / ".cache" / "paru", root / ".cache" / "yay"):
+            if not cache_dir.is_dir():
+                continue
+            for pattern in SUSPICIOUS_NAMES:
+                hits.extend(cache_dir.glob(f"**/{pattern}"))
     return hits
 
 
