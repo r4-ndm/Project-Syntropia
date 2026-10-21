@@ -46,9 +46,13 @@ def call_lib(
 # --- limine.conf generation -----------------------------------------------
 
 def write_conf(tmp_path: Path, cmdline: str = "root=UUID=abc rootflags=subvol=@ rw",
-               lts: str = "0") -> Path:
+               lts: str = "0", splash: str | None = None) -> Path:
     boot = tmp_path / "boot"
-    result = call_lib("limine_conf_write", str(boot), cmdline, lts, tmp_path=tmp_path)
+    # Always pass an explicit splash: the default points into the live ISO's
+    # /usr/share/syntropia, which would make these tests host-dependent.
+    splash = splash or str(tmp_path / "no-splash.png")
+    result = call_lib("limine_conf_write", str(boot), cmdline, lts, splash,
+                      tmp_path=tmp_path)
     assert result.returncode == 0, result.stderr
     return boot / "limine.conf"
 
@@ -78,6 +82,29 @@ def test_conf_without_lts_kernel_has_one_entry(tmp_path: Path) -> None:
     conf = write_conf(tmp_path, lts="0")
     assert len(entry_lines(conf)) == 1
     assert "lts" not in conf.read_text().lower()
+
+
+def test_conf_omits_wallpaper_without_a_splash(tmp_path: Path) -> None:
+    text = write_conf(tmp_path).read_text()
+    assert "wallpaper:" not in text
+    assert not (tmp_path / "boot" / "syntropia-splash.png").exists()
+
+
+def test_conf_uses_the_syntropia_wallpaper_when_shipped(tmp_path: Path) -> None:
+    splash = tmp_path / "branding" / "wallpaper.png"
+    splash.parent.mkdir()
+    splash.write_bytes(b"png-bytes")
+
+    conf = write_conf(tmp_path, splash=str(splash))
+    text = conf.read_text()
+
+    # The image is copied onto the ESP (Limine loads it from the boot volume)
+    # and referenced, so the Calamares path's limineSplashLogo has a TUI twin.
+    assert (tmp_path / "boot" / "syntropia-splash.png").read_bytes() == b"png-bytes"
+    assert "wallpaper: boot():/syntropia-splash.png" in text
+    assert "wallpaper_style: stretched" in text
+    # Still exactly one menu entry: the wallpaper is a global option.
+    assert len(entry_lines(conf)) == 1
 
 
 def test_conf_with_lts_kernel_adds_second_entry(tmp_path: Path) -> None:
@@ -322,13 +349,14 @@ def run_hook(root: Path, tmp_path: Path) -> subprocess.CompletedProcess:
     )
 
 
-def make_root(tmp_path: Path, conf: str, default_limine: str = "") -> Path:
+def make_root(tmp_path: Path, conf: str, default_limine: str | None = "") -> Path:
     root = tmp_path / "target"
     (root / "boot").mkdir(parents=True)
     (root / "boot" / "limine.conf").write_text(conf)
     (root / "etc").mkdir()
-    (root / "etc" / "default").mkdir()
-    (root / "etc" / "default" / "limine").write_text(default_limine)
+    if default_limine is not None:
+        (root / "etc" / "default").mkdir()
+        (root / "etc" / "default" / "limine").write_text(default_limine)
     return root
 
 
@@ -354,10 +382,48 @@ def test_hook_renames_bare_cachyos_entry_once(tmp_path: Path) -> None:
     assert 'TARGET_OS_NAME="CachyOS Syntropia"' in pinned
 
 
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "/+CachyOS",           # CachyOS' own installer / limine-entry-tool
+        "/+Syntropia",          # Calamares limine module via branding.desc
+        "/Syntropia OS",        # no `+` (expanded-directory marker) variant
+        "/CachyOS",             # no `+`, no branding
+        "/+CachyOS Syntropia",  # already canonical: must stay unchanged
+    ],
+)
+def test_hook_normalises_every_installer_spelling(tmp_path: Path, entry: str) -> None:
+    """Both installers must end up with the one name limine-snapper-sync is
+    pinned to, and a second run must be a no-op."""
+    root = make_root(tmp_path, f"timeout: 3\n{entry}\n    protocol: linux\n")
+
+    for _ in range(2):
+        result = run_hook(root, tmp_path)
+        assert result.returncode == 0, result.stderr
+        entries = [
+            line for line in (root / "boot" / "limine.conf").read_text().splitlines()
+            if line.startswith("/")
+        ]
+        assert entries == ["/+CachyOS Syntropia"]
+
+    pinned = (root / "etc" / "default" / "limine").read_text()
+    assert pinned.count("TARGET_OS_NAME") == 1
+
+
+def test_hook_creates_the_target_os_pin_when_the_file_is_absent(tmp_path: Path) -> None:
+    root = make_root(tmp_path, "timeout: 3\n/+CachyOS\n", default_limine=None)
+
+    result = run_hook(root, tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    pinned = root / "etc" / "default" / "limine"
+    assert pinned.read_text() == 'TARGET_OS_NAME="CachyOS Syntropia"\n'
+
+
 def test_hook_leaves_runner_generated_entry_untouched(tmp_path: Path) -> None:
     boot = tmp_path / "generated" / "boot"
     write = call_lib("limine_conf_write", str(boot), "root=UUID=abc rw", "0",
-                     tmp_path=tmp_path)
+                     str(tmp_path / "no-splash.png"), tmp_path=tmp_path)
     assert write.returncode == 0, write.stderr
 
     root = make_root(tmp_path, (boot / "limine.conf").read_text())

@@ -492,12 +492,13 @@ EOF
         warn "wizard dialog/ dir missing — TUI not shipped"
     fi
 
-    # Calamares shellprocess hook helper: the branding hook runs its shell
-    # logic through this script because the module macro-expands commands
-    # with KWordMacroExpander('$') — bare $vars in a command string are
-    # treated as undefined macros and abort the job (see the hook comment).
+    # Calamares shellprocess hook helpers: both hooks run their shell logic
+    # through scripts because the module macro-expands commands with
+    # KWordMacroExpander('$') — bare $vars in a command string are treated as
+    # undefined macros and abort the job (see the hook comment).
     cp "$SCRIPT_DIR/hook-scripts/hook-branding-users.sh" "$syn_dir/"
-    chmod +x "$syn_dir/hook-branding-users.sh"
+    cp "$SCRIPT_DIR/hook-scripts/hook-limine.sh" "$syn_dir/"
+    chmod +x "$syn_dir/hook-branding-users.sh" "$syn_dir/hook-limine.sh"
 
     # First-boot autostart entry: shipped as a template in /etc/syntropia/ —
     # NOT /etc/xdg/autostart/ — so the wizard does NOT fire in the live
@@ -888,6 +889,51 @@ for name in ("settings_online.conf", "settings_offline.conf"):
 PYEOF
     ok "Branding copy wired into Calamares"
 
+    # Step 3.9b: Verify the Limine install the Calamares bootloader module made.
+    # That module is CachyOS' (limine.conf + `limine bios-install` + efibootmgr),
+    # so the check runs immediately after it and before umount: a disk that
+    # would not boot fails the install here, with the reason on the target in
+    # /var/log/syntropia-hooks.log, instead of at the next reboot. The checks
+    # are in hook-limine.sh.
+    info "Wiring the Limine bootloader check into Calamares install..."
+    cat > "rootfs/etc/calamares/modules/shellprocess_syntropia_limine.conf" << 'LIMINECONF'
+---
+dontChroot: true
+timeout: 180
+script:
+    # Runs in the LIVE env with ${ROOT} = the target mount point. All logic is
+    # in /etc/syntropia/hook-limine.sh — a command string cannot hold shell
+    # variables (KWordMacroExpander expands them, see the branding hook).
+    # A non-zero exit aborts the install on purpose: an unbootable disk is
+    # worse than a failed install.
+    - command: "bash /etc/syntropia/hook-limine.sh ${ROOT}"
+      timeout: 180
+      verbose: true
+LIMINECONF
+    python3 - "rootfs" << 'PYEOF'
+import sys, pathlib
+root = pathlib.Path(sys.argv[1])
+for name in ("settings_online.conf", "settings_offline.conf"):
+    p = root / "usr/share/calamares" / name
+    if not p.exists():
+        continue
+    text = p.read_text()
+    if "- id:       syntropia_limine" in text:
+        continue
+    instance = (
+        "\n- id:       syntropia_limine\n"
+        "  module:   shellprocess\n"
+        "  config:   shellprocess_syntropia_limine.conf\n"
+    )
+    text = text.replace("\n\nsequence:", instance + "\nsequence:")
+    # Right after the bootloader module — that is the step this verifies.
+    if "- shellprocess@syntropia_limine" not in text:
+        text = text.replace("- bootloader\n",
+                            "- bootloader\n  - shellprocess@syntropia_limine\n", 1)
+    p.write_text(text)
+PYEOF
+    ok "Limine bootloader check wired into Calamares"
+
     # Step 3.85: Rebrand Calamares installer, strip generic multi-OS chooser, and disable cachyos-hello
     info "Patching Calamares to offer Syntropia only (removing generic multi-OS/desktop choosers)..."
     for bdesc in rootfs/usr/share/calamares/branding/*/branding.desc rootfs/etc/calamares/branding/*/branding.desc; do
@@ -924,17 +970,38 @@ EOF
     done
     ok "KWin configured to open installer in center of screen"
 
-    # Configure bootloader module for robust systemd-boot installation (fixes 82% hang on missing limine)
-    info "Configuring Calamares bootloader module for systemd-boot..."
+    # Configure the Calamares bootloader module for LIMINE — the same
+    # bootloader syntropia-install-runner installs (see NEXT_SESSION.md), so
+    # both install paths produce a Limine-booting system.
+    #
+    # This block used to force systemd-boot as a workaround for the 82%
+    # "Configuring Limine bootloader & kernel" freeze. That freeze
+    # was the limine package missing from the image, not Limine being broken:
+    # the live rootfs (Patch 1b) and pacstrap basePackages (Step 3.7b) now both
+    # ship it. Forcing the value (instead of trusting CachyOS' default) keeps a
+    # future upstream default change from silently putting systemd-boot back on
+    # Calamares installs.
+    #
+    # CachyOS' partition.conf keys off this choice too (`bootloaderOverrides:
+    # name: limine` → ESP at /boot, matching the runner's layout), which is why
+    # the loader must be selected here and not only at install time.
+    info "Configuring Calamares bootloader module for Limine..."
     for bconf in rootfs/etc/calamares/modules/bootloader.conf rootfs/usr/share/calamares/modules/bootloader.conf; do
         if [[ -f "$bconf" ]]; then
-            sed -i 's/efiBootLoader: .*/efiBootLoader: "systemd-boot"/' "$bconf"
+            sed -i 's/efiBootLoader: .*/efiBootLoader: "limine"/' "$bconf"
+            # The bootloader picker (packagechooser instance) is removed from the
+            # exec sequence, so its global-storage override is never set; an
+            # empty value means "use efiBootLoader" unambiguously.
             sed -i 's/efiBootLoaderVar: .*/efiBootLoaderVar: ""/' "$bconf"
+            # EFI directory under the ESP (\EFI\syntropia\) + NVRAM label source.
             sed -i 's/efiBootloaderId: .*/efiBootloaderId: "syntropia"/' "$bconf"
             sed -i 's/installEFIFallback: .*/installEFIFallback: true/' "$bconf"
+            # Boot-menu background: the Syntropia wallpaper instead of CachyOS'.
+            # Wallpaper.png is in the live rootfs (Step 3.8 ships it).
+            sed -i 's|limineSplashLogo: .*|limineSplashLogo: "/usr/share/syntropia/branding/wallpaper.png"|' "$bconf"
         fi
     done
-    ok "Calamares bootloader configured to systemd-boot"
+    ok "Calamares bootloader configured to Limine"
 
     # Configure unpackfs to copy both default and LTS kernels
     for uconf in rootfs/etc/calamares/modules/unpackfs.conf rootfs/usr/share/calamares/modules/unpackfs.conf; do

@@ -84,9 +84,26 @@ location).
 
 ### Bootloader: Limine
 
-Limine is the installed bootloader on both firmware types (confirmed in
-`NEXT_SESSION.md`); the runner writes no systemd-boot entries and runs no
-`grub-install`. The disk layout it creates is:
+Limine is the installed bootloader on both firmware types and on **both install
+paths** (confirmed in `NEXT_SESSION.md`):
+
+- **TUI installer** — `iso/installer/lib/bootloader.sh` writes `limine.conf`,
+  copies the EFI executable, registers the NVRAM entry and runs
+  `limine bios-install`. It writes no systemd-boot entries and runs no
+  `grub-install`.
+- **Calamares** — `build.sh` pins `bootloader.conf` to
+  `efiBootLoader: "limine"` (`efiBootLoaderVar` emptied because the bootloader
+  picker is removed from the sequence), `efiBootloaderId: "syntropia"`,
+  `installEFIFallback: true`, and `limineSplashLogo` → the Syntropia wallpaper.
+  CachyOS' `partition.conf` then applies its `bootloaderOverrides: name: limine`
+  entry (ESP at `/boot`), and CachyOS' limine module does the install. A
+  `syntropia_limine` shellprocess step runs straight after it and fails the
+  install when the disk would not boot (`iso/hook-scripts/hook-limine.sh`).
+
+Both paths end up with the same ESP layout and the same OS entry name, so
+`limine-snapper-sync` (when installed) and the identity sync agree.
+
+The TUI layout is:
 
 | Partition | Size | Type | Purpose |
 |-----------|------|------|---------|
@@ -229,12 +246,15 @@ name, but the branding hook renames os-release to Syntropia at the END of instal
 `limine-snapper-sync` matches the limine.conf OS entry against os-release
 (PRETTY_NAME) or `TARGET_OS_NAME` in `/etc/default/limine`, and warns on boot.
 
-**Fix**: the installer's `lib/bootloader.sh` now generates the entry already named
-`/+CachyOS Syntropia`, and `iso/hook-scripts/hook-branding-users.sh` renames a
-still-bare `/+CachyOS` (the name CachyOS's own installer writes) and pins
-`TARGET_OS_NAME="CachyOS Syntropia"` in `/etc/default/limine`. The rename is
-anchored to the whole line, so re-running the hook is harmless. Keep both names
-in sync whenever the os-release name changes.
+**Fix**: the installer's `lib/bootloader.sh` generates the entry already named
+`/+CachyOS Syntropia`, and `iso/hook-scripts/hook-branding-users.sh` normalises
+every name an installer can produce — `/+CachyOS` (CachyOS' installer),
+`/+Syntropia` or `/Syntropia OS` (Calamares' limine module, which takes the name
+from `branding.desc`) — to that canonical string, then pins
+`TARGET_OS_NAME="CachyOS Syntropia"` in `/etc/default/limine` (creating the file
+if the limine package shipped none). The rename is anchored to the whole line, so
+re-running the hook is harmless. Keep both names in sync whenever the os-release
+name changes.
 
 ### Installed disk has no boot entry (firmware falls through to the next device)
 
@@ -244,7 +264,9 @@ entry and the firmware ignores the `\EFI\BOOT\BOOTX64.EFI` fallback.
 **Fix**: mount the ESP and check for `limine.conf`, `limine-bios.sys`,
 `EFI/BOOT/BOOTX64.EFI` and `EFI/limine/BOOTX64.EFI`. Register it by hand with
 `efibootmgr --create --disk /dev/sdX --part 2 --label "Syntropia OS" --loader '\EFI\limine\BOOTX64.EFI'`.
-On a BIOS machine, `limine bios-install /dev/sdX 1` must have been run against the
+A Calamares install uses `\EFI\syntropia\BOOTX64.EFI` instead (its
+`efiBootloaderId`), and registers that path — check both before re-registering by
+hand. On a BIOS machine, `limine bios-install /dev/sdX 1` must have been run against the
 `ef02` partition. The runner aborts (instead of finishing) when the limine package
 is missing from the image, so a completed install always had the payloads.
 

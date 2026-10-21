@@ -125,29 +125,34 @@ if [[ -d "$plymouth_src" ]]; then
 fi
 
 # --- Identity & theme sync: limine bootloader ---
-# The bootloader was generated at install time with the CachyOS name (the
-# rename to Syntropia happens at the END of install, after the bootloader
-# step), so limine-snapper-sync can't match its OS entry against the renamed
-# os-release and warns on every boot. Sync both sides:
-#   1) limine.conf's OS entry name  /+CachyOS -> /+Syntropia OS
+# limine-snapper-sync matches limine.conf's OS entry name against os-release
+# PRETTY_NAME (or TARGET_OS_NAME in /etc/default/limine); a mismatch warns on
+# every boot. The two installers name the entry differently — CachyOS' own
+# installer writes `/+CachyOS`, our runner writes `/+CachyOS Syntropia`, and
+# Calamares' limine module takes the name from branding.desc
+# (`bootloaderEntryName: Syntropia`) — so normalise every known spelling:
+#   1) limine.conf's OS entry -> `/+CachyOS Syntropia` (= PRETTY_NAME)
 #   2) TARGET_OS_NAME in /etc/default/limine, so the match never depends on
-#      PRETTY_NAME/NAME drifting.
-#   3) Skin limine interface with Syntropia branding & dark palette.
+#      PRETTY_NAME/NAME drifting
+#   3) Skin limine interface with Syntropia branding & dark palette
+# Every step is idempotent: the hook runs on every install, and rewriting an
+# already-correct entry must be a no-op.
 for limine_cfg in "$ROOT/boot/limine.conf" "$ROOT/boot/limine/limine.conf" "$ROOT/boot/efi/limine.conf"; do
     if [[ -f "$limine_cfg" ]]; then
-        # Rename ONLY a still-bare `/+CachyOS` entry. A second run, or a
-        # limine.conf written by our own runner (which already generates
-        # `/+CachyOS Syntropia`), must not become `... Syntropia Syntropia`.
-        if grep -qxE '/\+CachyOS[[:space:]]*' "$limine_cfg"; then
-            sed -i -E 's|^/\+CachyOS[[:space:]]*$|/+CachyOS Syntropia|' "$limine_cfg"
-        fi
+        # `#` as the delimiter: the pattern itself contains `|` alternation.
+        sed -i -E \
+            's#^/(\+)?(CachyOS|Syntropia|Syntropia OS|CachyOS Syntropia)[[:space:]]*$#/+CachyOS Syntropia#' \
+            "$limine_cfg"
         if ! grep -q 'interface_branding:' "$limine_cfg"; then
             sed -i '1s|^|interface_branding: Syntropia Bootloader\ninterface_branding_color: bd93f9\nterm_background: 0f1017\n\n|' "$limine_cfg"
         fi
     fi
 done
 
-if [[ -f "$ROOT/etc/default/limine" ]] && ! grep -q '^TARGET_OS_NAME' "$ROOT/etc/default/limine"; then
+# Create the file when the limine package did not ship one: an explicit
+# TARGET_OS_NAME beats relying on the os-release parse.
+mkdir -p "$ROOT/etc/default"
+if ! grep -q '^TARGET_OS_NAME' "$ROOT/etc/default/limine" 2>/dev/null; then
     printf 'TARGET_OS_NAME="CachyOS Syntropia"\n' >> "$ROOT/etc/default/limine"
 fi
 

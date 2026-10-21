@@ -249,7 +249,9 @@ if [[ -f "$TARGET/boot/$LIMINE_LTS_KERNEL" && -f "$TARGET/boot/$LIMINE_LTS_INITR
 else
   LIMINE_HAS_LTS=0
 fi
-limine_conf_write "$TARGET/boot" "$CMDLINE" "$LIMINE_HAS_LTS"
+# Same branding the Calamares path gets through limineSplashLogo (build.sh).
+limine_conf_write "$TARGET/boot" "$CMDLINE" "$LIMINE_HAS_LTS" \
+  "/usr/share/syntropia/branding/wallpaper.png"
 
 BOOT_PART_NUM=$(echo "$BOOT_PART" | grep -o '[0-9]*$')
 BIOS_PART_NUM=$(echo "$BIOS_PART" | grep -o '[0-9]*$')
