@@ -55,6 +55,20 @@ APP_WIZ4RD_TARBALL="$REPO_ROOT/iso/vendor/app-wiz4rd-$APP_WIZ4RD_VERSION.tar"
 HYPRBARS_REPO="https://github.com/hyprwm/hyprland-plugins.git"
 HYPRBARS_INSTALL_PATH="/usr/lib/hyprland/hyprbars.so"
 
+# ISO_NAME is the only thing this date is used for. It is NOT a prediction of
+# what mkarchiso will name its output: mkarchiso derives that name from
+# SOURCE_DATE_EPOCH, and inside a reused work dir it overrides SOURCE_DATE_EPOCH
+# from <work-dir>/build_date — a file pinned by the first build in that work dir
+# and never refreshed (archiso 91: "Read SOURCE_DATE_EPOCH from file early").
+# On 2026-10-21 that made a full build emit cachyos-2026.08.12-x86_64.iso while
+# the wrapper waited for cachyos-2026.10.21-x86_64.iso. Phase 1 now finds what
+# mkarchiso produced by mtime (iso/lib/find-built-iso.sh) and renames that.
+#
+# SOURCE_DATE_EPOCH is deliberately NOT exported here: mkarchiso would overwrite
+# it from build_date anyway, so exporting it would only *look* deterministic.
+# Set it in the environment to date the Syntropia names, and delete
+# iso/work/mkarchiso-work/build_date when you also want mkarchiso's own stamps
+# refreshed.
 ISO_DATE="${SOURCE_DATE_EPOCH:-$(date +%s)}"
 ISO_DATE=$(date --date="@$ISO_DATE" +%Y.%m.%d)
 ISO_NAME="syntropia-${ISO_DATE}-x86_64"
@@ -143,41 +157,72 @@ PYEOF
 
     ok "Patches applied"
 
-    # ── Guard against a stale mkarchiso work dir ──
-    # mkarchiso records completed steps as marker files in the work dir
-    # (e.g. build._build_buildmode_iso). On the previous run we renamed
-    # cachyos-*.iso → syntropia-*-stock.iso, so on the next run mkarchiso
-    # sees the marker, concludes the build is done, and exits silently
-    # WITHOUT producing an ISO — the wrapper then fails with a confusing
-    # "did not produce expected output" error. If the expected stock ISO is
-    # missing but a build-complete marker exists, the work dir is stale:
-    # drop the marker(s) so mkarchiso re-runs the ISO step. This is a fast
-    # incremental rebuild (the package install + squashfs are reused), not
-    # a from-scratch one.
-    local stock_iso="$OUT_DIR/cachyos-${ISO_DATE}-x86_64.iso"
-    local renamed_iso="$OUT_DIR/${ISO_NAME}-stock.iso"
-    # mkarchiso gates BOTH the buildmode step AND the ISO assembly with
-    # separate markers: build._build_buildmode_* and iso._build_iso_image.
-    # Clear both so the ISO is actually re-assembled (the heavy steps —
-    # rootfs, squashfs — are gated by base.* markers and stay cached).
-    local work_markers=( "$WORK_DIR/mkarchiso-work"/build._build_buildmode_* "$WORK_DIR/mkarchiso-work"/iso._build_iso_image )
-    if [[ ! -f "$stock_iso" && ( -e ${work_markers[0]:-none} || -e ${work_markers[1]:-none} ) ]]; then
-        warn "Stale mkarchiso work dir detected (build marker present but $stock_iso missing) — clearing ISO-assembly markers so the ISO rebuilds"
-        rm -f "$WORK_DIR/mkarchiso-work"/build._build_buildmode_*
-        rm -f "$WORK_DIR/mkarchiso-work"/iso._build_iso_image
+    # ── Drop the cached rootfs when the patched profile changed ──
+    # mkarchiso skips every step whose marker exists in the work dir, and that
+    # includes pacstrap (`base._make_packages`) and the airootfs squashfs
+    # (`base._prepare_airootfs_image` / `_mkairootfs_squashfs`). Those caches are
+    # older than the profile we just patched, so a "rebuild" would re-assemble an
+    # ISO around an old rootfs: on 2026-10-21 a run re-used an Aug-12 squashfs
+    # and shipped an image with no `limine` package at all, which then fails
+    # every install. Stamp the patched inputs and throw the rootfs away when
+    # they change (or when the work dir predates this stamp).
+    local patch_stamp="$WORK_DIR/mkarchiso-work/syntropia-patches.sha256"
+    local patch_hash
+    patch_hash=$(sha256sum packages.x86_64 pacman.conf profiledef.sh | sha256sum | cut -d' ' -f1)
+    if [[ -d "$WORK_DIR/mkarchiso-work" && "$(cat "$patch_stamp" 2>/dev/null || true)" != "$patch_hash" ]]; then
+        warn "Patched profile changed since this work dir was built — discarding the cached rootfs and squashfs so the live image matches packages.x86_64"
+        rm -rf "$WORK_DIR/mkarchiso-work"/base.* \
+               "$WORK_DIR/mkarchiso-work/x86_64/airootfs" \
+               "$WORK_DIR/mkarchiso-work/iso"
     fi
 
+    # ── Re-assemble the ISO on every run ──
+    # mkarchiso records completed steps as empty marker files in the work dir
+    # and skips every step whose marker exists. Phase 1 renames the produced ISO
+    # away (cachyos-*.iso → ${ISO_NAME}-stock.iso) after each successful run, so
+    # on a second run mkarchiso would find its "ISO produced" markers, skip the
+    # assembly, and exit 0 without writing anything.
+    #
+    # Drop exactly those two markers: `build._build_buildmode_iso` (the whole
+    # buildmode) and `iso._build_iso_image` (the xorriso assembly). Everything
+    # expensive — pacstrap, the airootfs squashfs, boot modes — is gated by
+    # `base.*` markers, which stay, so this is a re-assembly (~minutes), not a
+    # rebuild. Unconditional on purpose: the produced ISO's name cannot be
+    # predicted (see the ISO_DATE note at the top), so there is no file to test
+    # for before deciding.
+    local renamed_iso="$OUT_DIR/${ISO_NAME}-stock.iso"
+    local marker
+    for marker in "$WORK_DIR/mkarchiso-work/build._build_buildmode_iso" \
+                  "$WORK_DIR/mkarchiso-work/iso._build_iso_image"; do
+        if [[ -e "$marker" ]]; then
+            info "Clearing ISO-assembly marker $(basename "$marker") (the previous ISO was renamed away)"
+            rm -f "$marker"
+        fi
+    done
+
     # ── Build with mkarchiso ──
+    local run_started_at produced_iso
+    run_started_at=$(date +%s)
     info "Running mkarchiso (this downloads ~990 packages on first run)..."
     mkarchiso -v -w "$WORK_DIR/mkarchiso-work" -o "$OUT_DIR" "$CACHYOS_PROFILE_DIR"
 
-    # mkarchiso names it cachyos-YYYY.MM.DD-x86_64.iso — rename to syntropia
-    if [[ -f "$stock_iso" ]]; then
-        mv "$stock_iso" "$renamed_iso"
-        ok "Phase 1 complete: $renamed_iso ($(du -h "$renamed_iso" | cut -f1))"
-    else
-        err "mkarchiso did not produce expected output: $stock_iso"
+    # ── Rename whatever mkarchiso actually produced ──
+    # Its output is cachyos-<iso_version>-x86_64.iso, and <iso_version> comes
+    # from the work dir's build_date, so it can lag the real build date by
+    # months. Take the newest cachyos-*-x86_64.iso written at or after this run
+    # started (phase 2 will only ever look for ${ISO_NAME}-stock.iso).
+    if ! produced_iso=$("$SCRIPT_DIR/lib/find-built-iso.sh" "$OUT_DIR" --since "$run_started_at"); then
+        err "mkarchiso produced no new ISO in $OUT_DIR (see the file list above). If only an older cachyos-*.iso is listed, mkarchiso believes its work is done: rm -rf '$WORK_DIR/mkarchiso-work' and re-run phase 1."
     fi
+    mv "$produced_iso" "$renamed_iso"
+
+    # Only stamp after a successful build: a failed run must keep the cache
+    # marked as suspect so the next one rebuilds the rootfs instead of trusting
+    # a half-written one.
+    mkdir -p "$WORK_DIR/mkarchiso-work"
+    printf '%s\n' "$patch_hash" > "$patch_stamp"
+
+    ok "Phase 1 complete: $renamed_iso (from $(basename "$produced_iso"), $(du -h "$renamed_iso" | cut -f1))"
 }
 
 # Build hyprbars into a rootfs at $HYPRBARS_INSTALL_PATH (see the constants at
@@ -272,12 +317,22 @@ phase2_inject_slides() {
 
     if [[ ! -f "$input_iso" ]]; then
         local latest_stock
-        latest_stock=$(ls -t "$OUT_DIR"/syntropia-*-stock.iso 2>/dev/null | head -1)
+        # `|| true`: no match makes ls exit non-zero, which under pipefail would
+        # abort the script here instead of reaching the error message below.
+        latest_stock=$(ls -t "$OUT_DIR"/syntropia-*-stock.iso 2>/dev/null | head -1 || true)
         if [[ -n "$latest_stock" && -f "$latest_stock" ]]; then
             input_iso="$latest_stock"
             output_iso="${latest_stock/-stock.iso/.iso}"
             info "Auto-detected latest stock ISO: $(basename "$input_iso")"
         else
+            # A phase 1 that died between mkarchiso and the rename leaves the
+            # stock ISO under mkarchiso's own name — name it instead of only
+            # reporting "not found".
+            local leftover
+            leftover=$(ls -t "$OUT_DIR"/cachyos-*-x86_64.iso 2>/dev/null | head -1 || true)
+            if [[ -n "$leftover" ]]; then
+                err "Stock ISO not found: $input_iso. $leftover is a cachyos-*.iso from $(date --date="@$(stat -c %Y "$leftover")" '+%Y-%m-%d %H:%M') — if that is the phase-1 output you want, rename it (mv '$leftover' '$input_iso') or just re-run --phase1 with the current build.sh."
+            fi
             err "Stock ISO not found: $input_iso. Run --phase1 first."
         fi
     fi

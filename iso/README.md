@@ -218,15 +218,24 @@ A freshly created qcow2 can look tiny (`du` shows ~196K for a sparse file) while
 
 `show.qml` runs while Calamares is writing the system (after you press **Install**), **not** on the welcome page. A white welcome page with the step pills is correct — don't chase it.
 
-### Phase 2 "Stock ISO not found" — date stamping
+### Phase 2 "Stock ISO not found" — where the stock ISO is
 
-The ISO name comes from `SOURCE_DATE_EPOCH` or today's date. Phase 2 needs a
-`*-stock.iso` for that date; if your stock ISO is from a previous day (the usual
-case after the first build), pin it:
+Phase 2 looks for `syntropia-<today>-x86_64-stock.iso` and otherwise falls back to
+the newest `syntropia-*-stock.iso` in `iso/out/`, so a stock ISO from an earlier day
+is fine. If there is none, phase 1 has not produced one (run `sudo iso/build.sh
+--phase1`); the error also names any leftover `cachyos-*.iso` from a phase 1 that
+died before renaming its output.
 
-```bash
-sudo env SOURCE_DATE_EPOCH=$(date -d <stock-date> +%s) iso/build.sh --phase2
-```
+That rename is by mtime, not by date: mkarchiso names its output
+`cachyos-<iso_version>-x86_64.iso`, where `iso_version` comes from
+`iso/work/mkarchiso-work/build_date` — pinned by the first build in that work dir
+and never refreshed, so it can lag the real date by months. `iso/lib/find-built-iso.sh`
+picks the newest `cachyos-*-x86_64.iso` written at or after the run started.
+
+Phase 1 also discards the cached rootfs when the patched profile changed (stamp in
+`iso/work/mkarchiso-work/syntropia-patches.sha256`), because mkarchiso otherwise
+re-assembles an ISO around a stale `airootfs.sfs` — that is how an Oct-21 build
+shipped an image without the `limine` package.
 
 ### "No bootable device" after rebooting to the installed system
 
@@ -287,5 +296,5 @@ To eyeball them, decode the JXLs with `djxl` and view a gallery. Slide 1 should 
 
 The `build.sh` script is designed to be CI-friendly:
 - `WORK_DIR` and `OUT_DIR` can be overridden via environment variables
-- `SOURCE_DATE_EPOCH` controls the ISO date for reproducible builds
+- `SOURCE_DATE_EPOCH` sets the date in Syntropia's output names (it does not control mkarchiso's own `iso_version`, which comes from the work dir's `build_date`; phase 1 renames by mtime instead of predicting either)
 - Exit codes: 0 on success, 1 on error (suitable for CI pipelines)

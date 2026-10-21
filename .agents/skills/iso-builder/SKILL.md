@@ -22,13 +22,9 @@ sudo iso/build.sh            # full build (phases 1+2)
 sudo iso/build.sh --phase2   # remaster only — the fast path (~10 min)
 ```
 
-Output: `iso/out/syntropia-YYYY.MM.DD-x86_64.iso`
+Output: `iso/out/syntropia-YYYY.MM.DD-x86_64.iso` (today's date, or `SOURCE_DATE_EPOCH` when set)
 
-**⚠ SOURCE_DATE_EPOCH:** the ISO name is date-stamped from `SOURCE_DATE_EPOCH` (or today's date). Phase 2 needs a `*-stock.iso` matching that date; if the stock ISO is from a previous day (the usual case after the first build), pin it:
-
-```bash
-sudo env SOURCE_DATE_EPOCH=$(date -d 2026-08-12 +%s) iso/build.sh --phase2
-```
+**The date is naming, not a build parameter.** Phase 1 does not predict mkarchiso's output name. mkarchiso writes `cachyos-<iso_version>-x86_64.iso`, where `iso_version` comes from `iso/work/mkarchiso-work/build_date` — a file archiso writes on the *first* build in a work dir and then trusts forever, so it can lag the real date by months (a 2026-10-21 build emitted `cachyos-2026.08.12-x86_64.iso`). Phase 1 renames whatever ISO this run actually wrote — the newest `cachyos-*-x86_64.iso` with an mtime at or after the run start, chosen by `iso/lib/find-built-iso.sh` — to `${ISO_NAME}-stock.iso`. Phase 2 auto-detects the newest `syntropia-*-stock.iso`, so no `SOURCE_DATE_EPOCH` juggling is needed.
 
 ## The build script
 
@@ -41,8 +37,9 @@ Located at `iso/build.sh`. Two phases:
   1. Symlinks `packages.x86_64` → `packages_desktop.x86_64` (mkarchiso naming)
   2. Appends `limine` to that package list — Limine is the installed bootloader, and the TUI installer *rsyncs the live rootfs* onto the target, so `/usr/bin/limine` and `/usr/share/limine/{BOOTX64.EFI,limine-bios.sys}` must already be in the live image (an offline install cannot pacman them afterwards)
   3. Adds `NoExtract` for slide files in `pacman.conf` [options] section (safety net)
-  4. **Stale-work-dir guard**: clears the mkarchiso `build._build_buildmode_*` / `iso._build_iso_image` markers when the expected stock ISO is missing, so a previously-renamed stock ISO forces re-assembly instead of silently exiting
-- Runs `mkarchiso` → `iso/out/syntropia-*-stock.iso`
+  4. **Rootfs-cache guard**: stamps the patched inputs (`packages.x86_64` + `pacman.conf` + `profiledef.sh`) into the work dir and, when the stamp is missing or differs, drops the `base.*` markers **and** the cached `x86_64/airootfs` + `iso/` tree. mkarchiso caches pacstrap and the airootfs squashfs behind those markers, so without this a "rebuild" silently re-assembles an old rootfs — on 2026-10-21 that shipped an ISO whose live image had no `limine` package, because the 2026-08-12 squashfs was reused after patch 1b had patched the package list
+  5. **Assembly guard**: drops `build._build_buildmode_iso` + `iso._build_iso_image` on every run. Phase 1 renames the ISO away after each successful build, so those markers would otherwise make mkarchiso conclude it is done and exit 0 without writing anything. Everything expensive is behind `base.*` markers and stays cached, so this is a re-assembly (~minutes), not a rebuild
+- Runs `mkarchiso`, then renames the ISO it actually produced (by mtime, never by a predicted date) → `iso/out/syntropia-*-stock.iso`. Pinned by `phase1/tests/test_phase1_stock_iso.py`
 
 ### Phase 2: Remaster (injection)
 
@@ -170,17 +167,26 @@ All in Arch/CachyOS repos. The script checks these and exits early if missing.
 ## Common pitfalls and fixes
 
 ### Phase 2 fails: "Stock ISO not found"
-**Cause**: the ISO is date-stamped from `SOURCE_DATE_EPOCH`/today, but the stock ISO (`syntropia-*-stock.iso`) is from a previous day.
-**Fix**: `sudo env SOURCE_DATE_EPOCH=$(date -d <stock-iso-date> +%s) iso/build.sh --phase2`.
+**Cause**: there is no `syntropia-<today>-x86_64-stock.iso` and no other `syntropia-*-stock.iso` in `iso/out/`, i.e. phase 1 has not produced one. The message names any leftover `cachyos-*.iso` from a phase 1 that died before the rename, with its mtime.
+**Fix**: run `sudo iso/build.sh --phase1` (or the full build). Renaming a leftover `cachyos-*.iso` by hand works only if it came from the current profile — phase 2 verifies the image's package set and refuses a stale one (see the stale-stock-image entry).
 
 ### Phase 2 built an ISO that cannot install (stale stock image)
 **Symptom**: the ISO boots and the TUI installer runs, then dies at "Installing Limine" ("Limine is missing from this image and there is no network to install it"); Calamares fails the same way in its `syntropia_limine` hook.
 **Cause**: `--phase2` only remasters — it cannot install packages. A stock ISO built *before* patch 1b (which adds `limine` to `packages.x86_64`) remasters perfectly and then cannot install anything. Hit on 2026-10-21: an Oct-21 ISO whose live image still carried the Aug-12 package set, because phase 1 never re-ran.
 **Fix**: guarded now — `iso/lib/verify-live-image.sh` refuses to remaster when the stock image's rootfs lacks the `limine` package or its payloads. Rebuild with `sudo iso/build.sh` (phase 1 must run to pick up the patched package list), then remaster.
 
-### Phase 1 silently produces no ISO (stale work dir)
-**Cause**: mkarchiso's completed-step markers exist but the stock ISO was renamed away, so mkarchiso concludes the build is done and exits without an ISO.
-**Fix**: handled automatically by the stale-work-dir guard in `build.sh` (clears the ISO-assembly markers). If you hit it, delete `iso/work/mkarchiso-work/build._build_buildmode_*` and `iso._build_iso_image` and rebuild.
+### Phase 1: "mkarchiso produced no new ISO"
+**Symptom**: `build.sh` errors with that message and then lists every `iso/out/*.iso` with its mtime.
+**Cause**: mkarchiso skipped its work because the completed-step markers say it is already done. `build.sh` clears the two assembly markers (`build._build_buildmode_iso`, `iso._build_iso_image`) on every run, so this now means something else touched the work dir — a hand-run `mkarchiso`, a killed build, or markers left by a different profile.
+**Fix**: `sudo rm -rf iso/work/mkarchiso-work` and re-run phase 1. Do **not** rename a leftover `cachyos-*.iso` by hand unless you know where it came from: a stale file can carry a fresh mtime.
+
+### Phase 1 "succeeds" but the live image is stale (e.g. no `limine`)
+**Symptom**: phase 2's `verify-live-image.sh` refuses to remaster, or the TUI installer aborts at "Installing Limine"; `unsquashfs -l iso/work/mkarchiso-work/iso/arch/x86_64/airootfs.sfs | grep pacman/local/limine` finds nothing.
+**Cause**: mkarchiso cached pacstrap and the airootfs squashfs behind `base.*` markers, so the ISO was re-assembled around an *old* rootfs. Hit on 2026-10-21: the squashfs was from 2026-08-12 and had no `limine` package although `packages.x86_64` had been patched to add it.
+**Fix**: guarded now — phase 1 stamps the patched profile inputs and discards the cached rootfs when they change (including the first run after upgrading from an older `build.sh`, which has no stamp). Such a run falls back to a full rebuild (pacstrap + squashfs, ~30-40 min).
+
+### Stock ISO is named `cachyos-<months-old-date>-x86_64.iso`
+**Not a bug.** mkarchiso's `iso_version` comes from `iso/work/mkarchiso-work/build_date`, written on the first build in that work dir and trusted afterwards (`SOURCE_DATE_EPOCH` is overridden from it, so exporting `SOURCE_DATE_EPOCH` in `build.sh` would be a no-op — it is deliberately not exported). `build.sh` renames the file to `syntropia-<today>-x86_64-stock.iso` right after the build. Delete the work dir if you also want that internal version string refreshed.
 
 ### limine-snapper: "Target OS name 'syntropia OS' not found in /boot/limine.conf"
 **Cause**: the bootloader (limine.conf) is generated at install time with the CachyOS name, but os-release is renamed to Syntropia at the END of install. `limine-snapper-sync` reads the OS entry name from limine.conf and matches it against os-release PRETTY_NAME (or `TARGET_OS_NAME` in `/etc/default/limine`) — mismatch → warning/notification on every boot.
@@ -238,7 +244,7 @@ All in Arch/CachyOS repos. The script checks these and exits early if missing.
 
 1. Edit the source of truth (slides PNGs, `transform.py` OS_RELEASE_CONTENT, etc.) and commit. Wizard changes happen in the **app-wiz4rd repo** (`github.com/r4-ndm/app-wiz4rd`): edit there, regenerate its release tarball into `iso/vendor/`, and update `APP_WIZ4RD_SHA256` in `build.sh` (see the header comment there for the exact `git archive` command)
 2. **Only when refreshing the base:** run phase 1 (`iso/build.sh --phase1`), then append the one-line entry to `iso/BASE-REFRESH.md` (date, upstream commit, known breakage) per the base-refresh policy above
-3. Build: `sudo env SOURCE_DATE_EPOCH=$(date -d <stock-date> +%s) iso/build.sh --phase2`
+3. Build: `sudo iso/build.sh --phase2` (it auto-detects the newest `syntropia-*-stock.iso`; the output keeps that stock ISO's date)
 4. Verify it baked in: `bsdtar -xf` the ISO, `unsquashfs` the sfs, and diff the shipped files against the vendored tarball (wizard script, os-release, apps.list, TUI binary). Also check that `iso/lib/verify-live-image.sh` passed — it aborts the remaster before any work when the stock image predates the live package set (a stale image boots and then fails every install)
 5. Fresh-install test in the VM: reset the disk (fresh qcow2), attach the ISO as cdrom (boot order 1), boot, run Calamares, reboot from disk
 6. Verify: the machine boots through Limine (menu title "Syntropia Bootloader", entry `/+CachyOS Syntropia`, LTS entry when the LTS kernel is present), wizard fires at first login, `fastfetch`/`lsb_release`/hostname report Syntropia, no limine-snapper notification
