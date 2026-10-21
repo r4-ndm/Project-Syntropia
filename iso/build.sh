@@ -419,6 +419,15 @@ phase2_inject_slides() {
     fi
     ok "Stock image is current (limine package + payloads present)"
 
+    # The wallet auto-unlock chain lives in the live package set too: phase 2 can
+    # inject the PAM config and the runner but cannot install pam_kwallet5.so or
+    # socat. Warn instead of failing — an online install can pacman them into the
+    # target itself, and the runner says so when it cannot.
+    if [[ ! -f "$remaster_dir/rootfs/usr/lib/security/pam_kwallet5.so" ]] \
+        || [[ ! -x "$remaster_dir/rootfs/usr/bin/socat" ]]; then
+        warn "Stock image lacks kwallet-pam/socat — offline installs will ask to create a wallet password (needs a phase-1 rebuild)"
+    fi
+
     # Step 3: Swap in our amended slides
     info "Injecting Syntropia slides..."
     local cal_dir="rootfs/usr/share/calamares/branding/cachyos"

@@ -144,6 +144,10 @@ unencrypted install gets a normal login screen so the password reaches PAM.
 `~/.config/kwalletrc` enables `[org.freedesktop.secrets]` so libsecret apps
 (Chromium, Electron) reuse the same wallet. Requires `kwallet-pam` + `socat` in
 the image — phase 1 adds both to the package list and warns if they are missing.
+The installer/wizard *code* ships with a phase-2 remaster, but those packages
+cannot be installed by one: the first build after this change must be a full
+`sudo iso/build.sh` (phase 1 re-pacstraps because the patched package list
+changed).
 
 Network: the installer probes for a connection and, if there is none, offers
 Wi-Fi setup (via `nmcli`), a re-check, `nmtui-connect` for hidden/enterprise

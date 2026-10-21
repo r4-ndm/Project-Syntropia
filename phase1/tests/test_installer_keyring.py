@@ -343,3 +343,6 @@ def test_build_ships_the_keyring_packages() -> None:
     assert "for pkg in kwallet-pam socat; do" in build
     # And says so when the built image lacks them (a silent failure otherwise).
     assert "pam_kwallet5.so or socat is missing from the live image" in build
+    # Phase 2 cannot install packages, so a stale stock image is called out
+    # before it is remastered rather than producing a prompting install.
+    assert "Stock image lacks kwallet-pam/socat" in build
