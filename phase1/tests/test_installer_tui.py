@@ -171,10 +171,25 @@ def test_runner_sets_root_and_account_passwords_separately() -> None:
     assert 'echo -n "$PASSWORD"' not in runner
 
 
+def test_runner_locks_root_unless_a_root_password_was_requested() -> None:
+    """Locked root is the default: sudo/polkit use the account password.
+
+    The 2026-10-21 laptop install reported "password asked twice"; the runner
+    must keep working with one secret, and only chpasswd root when the installer
+    was explicitly given --root-password.
+    """
+    runner = (INSTALLER_DIR / "syntropia-install-runner").read_text()
+    assert 'if [[ "$ROOT_PASSWORD_MODE" == "locked" ]]; then' in runner
+    assert 'arch-chroot "$TARGET" passwd -l root' in runner
+    # A locked-root config has no root password to require: only the account
+    # password is mandatory.
+    assert 'if [[ -z "$USER_PASSWORD" ]]; then' in runner
+
+
 # --- dry run --------------------------------------------------------------
 
 
-def test_dry_run_asks_for_both_passwords_and_changes_nothing(tmp_path: Path) -> None:
+def test_dry_run_asks_for_one_password_and_changes_nothing(tmp_path: Path) -> None:
     answers = "\n".join(
         [
             "1",  # install
@@ -185,8 +200,7 @@ def test_dry_run_asks_for_both_passwords_and_changes_nothing(tmp_path: Path) -> 
             "3",  # network: continue offline
             "correct horse battery staple",  # account password
             "correct horse battery staple",  # confirmation
-            "1",  # root: same as user
-            "",  # encryption (default: on)
+            "",  # encryption (default: on) — no root question in between
             "",  # desktop (default: plasma)
             "y",  # proceed
         ]
@@ -197,8 +211,11 @@ def test_dry_run_asks_for_both_passwords_and_changes_nothing(tmp_path: Path) -> 
     out = result.stdout
     assert "Account password" in out
     assert "Strength" in out and "very strong" in out
-    assert "Root (administrator) password" in out
-    assert 'Same password as "syntropia"' in out
+    # One creation + one confirmation — not a second password to invent.
+    assert out.count("New password") == 1
+    assert "Root (administrator) password" not in out
+    assert "root account locked" in out
+    assert "locked (sudo uses your password)" in out
     assert "no internet connection detected" in out
     assert "dry run" in out
     # Dry run must not leave the credentials on disk.
@@ -216,7 +233,7 @@ def test_dry_run_separate_root_password(tmp_path: Path) -> None:
             "3",
             "account passphrase 1",
             "account passphrase 1",  # confirmation
-            "2",  # separate root password
+            "2",  # --root-password: separate root password
             "root passphrase 2",  # root password
             "root passphrase 2",  # root confirmation
             "2",  # encryption off
@@ -224,7 +241,7 @@ def test_dry_run_separate_root_password(tmp_path: Path) -> None:
             "y",
         ]
     )
-    result = run_tui(tmp_path, answers + "\n", "--dry-run")
+    result = run_tui(tmp_path, answers + "\n", "--dry-run", "--root-password")
 
     assert result.returncode == 0, result.stderr
     out = result.stdout
@@ -247,7 +264,6 @@ def test_rejects_short_password_and_bad_disk_choice(tmp_path: Path) -> None:
             "abcdefghij",  # scores "weak" — kept only on explicit [k]
             "k",
             "abcdefghij",  # confirmation
-            "1",  # root: same
             "",  # encryption
             "",  # desktop
             "y",
@@ -261,7 +277,7 @@ def test_rejects_short_password_and_bad_disk_choice(tmp_path: Path) -> None:
     assert "Weak." in result.stdout
 
 
-def test_help_lists_dry_run() -> None:
+def test_help_lists_dry_run_and_root_password_opt_in() -> None:
     result = subprocess.run(
         [str(INSTALLER_DIR / "syntropia-install"), "--help"],
         capture_output=True,
@@ -270,6 +286,20 @@ def test_help_lists_dry_run() -> None:
     )
     assert result.returncode == 0
     assert "--dry-run" in result.stdout
+    assert "--root-password" in result.stdout
+
+
+def test_config_records_the_root_password_mode(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path,
+        disk="/dev/vda",
+        password="account-secret",
+        root_password="",
+        root_password_mode="locked",
+    )
+    data = json.loads(path.read_text())
+    assert data["root_password_mode"] == "locked"
+    assert data["root_password"] == ""
 
 
 # --- packaging contract ---------------------------------------------------

@@ -42,7 +42,7 @@ BRANDING_SRC="$REPO_ROOT/Branding/syntropia/calamares/slides"
 #   the hash on every commit even when the files don't)
 # then copy it into iso/vendor/ and set APP_WIZ4RD_SHA256 (sha256sum).
 APP_WIZ4RD_VERSION="0.1.0"
-APP_WIZ4RD_SHA256="533535d637372be3b4f24791a2efb9e4ec9f70bb97f2b69082e8679964c57370"
+APP_WIZ4RD_SHA256="a7129d0cfc8c47ead1dd888df081647ca10ef4f1c16c6f3b9b7c84f3e4ea7ae7"
 APP_WIZ4RD_TARBALL="$REPO_ROOT/iso/vendor/app-wiz4rd-$APP_WIZ4RD_VERSION.tar"
 
 # hyprbars: the upstream Hyprland plugin that draws titlebars with window
@@ -130,6 +130,18 @@ phase1_build_iso() {
         ok "limine added to the live package list"
     fi
 
+    # Patch 1c: KWallet's PAM auto-unlock needs pam_kwallet5.so (kwallet-pam)
+    # and socat, the helper its pam_kwallet_init script uses to hand the
+    # password to ksecretd. CachyOS pulls in kwallet itself but not these two,
+    # and without them the installed system asks the user to create a NEW
+    # wallet password at first login (2026-10-21 laptop install).
+    for pkg in kwallet-pam socat; do
+        if ! grep -qx "$pkg" packages.x86_64; then
+            printf '%s\n' "$pkg" >> packages.x86_64
+            ok "$pkg added to the live package list (keyring auto-unlock)"
+        fi
+    done
+
     # Patch 2: Add NoExtract for slide files in pacman.conf [options] section
     # This prevents cachyos-calamares-next package slides from conflicting with our airootfs overlay.
     # Note: We place slides in airootfs/ after this phase. During Phase 2 we overwrite them at the
@@ -205,6 +217,18 @@ PYEOF
     run_started_at=$(date +%s)
     info "Running mkarchiso (this downloads ~990 packages on first run)..."
     mkarchiso -v -w "$WORK_DIR/mkarchiso-work" -o "$OUT_DIR" "$CACHYOS_PROFILE_DIR"
+
+    # A keyring that cannot unlock fails silently (the user just gets a wallet
+    # prompt at first login), so check the built rootfs here where the reason is
+    # still on screen.
+    local built_rootfs
+    built_rootfs="$WORK_DIR/mkarchiso-work/x86_64/airootfs"
+    if [[ -f "$built_rootfs/usr/lib/security/pam_kwallet5.so" ]] \
+        && [[ -x "$built_rootfs/usr/bin/socat" ]]; then
+        ok "Keyring PAM module + socat are in the live image (wallet auto-unlock can work)"
+    else
+        warn "pam_kwallet5.so or socat is missing from the live image — installs will ask to create a wallet password"
+    fi
 
     # ── Rename whatever mkarchiso actually produced ──
     # Its output is cachyos-<iso_version>-x86_64.iso, and <iso_version> comes

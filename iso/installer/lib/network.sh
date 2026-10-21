@@ -124,6 +124,28 @@ network_wifi_connect() {
     return 1
 }
 
+# Hand the terminal to NetworkManager's own UI. The installer's Wi-Fi menu is
+# the short path; nmtui is the fallback for hidden SSIDs, enterprise WPA,
+# VLANs and static addresses, and it is what "connect with NetworkManager"
+# means to an Arch user.
+network_nmtui() {
+    if command -v nmtui-connect >/dev/null 2>&1; then
+        nmtui-connect || true
+    elif command -v nmtui >/dev/null 2>&1; then
+        nmtui || true
+    else
+        note "$YELLOW" "!" "nmtui is not available in this image."
+        note "$DIM" " " "use nmcli, or iwctl on another TTY (Ctrl+Alt+F2)."
+        return 1
+    fi
+    network_wait_online 10 || true
+    if network_online; then
+        note "$GREEN" "✓" "online — $(network_status_line)"
+    else
+        note "$YELLOW" "!" "still offline."
+    fi
+}
+
 # The install-time network step: status line plus a menu when offline. Sets
 # INSTALL_ONLINE for the config, so the runner knows whether it may reach the
 # package repos during the install.
@@ -146,12 +168,14 @@ network_prompt() {
         printf '\n'
         printf '%s    [1] Connect to Wi-Fi\n' "$INDENT"
         printf '%s    [2] Check the connection again\n' "$INDENT"
-        printf '%s    [3] Continue without internet\n\n' "$INDENT"
+        printf '%s    [3] Continue without internet\n' "$INDENT"
+        printf '%s    [4] NetworkManager UI (nmtui-connect) — hidden/enterprise networks\n\n' "$INDENT"
         printf '%s  %sEthernet is already trying: plug in a cable and press 2.%s\n\n' "$INDENT" "$DIM" "$RESET"
 
-        ask_line "Choose [1-3]" answer "2" || answer="3"
+        ask_line "Choose [1-4]" answer "2" || answer="3"
         case "${answer:-2}" in
             1) network_wifi_connect || true ;;
+            4) network_nmtui || true ;;
             3)
                 note "$YELLOW" "!" "installing offline."
                 note "$DIM" " " "the first-boot app wizard queues your picks and installs them once you're online."

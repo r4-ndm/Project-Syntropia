@@ -68,8 +68,9 @@ The tty1 installer is **source code in this repo**, not heredocs pasted into
 | `syntropia-install-dashboard` | progress dashboard that supervises the runner and reboots |
 | `lib/common.sh` | palette, geometry, centring, logo (shared by both UIs) |
 | `lib/config.sh` | the TUI↔runner config contract; writes `config.json` **0600** |
-| `lib/password.sh` | masked password entry, strength estimate, confirmation, root-password choice |
-| `lib/network.sh` | connectivity probe + `nmcli` Wi-Fi setup |
+| `lib/password.sh` | masked password entry, strength estimate, confirmation, root-locked default |
+| `lib/network.sh` | connectivity probe, `nmcli` Wi-Fi setup, `nmtui-connect` fallback |
+| `lib/keyring.sh` | KWallet PAM auto-unlock, autologin/loadkey rule, Secret Service bridge |
 | `lib/bootloader.sh` | `limine.conf` generation, UEFI copy + NVRAM entry, `limine bios-install` |
 
 `build.sh` installs the three scripts to `/usr/local/bin/` and the libs to
@@ -125,15 +126,29 @@ limine_conf_write /boot "$(cat /proc/cmdline)" 0
 It asks the same questions, prints the plan, writes no config and touches no
 disk — which is also how `phase1/tests/test_installer_tui.py` drives it.
 
-Passwords: the account password (masked, with a strength estimate and a
-confirmation field) and the root password, which defaults to "same as the
-user" with an option to set a different one — so a fresh install asks for
-nothing at first boot. The account password doubles as the LUKS passphrase.
+Passwords: **one** password, asked once with a confirmation field and a
+strength estimate. **Root is locked** (`passwd -l root`), so `sudo`/polkit use
+the account password and there is no second secret to invent — the
+archinstall/Omarchy model. `--root-password` opts back into the old "same as
+the user"/"different" menu (recorded as `root_password_mode` in `config.json`).
+The account password doubles as the LUKS passphrase.
+
+Keyring: the image ships KWallet, not gnome-keyring. `lib/keyring.sh` wires
+`pam_kwallet5.so` into the installed display manager (`plasmalogin`, `sddm`,
+plus `login`) so the wallet is created and unlocked with the login password —
+ksecretd's PAM path creates a missing `kdewallet` silently, which is what
+prevents the "create a new keyring password" dialog at first login. Autologin
+types no password, so it is only enabled when `pam_systemd_loadkey` can recover
+the LUKS passphrase (encrypted installs, with `KeyringMode=inherit`); an
+unencrypted install gets a normal login screen so the password reaches PAM.
+`~/.config/kwalletrc` enables `[org.freedesktop.secrets]` so libsecret apps
+(Chromium, Electron) reuse the same wallet. Requires `kwallet-pam` + `socat` in
+the image — phase 1 adds both to the package list and warns if they are missing.
 
 Network: the installer probes for a connection and, if there is none, offers
-Wi-Fi setup (via `nmcli`), a re-check, or "continue offline". Offline installs
-are supported; apps picked in the first-boot wizard are queued and installed
-once the machine is online.
+Wi-Fi setup (via `nmcli`), a re-check, `nmtui-connect` for hidden/enterprise
+networks, or "continue offline". Offline installs are supported; apps picked in
+the first-boot wizard are queued and installed once the machine is online.
 
 ## Branding slides
 
@@ -278,6 +293,38 @@ A Calamares install uses `\EFI\syntropia\BOOTX64.EFI` instead (its
 hand. On a BIOS machine, `limine bios-install /dev/sdX 1` must have been run against the
 `ef02` partition. The runner aborts (instead of finishing) when the limine package
 is missing from the image, so a completed install always had the payloads.
+
+### First login asks to create a new wallet/keyring password
+
+**Cause**: the installed system has KWallet but no PAM link to it, so the first
+app that stores a secret asks the user to invent a wallet password. Autologin
+makes it unavoidable: no password ever passes through PAM.
+
+**Fix**: phase 1 ships `kwallet-pam` + `socat` in the live image and
+`syntropia-install-runner` calls `lib/keyring.sh`. On an installed system:
+
+```bash
+grep -n pam_kwallet /etc/pam.d/plasmalogin /etc/pam.d/sddm
+autologin=... ; grep -n '^\[Autologin\]' /etc/plasmalogin.conf   # only when encrypted
+qdbus org.kde.kwalletd6 /modules/kwalletd6 isOpen kdewallet         # after login
+ls ~/.local/share/kwalletd/kdewallet.kwl
+```
+
+If `pam_kwallet5.so` is missing, the image predates patch 1c — rebuild phase 1.
+Root being locked is intentional (see the installer section); do not "fix" sudo
+by setting a root password unless the user asked for one.
+
+### Apps picked in the first-boot wizard but nothing installed
+
+Check `~/.local/state/app-wiz4rd/install.log` first: every run and every paru
+invocation is recorded there, so an empty file means the wizard never reached
+the install step. The picker installs on **enter** from any row (the DONE row is
+not an arming step), and `paru` output is live in that terminal. Offline, the
+picker offers `nmtui-connect` before the app list; picks then wait in
+`~/.config/syntropia/apps-wizard.pending` and `--once` retries on each login.
+The wizard is shipped from `iso/vendor/app-wiz4rd-*.tar` (sha-pinned in
+`build.sh`), so a wizard fix only reaches the ISO after regenerating that
+tarball and bumping `APP_WIZ4RD_SHA256`.
 
 ### Verify the amended slides are actually in the ISO
 

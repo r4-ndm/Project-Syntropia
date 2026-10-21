@@ -29,7 +29,10 @@ data = {
     "username":      env.get("INSTALL_USERNAME", "syntropia"),
     "hostname":      env.get("INSTALL_HOSTNAME", "syntropia"),
     "password":      env.get("INSTALL_PASSWORD", ""),
+    # Locked root ships no root password at all; the mode is what tells the
+    # runner to run `passwd -l root` instead of `chpasswd`.
     "root_password": env.get("INSTALL_ROOT_PASSWORD", ""),
+    "root_password_mode": env.get("INSTALL_ROOT_PASSWORD_MODE", "locked"),
     "desktop_env":   env.get("INSTALL_DESKTOP", "plasma"),
     "encrypt":       env.get("INSTALL_ENCRYPT", "true") == "true",
     "keymap":        env.get("INSTALL_KEYMAP", "us"),

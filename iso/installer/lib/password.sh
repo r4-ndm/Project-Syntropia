@@ -2,9 +2,11 @@
 # Password entry UI for the Syntropia live installer.
 # ---------------------------------------------------
 # One place for every password question so the flow stays consistent and
-# testable: a read-only strength estimate, a masked "what you typed" view, a
-# confirmation field, and the root-password choice ("same as the user" or a
-# separate one) that other distros' installers offer.
+# testable: a read-only strength estimate, a masked "what you typed" view, and
+# a confirmation field. The account password is the only one the flow asks for:
+# root is locked by default (see ROOT_PASSWORD_MODE), exactly like an
+# archinstall/Omarchy install, so the user never invents a second secret.
+# `--root-password` opts back into the "same as the user"/"separate" menu.
 #
 # Why a hand-rolled strength estimate instead of a library: the live ISO is
 # bash + python only, and the candidate OSS meters (zxcvbn, passwdqc) are not
@@ -21,7 +23,12 @@ SYNTROPIA_PASSWORD_SH=1
 
 PASSWORD_MIN_LENGTH=8
 PASSWORD_BAR_WIDTH=12
-ROOT_PASSWORD_MODE="same-as-user"
+# "locked" (default) | "same-as-user" | "separate"
+#
+# Locked root means sudo/polkit ask for the account password and there is no
+# root password to guess, phish or forget. The runner locks the account with
+# `passwd -l root`; a root password is only set when the operator asked for one.
+ROOT_PASSWORD_MODE="locked"
 
 # --- strength -------------------------------------------------------------
 
@@ -181,6 +188,16 @@ password_report() {
     password_feedback_rows "$pw"
 }
 
+# One line for the install summary: what will happen to the root account.
+root_password_summary() {
+    local user="$1"
+    case "$ROOT_PASSWORD_MODE" in
+        separate) echo "separate from $user" ;;
+        same-as-user) echo "same as $user" ;;
+        *) echo "locked (sudo uses your password)" ;;
+    esac
+}
+
 # --- the flows ------------------------------------------------------------
 
 # ask_new_password <label> <out-var> [hint]
@@ -234,9 +251,10 @@ ask_new_password() {
 }
 
 # ask_root_password <username> <user-password> <out-var>
-# Default is to reuse the account password (one thing to remember, and the
-# installer has already been told to set both) but a separate root password
-# stays one keypress away, like Calamares and the Anaconda installers.
+# Only reached when the operator passed --root-password. The default inside the
+# menu is still to reuse the account password (one thing to remember); a
+# separate root password stays one keypress away, like Calamares.
+# Without the flag the caller never asks: ROOT_PASSWORD_MODE stays "locked".
 ask_root_password() {
     local user="$1" user_pw="$2" outvar="$3" answer=""
     local root_pw="" label="Root (administrator) password"

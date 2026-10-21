@@ -32,6 +32,8 @@ fi
 source "$INSTALLER_LIB/config.sh"
 # shellcheck source=lib/bootloader.sh
 source "$INSTALLER_LIB/bootloader.sh"
+# shellcheck source=lib/keyring.sh
+source "$INSTALLER_LIB/keyring.sh"
 
 set_phase() {
   local phase="$1" pm="$2"
@@ -51,9 +53,13 @@ fi
 TARGET_DISK=$(config_get "$CONFIG_FILE" disk '')
 USERNAME=$(config_get "$CONFIG_FILE" username 'syntropia')
 USER_PASSWORD=$(config_get "$CONFIG_FILE" password '')
-# Configs written before root had its own question reused the account password
-# for root; keep that as the fallback.
-ROOT_PASSWORD=$(config_get "$CONFIG_FILE" root_password "$USER_PASSWORD")
+# Root is locked unless the installer was told otherwise (--root-password).
+# Older configs have no mode key: derive it from whether a root password exists.
+ROOT_PASSWORD=$(config_get "$CONFIG_FILE" root_password '')
+ROOT_PASSWORD_MODE=$(config_get "$CONFIG_FILE" root_password_mode '')
+if [[ -z "$ROOT_PASSWORD_MODE" ]]; then
+  [[ -n "$ROOT_PASSWORD" ]] && ROOT_PASSWORD_MODE="same-as-user" || ROOT_PASSWORD_MODE="locked"
+fi
 HOSTNAME=$(config_get "$CONFIG_FILE" hostname 'syntropia')
 DESKTOP_ENV=$(config_get "$CONFIG_FILE" desktop_env 'plasma')
 ENCRYPT_DISK=$(config_get "$CONFIG_FILE" encrypt 'true')
@@ -64,8 +70,12 @@ if [[ -z "$TARGET_DISK" ]]; then
   echo "config.json has no target disk — re-run the installer" >&2
   exit 1
 fi
-if [[ -z "$USER_PASSWORD" || -z "$ROOT_PASSWORD" ]]; then
-  echo "config.json has no account/root password — re-run the installer" >&2
+if [[ -z "$USER_PASSWORD" ]]; then
+  echo "config.json has no account password — re-run the installer" >&2
+  exit 1
+fi
+if [[ "$ROOT_PASSWORD_MODE" != "locked" && -z "$ROOT_PASSWORD" ]]; then
+  echo "config.json asks for a root password but has none — re-run the installer" >&2
   exit 1
 fi
 
@@ -172,13 +182,33 @@ if ! arch-chroot "$TARGET" id -u "$USERNAME" &>/dev/null; then
 else
   arch-chroot "$TARGET" usermod -aG wheel,video,audio,input,storage,power,network,rfkill,sys,users,autologin,nopasswdlogin "$USERNAME" 2>/dev/null || true
 fi
-# Account and root passwords are collected separately by the installer (root
-# defaults to "same as the user"), so nothing is asked for at first boot.
+# One account password is collected by the installer. Root stays locked unless
+# a root password was requested, so sudo/polkit (and the keyring PAM stack)
+# all use the single password the user already knows.
 printf '%s:%s\n' "$USERNAME" "$USER_PASSWORD" | arch-chroot "$TARGET" chpasswd
-printf '%s:%s\n' "root" "$ROOT_PASSWORD" | arch-chroot "$TARGET" chpasswd
+if [[ "$ROOT_PASSWORD_MODE" == "locked" ]]; then
+  arch-chroot "$TARGET" passwd -l root >/dev/null
+  echo "root account locked — sudo uses the $USERNAME password"
+else
+  printf '%s:%s\n' "root" "$ROOT_PASSWORD" | arch-chroot "$TARGET" chpasswd
+fi
 mkdir -p "$TARGET/etc/sudoers.d"
 echo "%wheel ALL=(ALL:ALL) ALL" > "$TARGET/etc/sudoers.d/wheel"
 chmod 440 "$TARGET/etc/sudoers.d/wheel"
+
+# The keyring chain has to exist before the login configuration is written:
+# autologin is only safe when PAM can feed the wallet the LUKS passphrase.
+keyring_install_packages "$TARGET" "$ONLINE" || true
+KEYRING_AUTOLOGIN=0
+if [[ "$ENCRYPT_DISK" == "true" ]] && keyring_can_feed_autologin "$TARGET"; then
+  KEYRING_AUTOLOGIN=1
+fi
+if ((KEYRING_AUTOLOGIN)); then
+  AUTOLOGIN_USER="$USERNAME"
+else
+  AUTOLOGIN_USER=""
+  echo "Autologin disabled: the login password unlocks the wallet (no keyring prompt)."
+fi
 
 set_phase "Configuring kernel & initramfs" 820
 mkdir -p "$TARGET/boot"
@@ -335,45 +365,43 @@ if [[ "$DESKTOP_ENV" == "hyprland" ]]; then
   fi
 fi
 
-# Configure plasmalogin autologin configuration (both base and drop-in to override live image)
-mkdir -p "$TARGET/etc/plasmalogin.conf.d"
-cat > "$TARGET/etc/plasmalogin.conf" << PLASMACONF
-[Autologin]
-User=$USERNAME
+# Login manager configuration. Autologin is written only when KEYRING_AUTOLOGIN
+# set it: on an encrypted disk PAM can recover the passphrase (same secret as
+# the account password), so the wallet still unlocks. Without that chain the
+# login screen has to run so pam_kwallet receives the typed password.
+PLASMA_AUTOLOGIN_BLOCK=""
+SDDM_AUTOLOGIN_BLOCK=""
+if [[ -n "$AUTOLOGIN_USER" ]]; then
+  PLASMA_AUTOLOGIN_BLOCK="[Autologin]
+User=$AUTOLOGIN_USER
 Session=$SESSION_NAME
 Relogin=false
 
-[Users]
+"
+  SDDM_AUTOLOGIN_BLOCK="[Autologin]
+User=$AUTOLOGIN_USER
+Session=$SESSION_NAME
+Relogin=false
+"
+fi
+
+mkdir -p "$TARGET/etc/plasmalogin.conf.d"
+cat > "$TARGET/etc/plasmalogin.conf" << PLASMACONF
+${PLASMA_AUTOLOGIN_BLOCK}[Users]
 MinimumUid=100
 MaximumUid=60000
 PLASMACONF
 
 cat > "$TARGET/etc/plasmalogin.conf.d/autologin.conf" << PLASMACONF
-[Autologin]
-User=$USERNAME
-Session=$SESSION_NAME
-Relogin=false
-
-[Users]
+${PLASMA_AUTOLOGIN_BLOCK}[Users]
 MinimumUid=100
 MaximumUid=60000
 PLASMACONF
 
 # Configure SDDM autologin configuration as well
 mkdir -p "$TARGET/etc/sddm.conf.d"
-cat > "$TARGET/etc/sddm.conf" << SDDMCONF
-[Autologin]
-User=$USERNAME
-Session=$SESSION_NAME
-Relogin=false
-SDDMCONF
-
-cat > "$TARGET/etc/sddm.conf.d/autologin.conf" << SDDMCONF
-[Autologin]
-User=$USERNAME
-Session=$SESSION_NAME
-Relogin=false
-SDDMCONF
+printf '%s' "$SDDM_AUTOLOGIN_BLOCK" > "$TARGET/etc/sddm.conf"
+printf '%s' "$SDDM_AUTOLOGIN_BLOCK" > "$TARGET/etc/sddm.conf.d/autologin.conf"
 
 # Explicitly unmask and wire display-manager and graphical.target for installed system
 mkdir -p "$TARGET/etc/systemd/system"
@@ -390,6 +418,17 @@ elif [[ -f "$TARGET/usr/lib/systemd/system/sddm.service" ]]; then
 fi
 ln -sf /usr/lib/systemd/system/graphical.target "$TARGET/etc/systemd/system/default.target"
 arch-chroot "$TARGET" systemctl set-default graphical.target 2>/dev/null || true
+arch-chroot "$TARGET" chown -R "$USERNAME:$USERNAME" "/home/$USERNAME" 2>/dev/null || true
+
+set_phase "Configuring keyring auto-unlock (KWallet)" 920
+# Ships the wallet that Plasma already unlocked to libsecret apps, so Chromium
+# and Electron do not create a second keyring with its own password prompt.
+if keyring_configure_target "$TARGET" "$USERNAME" "$ONLINE" "$KEYRING_AUTOLOGIN"; then
+  echo "Keyring: KWallet auto-unlock configured (autologin=$KEYRING_AUTOLOGIN)."
+else
+  echo "warning: keyring auto-unlock incomplete — the first login may ask to create a wallet." >&2
+fi
+# The kwalletrc was written by root after the earlier chown.
 arch-chroot "$TARGET" chown -R "$USERNAME:$USERNAME" "/home/$USERNAME" 2>/dev/null || true
 
 set_phase "Applying Syntropia branding & identity" 950

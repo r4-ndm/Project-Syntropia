@@ -1,10 +1,15 @@
-"""Tests for app-wiz4rd's offline pending-install queue.
+"""Tests for app-wiz4rd's install path, queue and connectivity prompt.
 
 The ISO ships the wizard from the vendored release tarball in iso/vendor/, so
 that tarball is what the installed system actually runs — the tests extract it
-and drive it with stub `paru` / network / TUI binaries. What we pin: a pick made
-while offline is never lost, the run is not marked done, and the next run (or
-`--resume`) finishes the job once the network is back.
+and drive it with stub `paru` / pacman / network / TUI binaries. What we pin:
+picks install visibly while online (paru is really called, and the output is
+logged), the picker offers nmtui before the app list while offline, a pick made
+while offline is never lost, and the next run (or `--resume`) finishes the job
+once the network is back.
+
+The picker's own key handling (enter installs from any row) is pinned by the Go
+tests in the app-wiz4rd repo, dialog/main_test.go.
 """
 
 import hashlib
@@ -25,12 +30,29 @@ TARBALL = REPO / "iso" / "vendor" / "app-wiz4rd-0.1.0.tar"
 PARU_STUB = """#!/bin/sh
 echo "paru $*" >> "$WIZ_PARU_LOG"
 [ -f "$WIZ_ONLINE" ] || exit 1
-exit 0
+echo "paru: installing $*"
+exit "${WIZ_PARU_RC:-0}"
 """
 
 NETWORK_STUB = """#!/bin/sh
 [ -f "$WIZ_ONLINE" ] && exit 0
 exit 1
+"""
+
+# pacman -Q <pkg>: succeed only for packages listed in WIZ_INSTALLED_FILE — how
+# the tests model "paru failed, but some of the transaction landed".
+PACMAN_STUB = """#!/bin/sh
+echo "$*" >> "$WIZ_PACMAN_LOG"
+[ "$1" = "-Q" ] || exit 0
+for pkg in $(cat "$WIZ_INSTALLED_FILE" 2>/dev/null); do
+    [ "$2" = "$pkg" ] && exit 0
+done
+exit 1
+"""
+
+NMTUI_STUB = """#!/bin/sh
+echo "nmtui-connect $*" >> "$WIZ_NMTUI_LOG"
+exit 0
 """
 
 TUI_STUB = """#!/bin/sh
@@ -53,8 +75,9 @@ def extract_wizard(tmp_path: Path) -> Path:
 # Everything the driver needs from a normal system, symlinked into an isolated
 # bin dir so PATH holds no paru/pacman of the host's own.
 CORE_TOOLS = (
-    "awk", "bash", "cat", "dirname", "env", "grep", "mkdir", "mktemp",
-    "mv", "nohup", "rm", "sed", "sh", "sleep", "touch", "tr", "wc",
+    "awk", "bash", "cat", "date", "dirname", "env", "grep", "mkdir",
+    "mktemp", "mv", "nohup", "rm", "sed", "sh", "sleep", "tee", "touch",
+    "tr", "wc",
 )
 
 
@@ -70,7 +93,9 @@ def wizard(tmp_path: Path) -> dict:
     (stub_bin / "paru").write_text(PARU_STUB)
     (stub_bin / "ping").write_text(NETWORK_STUB)
     (stub_bin / "getent").write_text(NETWORK_STUB)
-    for name in ("paru", "ping", "getent"):
+    (stub_bin / "pacman").write_text(PACMAN_STUB)
+    (stub_bin / "nmtui-connect").write_text(NMTUI_STUB)
+    for name in ("paru", "ping", "getent", "pacman", "nmtui-connect"):
         (stub_bin / name).chmod(0o755)
 
     tui = root / "dialog" / "syntropia-apps-tui"
@@ -85,12 +110,17 @@ def wizard(tmp_path: Path) -> dict:
         "home": home,
         "online": tmp_path / "online",
         "paru_log": tmp_path / "paru.log",
+        "nmtui_log": tmp_path / "nmtui.log",
+        "installed_file": tmp_path / "installed",
         "env": {
             "PATH": str(stub_bin),
             "HOME": str(home),
             "LANG": "C.UTF-8",
             "WIZ_ONLINE": str(tmp_path / "online"),
             "WIZ_PARU_LOG": str(tmp_path / "paru.log"),
+            "WIZ_PACMAN_LOG": str(tmp_path / "pacman.log"),
+            "WIZ_NMTUI_LOG": str(tmp_path / "nmtui.log"),
+            "WIZ_INSTALLED_FILE": str(tmp_path / "installed"),
         },
     }
 
@@ -179,7 +209,7 @@ def test_resume_installs_the_queue_and_marks_done(wizard: dict) -> None:
     assert queued(wizard) == []
     assert done_marker(wizard).exists()
     log = wizard["paru_log"].read_text()
-    assert "-S --noconfirm reaper bitwig" in log
+    assert "-S --noconfirm --needed reaper bitwig" in log
 
 
 def test_once_runs_again_while_pending(wizard: dict) -> None:
@@ -236,6 +266,58 @@ def test_missing_paru_offline_keeps_the_queue(wizard: dict) -> None:
     assert result.returncode == 0, result.stderr
     assert queued(wizard) == ["reaper"]
     assert "paru is not installed and there is no internet" in result.stdout
+
+
+def install_log(ctx: dict) -> Path:
+    return ctx["home"] / ".local" / "state" / "app-wiz4rd" / "install.log"
+
+
+# --- the reported "picked apps, nothing installed" path -------------------
+
+def test_online_picks_install_immediately_and_are_logged(wizard: dict) -> None:
+    wizard["online"].touch()
+
+    result = run_picker(wizard, "reaper bitwig", "--once")
+
+    assert result.returncode == 0, result.stderr
+    assert "Installing packages: reaper bitwig" in result.stdout
+    log = wizard["paru_log"].read_text()
+    assert "-S --noconfirm --needed reaper bitwig" in log
+    assert queued(wizard) == []
+    assert done_marker(wizard).exists()
+    # Output survives the window: the same text is on disk.
+    trace = install_log(wizard).read_text()
+    assert "run mode=once" in trace
+    assert "picked: reaper bitwig" in trace
+    assert "paru -S --noconfirm --needed reaper bitwig" in trace
+    assert "paru: installing" in trace
+
+
+def test_offline_picker_offers_a_connection_before_app_selection(wizard: dict) -> None:
+    result = run_picker(wizard, "reaper", "--once")
+
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    assert "No internet connection." in out
+    assert "Connect now" in out
+    # The menu comes before the picker (whose stub prints nothing), so the
+    # prompt appears even though a pick was made afterwards.
+    assert wizard["nmtui_log"].exists(), "nmtui-connect must be offered when offline"
+    assert queued(wizard) == ["reaper"]
+
+
+def test_partial_paru_failure_unqueues_only_installed_picks(wizard: dict) -> None:
+    wizard["online"].touch()
+    wizard["installed_file"].write_text("reaper\n")
+    wizard["env"]["WIZ_PARU_RC"] = "1"
+
+    result = run_picker(wizard, "reaper bitwig", "--once")
+
+    assert result.returncode == 0, result.stderr
+    # reaper really installed; bitwig is the only thing left to do.
+    assert queued(wizard) == ["bitwig"]
+    assert not done_marker(wizard).exists()
+    assert "could not install everything" in result.stdout
 
 
 def test_build_sh_pins_the_vendored_tarball() -> None:

@@ -21,15 +21,19 @@ usage() {
 syntropia-install — guided Syntropia OS installer
 
 Usage:
-  syntropia-install            collect the answers, then install
-  syntropia-install --dry-run  ask the questions, print the plan, change nothing
+  syntropia-install                 collect the answers, then install
+  syntropia-install --dry-run       ask the questions, print the plan, change nothing
+  syntropia-install --root-password  also set a root password (default: root is
+                                    locked and sudo uses the account password)
 USAGE
 }
 
 DRY_RUN=0
+ASK_ROOT_PASSWORD=0
 for arg in "$@"; do
     case "$arg" in
         --dry-run | --check) DRY_RUN=1 ;;
+        --root-password) ASK_ROOT_PASSWORD=1 ;;
         -h | --help) usage; exit 0 ;;
         *) printf 'syntropia-install: unknown option: %s (try --help)\n' "$arg" >&2; exit 2 ;;
     esac
@@ -75,6 +79,7 @@ HOSTNAME="syntropia"
 SELECTED_KEYMAP="us"
 USER_PASSWORD=""
 ROOT_PASSWORD=""
+ROOT_PASSWORD_MODE="locked"
 ENCRYPT_DISK="true"
 DESKTOP_ENV="plasma"
 INSTALL_ONLINE="false"
@@ -211,12 +216,22 @@ step_network() {
 
 step_passwords() {
     clear_and_center 30
-    printf '%s  Nothing is asked on the first boot of the installed system.%s\n' "$INDENT" "$DIM"
+    printf '%s  One password, typed once: it signs you in and unlocks sudo.%s\n' "$INDENT" "$DIM"
     printf '%s  The account password also unlocks the disk when encryption is on.%s\n' "$INDENT" "$DIM"
 
     ask_new_password "Account password" USER_PASSWORD \
         "Password for \"$USERNAME\"." || abort_no_input
-    ask_root_password "$USERNAME" "$USER_PASSWORD" ROOT_PASSWORD || abort_no_input
+
+    # Root is locked unless the operator explicitly asked for a root password:
+    # sudo/polkit use the account password, and no second secret is invented.
+    if ((ASK_ROOT_PASSWORD)); then
+        ask_root_password "$USERNAME" "$USER_PASSWORD" ROOT_PASSWORD || abort_no_input
+    else
+        ROOT_PASSWORD=""
+        ROOT_PASSWORD_MODE="locked"
+        printf '\n'
+        note "$GREEN" "✓" "root account locked — sudo asks for your account password"
+    fi
 }
 
 step_encryption() {
@@ -260,7 +275,7 @@ step_summary() {
     field_line "Hostname" "$HOSTNAME"
     field_line "Keymap" "$SELECTED_KEYMAP"
     field_line "Encryption" "$([[ "$ENCRYPT_DISK" == "true" ]] && echo "LUKS2" || echo "off")"
-    field_line "Root password" "$([[ "$ROOT_PASSWORD_MODE" == "separate" ]] && echo "separate from $USERNAME" || echo "same as $USERNAME")"
+    field_line "Root account" "$(root_password_summary "$USERNAME")"
     field_line "Desktop" "$([[ "$DESKTOP_ENV" == "plasma" ]] && echo "Syntropia Plasma (KDE)" || echo "Syntropia Hyprland")"
     field_line "Bootloader" "Limine (UEFI + BIOS)"
     field_line "Filesystem" "Btrfs (@, @home, @log, @pkg)"
@@ -283,6 +298,7 @@ write_config() {
         INSTALL_HOSTNAME="$HOSTNAME" \
         INSTALL_PASSWORD="$USER_PASSWORD" \
         INSTALL_ROOT_PASSWORD="$ROOT_PASSWORD" \
+        INSTALL_ROOT_PASSWORD_MODE="$ROOT_PASSWORD_MODE" \
         INSTALL_DESKTOP="$DESKTOP_ENV" \
         INSTALL_ENCRYPT="$ENCRYPT_DISK" \
         INSTALL_KEYMAP="$SELECTED_KEYMAP" \
