@@ -39,8 +39,9 @@ Located at `iso/build.sh`. Two phases:
 - Clones/pulls [CachyOS/CachyOS-Live-ISO](https://github.com/CachyOS/CachyOS-Live-ISO)
 - Applies patches:
   1. Symlinks `packages.x86_64` → `packages_desktop.x86_64` (mkarchiso naming)
-  2. Adds `NoExtract` for slide files in `pacman.conf` [options] section (safety net)
-  3. **Stale-work-dir guard**: clears the mkarchiso `build._build_buildmode_*` / `iso._build_iso_image` markers when the expected stock ISO is missing, so a previously-renamed stock ISO forces re-assembly instead of silently exiting
+  2. Appends `limine` to that package list — Limine is the installed bootloader, and the TUI installer *rsyncs the live rootfs* onto the target, so `/usr/bin/limine` and `/usr/share/limine/{BOOTX64.EFI,limine-bios.sys}` must already be in the live image (an offline install cannot pacman them afterwards)
+  3. Adds `NoExtract` for slide files in `pacman.conf` [options] section (safety net)
+  4. **Stale-work-dir guard**: clears the mkarchiso `build._build_buildmode_*` / `iso._build_iso_image` markers when the expected stock ISO is missing, so a previously-renamed stock ISO forces re-assembly instead of silently exiting
 - Runs `mkarchiso` → `iso/out/syntropia-*-stock.iso`
 
 ### Phase 2: Remaster (injection)
@@ -48,8 +49,16 @@ Located at `iso/build.sh`. Two phases:
 1. Extract the stock ISO (`bsdtar`), unsquash the rootfs
 2. **Slides**: copy `slide{1-6}.jxl` into `/usr/share/calamares/branding/cachyos/`
 3. **pacman.conf NoUpgrade+NoExtract** (must stay inside `[options]`): protects the slides AND the Calamares configs we patch — `settings_online.conf`, `settings_offline.conf`, `etc/calamares/modules/pacstrap.conf`, `etc/calamares/modules/users.conf` — from the live-boot `cachyos-calamares-next` update
-4. **display-manager symlink** (plasmalogin, fallback sddm) so the live desktop auto-starts
-5. **Apps wizard + TUI** → `/etc/syntropia/`: `app-wiz4rd` (TUI-only driver), `apps.list`, and `dialog/` (source + a freshly built static TUI binary), extracted from the vendored `iso/vendor/app-wiz4rd-*.tar.gz` (sha256-pinned — the **app-wiz4rd repo** is the single source of truth; there is no in-repo copy). Autostart entry ships as a template in `/etc/syntropia/syntropia-apps.desktop` (NOT the live autostart dir — see step 6)
+4. **Direct Omarchy-style TUI installer on tty1**: Disables graphical display-manager auto-start for instant boot (<3s); sets the default systemd target to `multi-user.target`. Configures autologin on `tty1` to launch `syntropia-install` centred on screen with robust dynamic terminal geometry (`stty size < /dev/tty`, `tput`, `shutil.get_terminal_size`), the Syntropia dark console palette, ASCII banner/logo, interactive console keyboard layout selection (UK vs US with immediate `loadkeys` + `/etc/vconsole.conf` persistence), NumLock via `setleds`, a **network step**, and a **password panel**, then a curses-style progress dashboard (`syntropia-install-dashboard` + `syntropia-install-runner`). Fallback GUI launcher `start-plasma` remains available.
+   - **Source of truth: `iso/installer/`**, not heredocs in `build.sh`. `build.sh` installs `syntropia-install`, `-runner` and `-dashboard` to `/usr/local/bin/`, plus `iso/installer/lib/*.sh` (common, config, password, network) to `/usr/local/lib/syntropia-installer/`. Keep it that way — as files the UI can be syntax-checked, dry-run (`syntropia-install --dry-run`) and tested (`phase1/tests/test_installer_tui.py`).
+   - **Passwords are collected twice**: the account password (masked entry, strength estimate with "Meets/Missing" feedback, confirmation loop, ANSI-escape rejection for keypad End and friends) and the root password, which defaults to "same as the user" with an explicit "different root password" option. Both land in `/run/syntropia-install/config.json` (`password`, `root_password`) — created **0600** by `lib/config.sh` — and the runner applies both with `chpasswd` over stdin. The account password is also the LUKS passphrase; the summary says so.
+   - **Network step**: probes a default route plus ICMP/DNS (`lib/network.sh`). Offline it offers `nmcli` Wi-Fi setup, a re-check, or "continue without internet"; the answer is stored as `online` in the config so the runner skips its online-only Hyprland `pacman -Sy` fallback instead of stalling.
+   - **Bootloader: Limine** (`lib/bootloader.sh`, decision recorded in `NEXT_SESSION.md`) — the runner no longer writes systemd-boot entries or runs `grub-install`. Partitions are `p1` 1 MiB **BIOS boot** (GPT type `ef02`, holds Limine's BIOS stage 2), `p2` 512 MiB **ESP** (mounted at `/boot`), `p3` root (Btrfs/LUKS). `limine_conf_write` generates `/boot/limine.conf` (volume root, so Limine's own search order finds it), `limine_install_efi` copies `BOOTX64.EFI` to **both** `\EFI\BOOT\` (firmware fallback) and `\EFI\limine\` (the NVRAM entry, recreated with `efibootmgr`), and `limine_install_bios` drops `limine-bios.sys` on the ESP and runs `limine bios-install <disk> <bios-partnum>`. The OS entry is `/+CachyOS Syntropia` — exactly os-release `PRETTY_NAME`, i.e. what `TARGET_OS_NAME` in the branding hook and limine-snapper-sync match — and the hook only renames a still-bare `/+CachyOS`, so a second install run can't produce `... Syntropia Syntropia`. If the limine package is missing from the image the runner **aborts** rather than shipping an unbootable disk. Pinned by `phase1/tests/test_installer_bootloader.py`.
+5. **Apps wizard + TUI + Hyprland Noctalia overlay** → `/etc/syntropia/`: `app-wiz4rd` (TUI-only driver), `apps.list`, `dialog/` (source + a freshly built static TUI binary), and the Syntropia overlay on stock `cachyos-hypr-noctalia` (providing Noctalia shell integration, Syntropia branding/wallpaper, DAW/VST floating window rules, and `syntropia-cheatsheet` hotkey suite). Autostart entry ships as a template in `/etc/syntropia/syntropia-apps.desktop` (NOT the live autostart dir — see step 6), with the app-menu launcher shipped separately (below).
+   - **Offline picks queue instead of vanishing**: every selection is written to `~/.config/syntropia/apps-wizard.pending` *before* `paru` runs, successful installs clear their entries, and `--once` keeps firing while the queue is non-empty (it honours `apps-wizard.done` only when nothing is pending). `app-wiz4rd --resume` installs the queue without the picker, and a normal run retries it first. Web-app picks are just local launchers, so they work offline. Pinned by `phase1/tests/test_app_wiz4rd_pending.py` against the vendored tarball.
+   - The tarball's `app-wiz4rd.desktop` is also shipped, with `Exec` repointed to `/etc/syntropia/app-wiz4rd`, as `/usr/share/applications/syntropia-apps.desktop` — the wizard must stay reachable from the app menu after the one-shot autostart has fired.
+   - **Hyprland Lua & Noctalia**: Hyprland configuration is managed upstream via Lua (`hl.*` API) and UWSM by CachyOS's `cachyos-hypr-noctalia` package; the unified Rust-based `noctalia` shell replaces separate Waybar/SwayNC/Rofi/wlogout packages.
+   - **hyprbars** (`install_hyprbars_plugin()`): titlebar window buttons are the one Hyprland piece that is AUR-only, so it is compiled in the freshly-pacstrapped rootfs (Hyprland ships its headers + `hyprland.pc`) and installed to `/usr/lib/hyprland/hyprbars.so`. The installed system gets the same module copied in by `syntropia-install-runner`. Best-effort: a failed build only warns, and `config/hyprbars.lua` skips loading when the `.so` is absent.
 6. **Calamares install wiring** (patched into `settings_online/offline.conf`):
    - `syntropia_wizard` shellprocess — copies the wizard + autostart entry into the installed root (autostart comes from `/etc/syntropia/syntropia-apps.desktop`, so the live session stays vanilla)
    - `paru` added to pacstrap `basePackages` — every install ships paru (NoUpgrade-protected)
@@ -57,7 +66,8 @@ Located at `iso/build.sh`. Two phases:
 7. **Terminal ASCII art** → `/usr/share/syntropia/` (logo.txt, `branding/fastfetch-color.json`) + `/etc/skel/.config/fastfetch/config.jsonc` (generated from the repo's `build_fastfetch_conf` — same single source as `syntropia transform`)
 8. **Identity**: `os-release` + `lsb-release` generated from `transform.py`'s `OS_RELEASE_CONTENT` (AST-extracted at build time — the same constant `test_transform.py::test_os_release_identity_contract` pins). Shipped to `/usr/share/syntropia/branding/`; the branding hook copies them into the installed `/etc/`
 9. **Hostname default**: `users.conf` hostname template `cachyos-${cpu}` → `syntropia-${cpu}` (user can still override in Calamares)
-10. Repack squashfs (`-comp xz -b 1M -Xbcj x86 -Xdict-size 1M`), update checksum, remove the unsquashed rootfs, rebuild hybrid ISO with `xorriso` (BIOS + UEFI, volume label `SYNTROPIA`)
+10. **ISO bootloader & Calamares unbranding & centering**: Patch GRUB timeout to 2s, Syslinux timeout to 3s, sync `archisosearchuuid`, and rebrand all boot titles to Syntropia only (removing CachyOS labels). Rebrand Calamares `branding.desc` to Syntropia OS with `windowPlacement: center`, purge generic multi-OS choosers (`packagechooser@desktop`, `packagechooser@bootloader`, `netinstall`), configure `bootloader.conf` for native `systemd-boot` (fixing the 82% freeze), configure offline `unpackfs` as default in `calamares-online.sh` to avoid network hangs, disable `cachyos-hello`, and prompt the user to remove the USB flash drive upon install completion.
+11. Repack squashfs (`-comp zstd -Xcompression-level 19 -b 1M` for ~900 MB/s single-threaded kernel page decompression), update checksum, remove the unsquashed rootfs, rebuild hybrid ISO with `xorriso` (BIOS + UEFI via appended FAT EFI partition image `efiboot.img`, volume label `SYNTROPIA`, and synchronized `--modification-date`)
 
 ### The install-time branding hook
 
@@ -166,7 +176,7 @@ All in Arch/CachyOS repos. The script checks these and exits early if missing.
 
 ### limine-snapper: "Target OS name 'syntropia OS' not found in /boot/limine.conf"
 **Cause**: the bootloader (limine.conf) is generated at install time with the CachyOS name, but os-release is renamed to Syntropia at the END of install. `limine-snapper-sync` reads the OS entry name from limine.conf and matches it against os-release PRETTY_NAME (or `TARGET_OS_NAME` in `/etc/default/limine`) — mismatch → warning/notification on every boot.
-**Fix**: `hook-branding-users.sh` syncs both sides: the limine.conf OS entry `/ +CachyOS` → `/ +Syntropia OS`, and pins `TARGET_OS_NAME="Syntropia OS"` in `/etc/default/limine`. Keep these in sync whenever the os-release name changes.
+**Fix**: `hook-branding-users.sh` syncs both sides: the limine.conf OS entry `/ +CachyOS` → `/ +CachyOS Syntropia`, and pins `TARGET_OS_NAME="CachyOS Syntropia"` in `/etc/default/limine`. Keep these in sync whenever the os-release name changes.
 
 ### Calamares hook fails with "Missing variables"
 **Cause**: the Calamares shellprocess module macro-expands every command string with KWordMacroExpander('$'), which treats BARE `$word` as a macro. Any shell variable written as `$foo` in a hook command aborts the whole job before it runs.
@@ -174,7 +184,19 @@ All in Arch/CachyOS repos. The script checks these and exits early if missing.
 
 ### os-release identity drift
 **Cause**: the ISO and `syntropia transform` each carry the identity; a second copy would drift.
-**Fix**: single source of truth = `OS_RELEASE_CONTENT` in `phase1/cli/transform/syntropia_transform/transform.py`. `build.sh` AST-extracts it at build time, and `test_transform.py::test_os_release_identity_contract` pins `ID=syntropia` + `ID_LIKE="arch cachyos"`. Change it in transform.py only.
+**Fix**: single source of truth = `OS_RELEASE_CONTENT` in `phase1/cli/transform/syntropia_transform/transform.py`. `build.sh` AST-extracts it at build time, and `test_transform.py::test_os_release_identity_contract` pins `ID=cachyos` + `VARIANT_ID=syntropia` (the freedesktop derivative pattern — keeps CachyOS tools working). Change it in transform.py only.
+
+### UEFI boot fails: "No bootable device" / "Invalid El Torito image"
+**Cause**: Pointing `-e` in `xorriso` directly to a raw `.EFI` PE executable instead of a FAT filesystem EFI partition image (`efiboot.img`).
+**Fix**: `iso/build.sh` extracts partition 2 (type `0xef`) from the stock ISO and appends it via `-append_partition 2 0xef "$efiboot_img"` and `-e '--interval:appended_partition_2:all::'`.
+
+### Live installer freezes at 82% ("Configuring Limine bootloader & kernel")
+**Cause**: `mkinitcpio -P` fails because stray `linux.preset` from archiso expects missing kernel paths, `mkinitcpio.conf` used incompatible `encrypt` hook with systemd initramfs (needs `sd-encrypt`), and Limine EFI binaries are not bundled in CachyOS rootfs.
+**Fix**: `iso/build.sh` removes stray archiso presets, copies all kernels to `/boot`, configures `sd-encrypt`, runs specific presets, installs `systemd-boot` on ESP via `bootctl` + fallback `BOOTX64.EFI`, and registers UEFI NVRAM via host `efibootmgr`.
+
+### Kernel boots but panics: "Device ... not found after 30 seconds"
+**Cause**: The archiso initramfs hook searches for `/dev/disk/by-uuid/<archisosearchuuid>`, but remastering changed the ISO filesystem UUID (which ISO9660 derives from modification date).
+**Fix**: `iso/build.sh` preserves the stock ISO's UUID and passes `--modification-date` to `xorriso`, while syncing `archisosearchuuid` in `grub.cfg` and `archiso_sys*.cfg`.
 
 ### "boost.python error in mount job" during Calamares install
 **Cause**: squashfs was rebuilt without proper ownership (e.g., as non-root user with fakeroot).
@@ -196,6 +218,14 @@ All in Arch/CachyOS repos. The script checks these and exits early if missing.
 **Cause**: CachyOS names it `packages_desktop.x86_64`.
 **Fix**: The script symlinks it automatically.
 
+### Install finishes but the machine boots nothing (firmware menu, no "Syntropia OS")
+**Cause**: Limine is not on the disk: either the image was built without the `limine` package (the runner now aborts with "Rebuild the ISO") or the disk has no BIOS boot partition, so `limine bios-install` had nowhere to put stage 2.
+**Fix**: Check `/boot` on the target (ESP): it must hold `limine.conf`, `limine-bios.sys`, `EFI/BOOT/BOOTX64.EFI`, `EFI/limine/BOOTX64.EFI` plus the kernel and initramfs. `efibootmgr -v` must list "Syntropia OS" → `\EFI\limine\BOOTX64.EFI`. On a BIOS machine, `limine bios-install <disk> 1` must have run against the `ef02` partition; re-running it from the installed system is safe.
+
+### Hyprland windows have no titlebar / window buttons
+**Cause**: `hyprbars` is AUR-only (`hyprland-plugin-hyprbars`), so it cannot be listed in `packages_desktop.x86_64` or the pacman package arrays; `install_hyprbars_plugin()` compiles it into the rootfs instead. If that build fails (network, a Hyprland release with no matching `hyprland-plugins` tag, a header API change) the build only warns and the ISO ships without `/usr/lib/hyprland/hyprbars.so`; `config/hyprbars.lua` then skips loading it, and windows float with no titlebar.
+**Fix**: Look for the `[WARN] ... hyprbars` line in the phase-2 log and the compiler output (re-run with `bash -x`, or build by hand inside the rootfs: `make` in `hyprland-plugins/hyprbars`). The plugin must be rebuilt whenever Hyprland's version changes — its API hash is baked in at compile time.
+
 ## Typical workflow
 
 1. Edit the source of truth (slides PNGs, `transform.py` OS_RELEASE_CONTENT, etc.) and commit. Wizard changes happen in the **app-wiz4rd repo** (`github.com/r4-ndm/app-wiz4rd`): edit there, regenerate its release tarball into `iso/vendor/`, and update `APP_WIZ4RD_SHA256` in `build.sh` (see the header comment there for the exact `git archive` command)
@@ -203,7 +233,7 @@ All in Arch/CachyOS repos. The script checks these and exits early if missing.
 3. Build: `sudo env SOURCE_DATE_EPOCH=$(date -d <stock-date> +%s) iso/build.sh --phase2`
 4. Verify it baked in: `bsdtar -xf` the ISO, `unsquashfs` the sfs, and diff the shipped files against the vendored tarball (wizard script, os-release, apps.list, TUI binary)
 5. Fresh-install test in the VM: reset the disk (fresh qcow2), attach the ISO as cdrom (boot order 1), boot, run Calamares, reboot from disk
-6. Verify: wizard fires at first login, `fastfetch`/`lsb_release`/hostname report Syntropia, no limine-snapper notification
+6. Verify: the machine boots through Limine (menu title "Syntropia Bootloader", entry `/+CachyOS Syntropia`, LTS entry when the LTS kernel is present), wizard fires at first login, `fastfetch`/`lsb_release`/hostname report Syntropia, no limine-snapper notification
 
 ## Snapshot-revert workflow (fast Layer 2 tests)
 

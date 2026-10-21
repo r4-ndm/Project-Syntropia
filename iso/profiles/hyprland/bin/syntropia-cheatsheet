@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Syntropia OS — Interactive Keybindings Cheatsheet
+# ==============================================================================
+
+show_cheatsheet() {
+    cat << "EOF"
+==============================================================================
+                    SYNTROPIA OS — KEYBINDINGS CHEATSHEET
+==============================================================================
+
+  [ Shell & Application Launching ]
+  󰌌  Super + Space           Noctalia Application Launcher
+  󰌌  Super + Return          Terminal (Kitty / Alacritty)
+  󰌌  Super + E               File Manager (Dolphin)
+  󰌌  Super + W               Web Browser
+  󰌌  Super + V               Noctalia Clipboard History
+  󰌌  Super + X               Noctalia Control Center (Audio, Wi-Fi, BT)
+  󰌌  Super + A               Noctalia Notifications Panel
+  󰌌  Super + Shift + W       Wallpaper & Theme Selector
+  󰌌  Super + Ctrl + Space    Wallpaper & Theme Selector (Omarchy)
+  󰌌  Super + L               Lock Screen
+  󰌌  Super + Alt + C         Session & Power Menu
+  󰌌  Super + /               Show this Cheatsheet
+
+  [ Window Management ]
+  󰌌  Super + Q               Close Active Window
+  󰌌  Super + F               Toggle Fullscreen
+  󰌌  Super + Alt + Space     Toggle Floating Window
+  󰌌  Super + Left/Right/Up/Down Focus Window (or Vim H/J/K/L)
+  󰌌  Super + Shift + Arrows  Move Window (or Vim Shift + H/J/K/L)
+  󰌌  Super + 1..9            Switch to Workspace 1..9
+  󰌌  Super + Shift + 1..9    Move Window to Workspace 1..9
+  󰌌  Super + S               Toggle Special Scratchpad
+  󰌌  Super + Shift + M       Show Minimised Windows
+
+  [ Media & System ]
+  󰌌  Vol Up / Down / Mute    Dedicated Hardware Audio Keys
+  󰌌  Brightness Keys         Hardware Display Brightness
+  󰌌  Print                   Interactive Region Screenshot
+  󰌌  Super + Print           Full Screen Screenshot
+
+==============================================================================
+  Press [q] or [Enter] to close...
+EOF
+    read -r -n 1 -s
+}
+
+export -f show_cheatsheet
+
+if command -v kitty >/dev/null 2>&1; then
+    exec kitty --class floating_terminal --title "Syntropia Hotkeys" -e bash -c 'show_cheatsheet'
+elif command -v alacritty >/dev/null 2>&1; then
+    exec alacritty --class floating_terminal -T "Syntropia Hotkeys" -e bash -c 'show_cheatsheet'
+else
+    show_cheatsheet
+fi

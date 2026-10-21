@@ -1,0 +1,353 @@
+#!/bin/bash
+# Syntropia live ISO first-install entry point (tty1).
+# ===================================================
+# A keyboard-driven setup wizard: target disk, identity, keymap, network,
+# passwords, encryption and desktop, then a summary and hand-off to the
+# progress dashboard (which supervises syntropia-install-runner).
+#
+# Lives in iso/installer/ as a real script (not a heredoc inside build.sh) so
+# it can be syntax-checked, dry-run and tested. build.sh only copies this file
+# plus lib/ into the ISO image.
+#
+# Usage:
+#   syntropia-install            guided install
+#   syntropia-install --dry-run  ask the questions, print the plan, change nothing
+set -euo pipefail
+
+SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+
+usage() {
+    cat <<'USAGE'
+syntropia-install — guided Syntropia OS installer
+
+Usage:
+  syntropia-install            collect the answers, then install
+  syntropia-install --dry-run  ask the questions, print the plan, change nothing
+USAGE
+}
+
+DRY_RUN=0
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run | --check) DRY_RUN=1 ;;
+        -h | --help) usage; exit 0 ;;
+        *) printf 'syntropia-install: unknown option: %s (try --help)\n' "$arg" >&2; exit 2 ;;
+    esac
+done
+
+# ── shared libraries ───────────────────────────────────────────────────────
+# In the repo the libs sit next to this script (iso/installer/lib); in the ISO
+# they are installed to /usr/local/lib/syntropia-installer by build.sh.
+INSTALLER_LIB=""
+for candidate in "${SYNTROPIA_INSTALLER_LIB:-}" \
+    "$(dirname "$SELF")/lib" \
+    "$(dirname "$SELF")/../lib/syntropia-installer" \
+    /usr/local/lib/syntropia-installer; do
+    if [[ -n "$candidate" && -f "$candidate/common.sh" ]]; then
+        INSTALLER_LIB="$candidate"
+        break
+    fi
+done
+if [[ -z "$INSTALLER_LIB" ]]; then
+    printf 'syntropia-install: installer libraries not found (looked beside %s and in /usr/local/lib/syntropia-installer)\n' "$SELF" >&2
+    exit 1
+fi
+# shellcheck source=lib/common.sh
+source "$INSTALLER_LIB/common.sh"
+# shellcheck source=lib/config.sh
+source "$INSTALLER_LIB/config.sh"
+# shellcheck source=lib/password.sh
+source "$INSTALLER_LIB/password.sh"
+# shellcheck source=lib/network.sh
+source "$INSTALLER_LIB/network.sh"
+
+INSTALLER_BIN_DIR="$(dirname "$SELF")"
+DASHBOARD="${SYNTROPIA_INSTALL_DASHBOARD:-$INSTALLER_BIN_DIR/syntropia-install-dashboard}"
+RUNNER="${SYNTROPIA_INSTALL_RUNNER:-$INSTALLER_BIN_DIR/syntropia-install-runner}"
+STATE_DIR="$(dirname "$SYNTROPIA_INSTALL_CONFIG")"
+STATE_FILE="$STATE_DIR/state.json"
+LOG_FILE="${SYNTROPIA_INSTALL_LOG:-/var/log/syntropia-install.log}"
+
+# ── answers collected by the steps below ───────────────────────────────────
+SELECTED_DISK=""
+USERNAME="syntropia"
+HOSTNAME="syntropia"
+SELECTED_KEYMAP="us"
+USER_PASSWORD=""
+ROOT_PASSWORD=""
+ENCRYPT_DISK="true"
+DESKTOP_ENV="plasma"
+INSTALL_ONLINE="false"
+
+# ── terminal setup ─────────────────────────────────────────────────────────
+
+# Syntropia dark console palette (Dracula-ish), applied to the VGA console.
+apply_console_palette() {
+    echo -en "\e]P00f1017"
+    echo -en "\e]P1ff5555"
+    echo -en "\e]P250fa7b"
+    echo -en "\e]P3f1fa8c"
+    echo -en "\e]P4bd93f9"
+    echo -en "\e]P5ff79c6"
+    echo -en "\e]P68be9fd"
+    echo -en "\e]P7f8f8f2"
+    echo -en "\e]P86272a4"
+    echo -en "\e]P9ff5555"
+    echo -en "\e]PA50fa7b"
+    echo -en "\e]PBf1fa8c"
+    echo -en "\e]PCbd93f9"
+    echo -en "\e]PDff79c6"
+    echo -en "\e]PE8be9fd"
+    echo -en "\e]PFffffff"
+    echo -en "\033[0m"
+}
+
+clear_and_center() {
+    calc_margins "${1:-0}"
+    clear
+    printf '%s' "$TOP_PAD"
+}
+
+banner() {
+    printf '%s%s  ======================================================%s\n' "$INDENT" "$BRIGHT_MAGENTA" "$RESET"
+    printf '%s%s        Welcome to Syntropia OS — Live Installer%s\n' "$INDENT" "$WHITE$BOLD" "$RESET"
+    printf '%s%s        Fast, keyboard-driven first install%s\n' "$INDENT" "$CYAN" "$RESET"
+    printf '%s%s  ======================================================%s\n\n' "$INDENT" "$BRIGHT_MAGENTA" "$RESET"
+}
+
+# Any unexpected EOF (never on a real tty1) must not leave a half-written
+# config behind — bail out with a message the user can act on.
+abort_no_input() {
+    printf '\n%s  %sNo more input — installer closed without changing anything.%s\n' "$INDENT" "$RED" "$RESET"
+    exit 1
+}
+
+# ── steps ──────────────────────────────────────────────────────────────────
+
+step_disk() {
+    local answer="1" idx=0 link_note=""
+    local -a disks=()
+
+    clear_and_center 26
+    section_rule "Target disk"
+    printf '%s  %sEvery partition on the chosen drive is erased.%s\n\n' "$INDENT" "$DIM" "$RESET"
+
+    note "$DIM" " " "scanning storage devices…"
+    mapfile -t disks < <(lsblk -d -n -p -o NAME,SIZE,MODEL 2>/dev/null | grep -v -E 'loop|sr0|airootfs|zram')
+    if ((${#disks[@]} == 0)); then
+        note "$RED" "✗" "no installable disk found."
+        note "$DIM" " " "attach a disk and run syntropia-install again, or press Ctrl+Alt+F2 for a shell."
+        exit 1
+    fi
+
+    printf '%s  %sAvailable drives:%s\n' "$INDENT" "$BOLD" "$RESET"
+    for idx in "${!disks[@]}"; do
+        printf '%s    [%d] %s\n' "$INDENT" "$((idx + 1))" "${disks[$idx]}"
+    done
+    printf '\n'
+
+    while :; do
+        ask_line "Select target drive [1-${#disks[@]}]" answer "1" || abort_no_input
+        if [[ "$answer" =~ ^[0-9]+$ ]] && ((answer >= 1 && answer <= ${#disks[@]})); then
+            break
+        fi
+        note "$RED" "✗" "\"$answer\" is not one of the listed drives."
+    done
+
+    SELECTED_DISK=$(awk '{print $1}' <<<"${disks[$((answer - 1))]}")
+    link_note="$(awk '{$1=""; sub(/^ /, ""); print}' <<<"${disks[$((answer - 1))]}")"
+    note "$GREEN" "✓" "$SELECTED_DISK ${link_note:+($link_note)}"
+}
+
+step_identity() {
+    local answer=""
+
+    printf '\n'
+    section_rule "User account"
+    while :; do
+        ask_line "Username" USERNAME "$USERNAME" || abort_no_input
+        if [[ "$USERNAME" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; then
+            break
+        fi
+        note "$RED" "✗" "usernames are lowercase letters, digits, '_' and '-', starting with a letter."
+    done
+
+    while :; do
+        ask_line "Hostname" HOSTNAME "$HOSTNAME" || abort_no_input
+        if [[ "$HOSTNAME" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
+            break
+        fi
+        note "$RED" "✗" "hostnames are lowercase letters, digits and '-' (not starting or ending with '-')."
+    done
+}
+
+step_keymap() {
+    local answer="" current=""
+
+    printf '\n'
+    section_rule "Console keyboard"
+    setleds -D +num 2>/dev/null || true
+    current=$(localectl status 2>/dev/null | awk -F': ' '/VC Keymap/ {print $2}')
+    current="${current:-us}"
+
+    printf '%s    [1] UK English (uk)\n' "$INDENT"
+    printf '%s    [2] US English (us)\n' "$INDENT"
+    printf '%s    [3] Keep current (%s)\n\n' "$INDENT" "$current"
+
+    ask_line "Select layout [1-3]" answer "1" || abort_no_input
+    case "${answer:-1}" in
+        1) SELECTED_KEYMAP="uk" ;;
+        2) SELECTED_KEYMAP="us" ;;
+        *) SELECTED_KEYMAP="$current" ;;
+    esac
+    loadkeys "$SELECTED_KEYMAP" 2>/dev/null || true
+    note "$GREEN" "✓" "active keymap: $SELECTED_KEYMAP"
+}
+
+step_network() {
+    printf '\n'
+    network_prompt
+}
+
+step_passwords() {
+    clear_and_center 30
+    printf '%s  Nothing is asked on the first boot of the installed system.%s\n' "$INDENT" "$DIM"
+    printf '%s  The account password also unlocks the disk when encryption is on.%s\n' "$INDENT" "$DIM"
+
+    ask_new_password "Account password" USER_PASSWORD \
+        "Password for \"$USERNAME\"." || abort_no_input
+    ask_root_password "$USERNAME" "$USER_PASSWORD" ROOT_PASSWORD || abort_no_input
+}
+
+step_encryption() {
+    local answer=""
+
+    printf '\n'
+    section_rule "Disk encryption"
+    printf '%s    [1] Enabled — LUKS2 full-disk encryption %s(recommended)%s\n' "$INDENT" "$DIM" "$RESET"
+    printf '%s    [2] Disabled — plain Btrfs\n\n' "$INDENT"
+    ask_line "Select encryption [1-2]" answer "1" || abort_no_input
+    case "${answer:-1}" in
+        2) ENCRYPT_DISK="false" ;;
+        *) ENCRYPT_DISK="true" ;;
+    esac
+    note "$GREEN" "✓" "encryption: $([[ "$ENCRYPT_DISK" == "true" ]] && echo "LUKS2 (unlocked with your account password)" || echo "off")"
+}
+
+step_desktop() {
+    local answer=""
+
+    printf '\n'
+    section_rule "Desktop"
+    printf '%s    [1] Syntropia Plasma   — KDE Plasma 6 + Syntropia suite %s(default)%s\n' "$INDENT" "$DIM" "$RESET"
+    printf '%s    [2] Syntropia Hyprland — Noctalia shell + audio workflow\n\n' "$INDENT"
+    ask_line "Select desktop [1-2]" answer "1" || abort_no_input
+    case "${answer:-1}" in
+        2) DESKTOP_ENV="hyprland" ;;
+        *) DESKTOP_ENV="plasma" ;;
+    esac
+    note "$GREEN" "✓" "desktop: $([[ "$DESKTOP_ENV" == "plasma" ]] && echo "Syntropia Plasma" || echo "Syntropia Hyprland")"
+}
+
+step_summary() {
+    local answer=""
+
+    clear_and_center 32
+    section_rule "Install summary"
+    field_line "Operating system" "Syntropia OS"
+    field_line "Target drive" "$SELECTED_DISK (all data erased)"
+    field_line "User" "$USERNAME"
+    field_line "Hostname" "$HOSTNAME"
+    field_line "Keymap" "$SELECTED_KEYMAP"
+    field_line "Encryption" "$([[ "$ENCRYPT_DISK" == "true" ]] && echo "LUKS2" || echo "off")"
+    field_line "Root password" "$([[ "$ROOT_PASSWORD_MODE" == "separate" ]] && echo "separate from $USERNAME" || echo "same as $USERNAME")"
+    field_line "Desktop" "$([[ "$DESKTOP_ENV" == "plasma" ]] && echo "Syntropia Plasma (KDE)" || echo "Syntropia Hyprland")"
+    field_line "Bootloader" "Limine (UEFI + BIOS)"
+    field_line "Filesystem" "Btrfs (@, @home, @log, @pkg)"
+    field_line "Network" "$([[ "$INSTALL_ONLINE" == "true" ]] && echo "online" || echo "offline (apps wizard resumes later)")"
+    printf '\n'
+
+    ask_line "Proceed with installation? [Y/n]" answer "y" || abort_no_input
+    if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+        note "$DIM" " " "aborted — starting over."
+        sleep 1
+        exec "$SELF"
+    fi
+}
+
+# ── hand-off ───────────────────────────────────────────────────────────────
+
+write_config() {
+    INSTALL_DISK="$SELECTED_DISK" \
+        INSTALL_USERNAME="$USERNAME" \
+        INSTALL_HOSTNAME="$HOSTNAME" \
+        INSTALL_PASSWORD="$USER_PASSWORD" \
+        INSTALL_ROOT_PASSWORD="$ROOT_PASSWORD" \
+        INSTALL_DESKTOP="$DESKTOP_ENV" \
+        INSTALL_ENCRYPT="$ENCRYPT_DISK" \
+        INSTALL_KEYMAP="$SELECTED_KEYMAP" \
+        INSTALL_ONLINE="$INSTALL_ONLINE" \
+        config_write "$SYNTROPIA_INSTALL_CONFIG"
+}
+
+launch_install() {
+    write_config
+    note "$GREEN" "✓" "answers saved to $SYNTROPIA_INSTALL_CONFIG (owner-only, 0600)"
+
+    if ((DRY_RUN == 1)); then
+        printf '\n'
+        note "$GREEN" "✓" "dry run — no disk was touched and the dashboard was not started."
+        note "$DIM" " " "run 'syntropia-install' without --dry-run to install for real."
+        rm -f "$SYNTROPIA_INSTALL_CONFIG"
+        exit 0
+    fi
+
+    # The dashboard owns the terminal from here: it runs the runner in the
+    # background, renders progress from state.json and reboots on success.
+    exec "$DASHBOARD" "$LOG_FILE" "$STATE_FILE" -- "$RUNNER"
+}
+
+# ── entry point ────────────────────────────────────────────────────────────
+
+main() {
+    # Disk operations and /run need root; --dry-run does not touch either, so it
+    # runs as whatever user invoked it.
+    if [[ $EUID -ne 0 ]] && ((DRY_RUN == 0)); then
+        exec sudo "$SELF" "$@"
+    fi
+
+    apply_console_palette
+    clear_and_center
+    print_logo
+    banner
+
+    printf '%s%s  [1]%s %sInstall Syntropia OS%s (guided installation)\n' "$INDENT" "$GREEN" "$RESET" "$WHITE$BOLD" "$RESET"
+    printf '%s%s  [2]%s %sDrop to a command prompt%s (rescue shell)\n\n' "$INDENT" "$YELLOW" "$RESET" "$WHITE$BOLD" "$RESET"
+
+    local choice=""
+    ask_line "Select an option [1-2] (default: 1)" choice "1" || abort_no_input
+
+    case "$choice" in
+        2)
+            printf '\n%s  Dropped to rescue shell.\n' "$INDENT"
+            printf '%s  Type '\''syntropia-install'\'' anytime to return to the installer.\n\n' "$INDENT"
+            exec bash
+            ;;
+        1)
+            step_disk
+            step_identity
+            step_keymap
+            step_network
+            step_passwords
+            step_encryption
+            step_desktop
+            step_summary
+            launch_install
+            ;;
+        *)
+            exec "$SELF"
+            ;;
+    esac
+}
+
+main "$@"

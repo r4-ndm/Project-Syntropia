@@ -31,17 +31,31 @@ for h in "$ROOT"/home/*; do
     u="$(basename "$h")"
 
     mkdir -p "$h/.config/fastfetch" "$h/.config/fish"
-    cp -a "$ROOT/etc/skel/.config/fastfetch/config.jsonc" "$h/.config/fastfetch/" 2>/dev/null
+    cp -a "$ROOT/etc/skel/.config/fastfetch/config.jsonc" "$h/.config/fastfetch/" 2>/dev/null || true
     cp -a "$ROOT/etc/skel/.config/fish/config.fish" "$h/.config/fish/" 2>/dev/null || true
+
+    # Deploy Noctalia and Hyprland Syntropia profile overlays
+    if [[ -d "$ROOT/etc/syntropia/profiles/hyprland/.config" ]]; then
+        mkdir -p "$ROOT/etc/skel/.config" "$h/.config"
+        cp -r "$ROOT/etc/syntropia/profiles/hyprland/.config/"* "$ROOT/etc/skel/.config/" 2>/dev/null || true
+        cp -r "$ROOT/etc/syntropia/profiles/hyprland/.config/"* "$h/.config/" 2>/dev/null || true
+    fi
 
     # chown numerically from the TARGET's passwd (the user exists there, not
     # in the live env); fall back to root if the user can't be resolved.
     uid="$(awk -F: -v u="$u" '$1==u{print $3; exit}' "$ROOT/etc/passwd" 2>/dev/null)"
     gid="$(awk -F: -v u="$u" '$1==u{print $4; exit}' "$ROOT/etc/passwd" 2>/dev/null)"
     if [ -n "${uid:-}" ] && [ -n "${gid:-}" ]; then
-        chown -R "$uid:$gid" "$h/.config/fastfetch" "$h/.config/fish" 2>/dev/null || true
+        chown -R "$uid:$gid" "$h/.config" 2>/dev/null || true
     fi
 done
+
+# Deploy Hyprland / Noctalia profile helper tools to /usr/local/bin
+if [[ -d "$ROOT/etc/syntropia/profiles/hyprland/bin" ]]; then
+    mkdir -p "$ROOT/usr/local/bin"
+    cp -a "$ROOT/etc/syntropia/profiles/hyprland/bin/"* "$ROOT/usr/local/bin/" 2>/dev/null || true
+    chmod +x "$ROOT/usr/local/bin"/syntropia-* 2>/dev/null || true
+fi
 
 # --- Start-menu (Kickoff) icon ---
 # The stock CachyOS panel points the Kickoff applet at icon=org.cachyos.hello.
@@ -61,19 +75,23 @@ for appsrc in "$ROOT/etc/skel/.config/plasma-org.kde.plasma.desktop-appletsrc" "
     fi
 done
 
-# --- KSplash theme (triangle mark -> Plasma logo -> boot) ---
+# --- KSplash theme (pure triangle mark) ---
 # Install the Syntropia splash into the target's look-and-feel and point
-# ksplashrc at it, for BOTH /etc/skel (future users) and each EXISTING
-# target user home (the first user is created before this hook runs).
+# ksplashrc at it, for BOTH /etc/skel (future users), each EXISTING target user home,
+# and the system-wide cachyos theme fallback.
 splash_src="$ROOT/usr/share/syntropia/branding/splash"
 if [[ -d "$splash_src" ]]; then
+    # Overwrite system-wide look-and-feel fallback themes
+    mkdir -p "$ROOT/usr/share/plasma/look-and-feel/cachyos/contents/splash" "$ROOT/usr/share/plasma/look-and-feel/org.syntropia.desktop/contents/splash"
+    cp -a "$splash_src/." "$ROOT/usr/share/plasma/look-and-feel/cachyos/contents/splash/"
+    cp -a "$splash_src/." "$ROOT/usr/share/plasma/look-and-feel/org.syntropia.desktop/contents/splash/"
     for h in "$ROOT/etc/skel" "$ROOT"/home/*; do
         [ -d "$h" ] || continue
         theme_dir="$h/.local/share/plasma/look-and-feel/org.syntropia.desktop/contents/splash"
         mkdir -p "$(dirname "$theme_dir")"
         rm -rf "$theme_dir"
         cp -a "$splash_src" "$theme_dir"
-        printf '[KSplash]\nEngine=KSplashQML\nTheme=org.syntropia.desktop\n' > "$h/.config/ksplashrc"
+        printf '[KSplash]\nEngine=none\nTheme=None\n' > "$h/.config/ksplashrc"
         # chown numerically from the TARGET passwd (see fastfetch loop above).
         u="$(basename "$h")"
         uid="$(awk -F: -v u="$u" '$1==u{print $3; exit}' "$ROOT/etc/passwd" 2>/dev/null)"
@@ -96,11 +114,17 @@ if [[ -d "$plymouth_src" ]]; then
     rm -rf "$plymouth_dst"
     mkdir -p "$(dirname "$plymouth_dst")"
     cp -a "$plymouth_src" "$plymouth_dst"
+    # Also overwrite cachyos theme directory directly as a safety override
+    cachyos_plymouth="$ROOT/usr/share/plymouth/themes/cachyos"
+    if [[ -d "$cachyos_plymouth" ]]; then
+        rm -rf "$cachyos_plymouth"/*
+        cp -a "$plymouth_src/." "$cachyos_plymouth/"
+    fi
     mkdir -p "$ROOT/etc/plymouth"
     printf '[Daemon]\nTheme=syntropia\n' > "$ROOT/etc/plymouth/plymouthd.conf"
 fi
 
-# --- Identity sync: limine bootloader ---
+# --- Identity & theme sync: limine bootloader ---
 # The bootloader was generated at install time with the CachyOS name (the
 # rename to Syntropia happens at the END of install, after the bootloader
 # step), so limine-snapper-sync can't match its OS entry against the renamed
@@ -108,11 +132,33 @@ fi
 #   1) limine.conf's OS entry name  /+CachyOS -> /+Syntropia OS
 #   2) TARGET_OS_NAME in /etc/default/limine, so the match never depends on
 #      PRETTY_NAME/NAME drifting.
-if [[ -f "$ROOT/boot/limine.conf" ]] && grep -q '/+CachyOS' "$ROOT/boot/limine.conf"; then
-    sed -i 's|/+CachyOS|/+Syntropia OS|' "$ROOT/boot/limine.conf"
-fi
+#   3) Skin limine interface with Syntropia branding & dark palette.
+for limine_cfg in "$ROOT/boot/limine.conf" "$ROOT/boot/limine/limine.conf" "$ROOT/boot/efi/limine.conf"; do
+    if [[ -f "$limine_cfg" ]]; then
+        # Rename ONLY a still-bare `/+CachyOS` entry. A second run, or a
+        # limine.conf written by our own runner (which already generates
+        # `/+CachyOS Syntropia`), must not become `... Syntropia Syntropia`.
+        if grep -qxE '/\+CachyOS[[:space:]]*' "$limine_cfg"; then
+            sed -i -E 's|^/\+CachyOS[[:space:]]*$|/+CachyOS Syntropia|' "$limine_cfg"
+        fi
+        if ! grep -q 'interface_branding:' "$limine_cfg"; then
+            sed -i '1s|^|interface_branding: Syntropia Bootloader\ninterface_branding_color: bd93f9\nterm_background: 0f1017\n\n|' "$limine_cfg"
+        fi
+    fi
+done
+
 if [[ -f "$ROOT/etc/default/limine" ]] && ! grep -q '^TARGET_OS_NAME' "$ROOT/etc/default/limine"; then
-    printf 'TARGET_OS_NAME="Syntropia OS"\n' >> "$ROOT/etc/default/limine"
+    printf 'TARGET_OS_NAME="CachyOS Syntropia"\n' >> "$ROOT/etc/default/limine"
+fi
+
+# --- USB Removal Notification ---
+# Notify the user on the live desktop that installation is complete and they must remove the USB stick before rebooting.
+if command -v kdialog >/dev/null 2>&1; then
+    kdialog --title "Syntropia OS Installation Complete" --msgbox "Installation of Syntropia OS is complete!
+
+Please REMOVE your USB installation flash drive before restarting your computer." 2>/dev/null &
+elif command -v notify-send >/dev/null 2>&1; then
+    notify-send -u critical "Syntropia OS Installation Complete" "Please REMOVE your USB installation flash drive before restarting your computer." 2>/dev/null || true
 fi
 
 exit 0

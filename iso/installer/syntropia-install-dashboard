@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# Syntropia Live ISO Install UI Supervisor & Progress Dashboard
+set -euo pipefail
+
+usage() {
+  echo "Usage: $0 <log-file> <state-file> -- <installer command...>" >&2
+  exit 2
+}
+
+(( $# >= 4 )) || usage
+LOG_FILE="$1"
+STATE_FILE="$2"
+shift 2
+[[ ${1:-} == "--" ]] || usage
+shift
+(( $# > 0 )) || usage
+INSTALL_CMD=("$@")
+
+TTY_PATH="${SYNTROPIA_DASHBOARD_TTY:-/dev/tty}"
+
+# Shared palette + geometry + logo come from the installer libraries: the
+# dashboard and the setup TUI draw the same frame, so they must agree on how it
+# is measured. Resolved from beside the script in-repo, or /usr/local/lib in
+# the ISO.
+INSTALLER_LIB=""
+for candidate in "${SYNTROPIA_INSTALLER_LIB:-}" \
+  "$(dirname "$0")/lib" \
+  "$(dirname "$0")/../lib/syntropia-installer" \
+  /usr/local/lib/syntropia-installer; do
+  if [[ -n "$candidate" && -f "$candidate/common.sh" ]]; then
+    INSTALLER_LIB="$candidate"
+    break
+  fi
+done
+if [[ -z "$INSTALLER_LIB" ]]; then
+  echo "syntropia-install-dashboard: installer libraries not found" >&2
+  exit 1
+fi
+# shellcheck source=lib/common.sh
+source "$INSTALLER_LIB/common.sh"
+LOGO_PATH="$SYNTROPIA_LOGO"
+
+tips=(
+  "Fastfetch and app-wiz4rd will greet you on your first login!"
+  "Limine boots the installed system on both UEFI and BIOS firmware."
+  "CachyOS kernel includes optimized BORE/EEVDF CPU scheduling."
+  "Trust the mutation. Never trust the boundary."
+  "Paru AUR helper comes pre-installed in your base system."
+  "Switch themes and configure brews with the Syntropia CLI."
+  "Press Super to open the application launcher."
+)
+
+cleanup() {
+  printf '%s%s' "$RESET" "$SHOW_CURSOR" >"$TTY_PATH" 2>/dev/null || true
+}
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT TERM
+
+progress_bar() {
+  local pm="$1" width="${2:-40}" filled empty
+  (( pm < 0 )) && pm=0
+  (( pm > 1000 )) && pm=1000
+  filled=$(( pm * width / 1000 ))
+  empty=$(( width - filled ))
+  printf '%s%s%s%s%s' "$BRIGHT_MAGENTA" "$(repeat █ "$filled")" "$DARK" "$(repeat ░ "$empty")" "$RESET"
+}
+
+# Run the installer runner in the background
+mkdir -p "$(dirname "$STATE_FILE")" "$(dirname "$LOG_FILE")"
+touch "$LOG_FILE"
+printf '{"current_phase":"Starting installation","progress_pm":10,"finished":false}\n' > "$STATE_FILE"
+
+"${INSTALL_CMD[@]}" >>"$LOG_FILE" 2>&1 &
+child_pid=$!
+
+T0=$SECONDS
+PHASE="Starting installation"
+PROGRESS_PM=10
+
+printf '%s%s' "$CLEAR" "$HIDE_CURSOR" >"$TTY_PATH"
+
+while kill -0 "$child_pid" 2>/dev/null; do
+  if [[ -f "$STATE_FILE" ]]; then
+    new_phase=$(grep -o '"current_phase":"[^"]*"' "$STATE_FILE" 2>/dev/null | cut -d'"' -f4 || echo "$PHASE")
+    new_pm=$(grep -o '"progress_pm":[0-9]*' "$STATE_FILE" 2>/dev/null | cut -d: -f2 || echo "$PROGRESS_PM")
+    [[ -n "$new_phase" ]] && PHASE="$new_phase"
+    [[ -n "$new_pm" && "$new_pm" =~ ^[0-9]+$ ]] && PROGRESS_PM="$new_pm"
+  fi
+
+  ELAPSED=$(( SECONDS - T0 ))
+  MINS=$(( ELAPSED / 60 ))
+  SECS=$(( ELAPSED % 60 ))
+  TIME_STR=$(printf '%02d:%02d' "$MINS" "$SECS")
+  PERCENT=$(( PROGRESS_PM / 10 ))
+  TIP="${tips[$(( (ELAPSED / 6) % ${#tips[@]} ))]}"
+
+  calc_margins
+
+  # Render frame centered horizontally and vertically
+  {
+    printf '%s%s' "$CLEAR" "$TOP_PAD"
+    print_logo
+    printf '%s%s  Syntropia OS — System Installation%s\n\n' "$INDENT" "$BOLD" "$RESET"
+    printf '%s  Phase: %s%s%s\n\n' "$INDENT" "$CYAN" "$PHASE" "$RESET"
+    printf '%s  [%s]  %s%3d%%%s  (%s)\n\n' "$INDENT" "$(progress_bar "$PROGRESS_PM" 40)" "$BOLD" "$PERCENT" "$RESET" "$TIME_STR"
+    printf '%s  %sTip:%s %s%s%s\n' "$INDENT" "$DIM" "$RESET" "$DARK" "$TIP" "$RESET"
+  } >"$TTY_PATH"
+
+  sleep 0.5
+done
+
+# `wait` returns the child's status; under `set -e` a bare call would exit the
+# dashboard before the failure frame below could ever render.
+EXIT_CODE=0
+wait "$child_pid" || EXIT_CODE=$?
+
+if (( EXIT_CODE == 0 )); then
+  PROGRESS_PM=1000
+  ELAPSED=$(( SECONDS - T0 ))
+  MINS=$(( ELAPSED / 60 ))
+  SECS=$(( ELAPSED % 60 ))
+  calc_margins
+  {
+    printf '%s%s' "$CLEAR" "$TOP_PAD"
+    print_logo
+    printf '%s  [%s]  %s100%%%s\n\n' "$INDENT" "$(progress_bar 1000 40)" "$GREEN" "$RESET"
+    printf '%s  %s✨ Syntropia OS is successfully installed!%s (Completed in %dm %ds)\n\n' "$INDENT" "$GREEN" "$RESET" "$MINS" "$SECS"
+    printf '%s  %s>>> IMPORTANT: Please unplug your USB installation drive now! <<<%s\n\n' "$INDENT" "$BRIGHT_CYAN" "$RESET"
+    printf '%s  %sPress [ Enter ] to reboot into your new Syntropia system...%s ' "$INDENT" "$BOLD" "$RESET"
+  } >"$TTY_PATH"
+  read -r <"$TTY_PATH" || true
+  systemctl reboot
+else
+  calc_margins
+  {
+    printf '%s%s' "$CLEAR" "$TOP_PAD"
+    print_logo
+    printf '%s  [%s]  %s%3d%%%s  (Failed)\n\n' "$INDENT" "$(progress_bar "$PROGRESS_PM" 40)" "$BOLD" "$PERCENT" "$RESET"
+    printf '%s  %s❌ Installation encountered an error!%s\n\n' "$INDENT" "${CSI}31m" "$RESET"
+    printf '%s  Last phase: %s%s%s\n' "$INDENT" "$CYAN" "$PHASE" "$RESET"
+    printf '%s  Log file:   %s%s%s\n\n' "$INDENT" "$BOLD" "$LOG_FILE" "$RESET"
+    printf '%s  %sLast 10 log lines:%s\n' "$INDENT" "$DIM" "$RESET"
+    tail -n 10 "$LOG_FILE" 2>/dev/null | sed "s/^/$INDENT    /"
+    printf '\n%s  %sPress [ Enter ] to return to terminal...%s ' "$INDENT" "$BOLD" "$RESET"
+  } >"$TTY_PATH"
+  read -r <"$TTY_PATH" || true
+fi

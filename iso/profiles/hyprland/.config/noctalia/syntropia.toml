@@ -1,0 +1,57 @@
+# ==============================================================================
+# Syntropia OS — Noctalia Shell Customization Overlay
+# ==============================================================================
+
+[theme]
+mode = "dark"
+source = "wallpaper"
+wallpaper_scheme = "m3-tonal-spot"
+
+[shell]
+corner_radius_scale = 0.0
+button_borders = true
+input_borders = true
+popup_borders = true
+card_borders = true
+popup_shadows = false
+
+[bar.default]
+# Bottom bar to match a traditional desktop taskbar (see config.toml for the
+# bar layout and the taskbar widget itself — this overlay only pins geometry).
+position = "bottom"
+concave_edge_corners = false
+radius = 0
+radius_top_left = 0
+radius_top_right = 0
+radius_bottom_left = 0
+radius_bottom_right = 0
+capsule_radius = 0.0
+
+[wallpaper]
+enabled = true
+directory = "/usr/share/syntropia/branding"
+directory_dark = "/usr/share/syntropia/branding"
+default_path = "/usr/share/syntropia/branding/wallpaper.png"
+fill_mode = "crop"
+transition_on_startup = true
+
+[wallpaper.default]
+path = "/usr/share/syntropia/branding/wallpaper.png"
+
+[widget.launcher]
+glyph = "menu-2"
+custom_image = "/usr/share/syntropia/branding/menu-icon.png"
+custom_image_colorize = false
+
+[widget.wallpaper]
+glyph = "photo"
+color = "secondary"
+
+[widget.workspaces]
+capsule_radius = 0.0
+
+[widget.tray]
+capsule_radius = 0.0
+
+[widget.taskbar]
+capsule_radius = 0.0

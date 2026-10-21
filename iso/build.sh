@@ -42,8 +42,18 @@ BRANDING_SRC="$REPO_ROOT/Branding/syntropia/calamares/slides"
 #   the hash on every commit even when the files don't)
 # then copy it into iso/vendor/ and set APP_WIZ4RD_SHA256 (sha256sum).
 APP_WIZ4RD_VERSION="0.1.0"
-APP_WIZ4RD_SHA256="429f90ac37e656320813bc4179e732cff7da195466b551093683337d3a2c7773"
+APP_WIZ4RD_SHA256="533535d637372be3b4f24791a2efb9e4ec9f70bb97f2b69082e8679964c57370"
 APP_WIZ4RD_TARBALL="$REPO_ROOT/iso/vendor/app-wiz4rd-$APP_WIZ4RD_VERSION.tar"
+
+# hyprbars: the upstream Hyprland plugin that draws titlebars with window
+# buttons. It is AUR-only (`hyprland-plugin-hyprbars`), so it cannot join the
+# pacman package lists below — phase 2 builds it from the hyprland-plugins
+# release matching the installed Hyprland and installs it here. The Syntropia
+# Lua overlay (/etc/skel/.config/hypr/config/hyprbars.lua) loads it only when
+# this module exists, so a failed build degrades to a titlebar-less desktop
+# instead of a broken config.
+HYPRBARS_REPO="https://github.com/hyprwm/hyprland-plugins.git"
+HYPRBARS_INSTALL_PATH="/usr/lib/hyprland/hyprbars.so"
 
 ISO_DATE="${SOURCE_DATE_EPOCH:-$(date +%s)}"
 ISO_DATE=$(date --date="@$ISO_DATE" +%Y.%m.%d)
@@ -57,6 +67,7 @@ info()  { echo -e "${CYAN}[INFO]${NC} $*"; }
 ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
 warn()  { echo -e "${RED}[WARN]${NC} $*"; }
 err()   { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
+die()   { err "$@"; }
 
 # ── Pre-flight checks ─────────────────────────────────────────
 check_root() {
@@ -93,6 +104,17 @@ phase1_build_iso() {
     # Patch 1: symlink packages.x86_64 → packages_desktop.x86_64
     # (mkarchiso looks for packages.x86_64 by default; CachyOS names it packages_desktop.x86_64)
     ln -sf packages_desktop.x86_64 packages.x86_64
+
+    # Patch 1b: ship the limine package in the LIVE image. Limine is the
+    # installed bootloader (NEXT_SESSION.md); the TUI installer rsyncs the live
+    # rootfs onto the target, so /usr/bin/limine and /usr/share/limine/*
+    # (BOOTX64.EFI, limine-bios.sys) must already be in the image — an
+    # offline install cannot pacman them afterwards. packages.x86_64 is the
+    # symlink created above, so this edits packages_desktop.x86_64.
+    if ! grep -qx 'limine' packages.x86_64; then
+        printf 'limine\n' >> packages.x86_64
+        ok "limine added to the live package list"
+    fi
 
     # Patch 2: Add NoExtract for slide files in pacman.conf [options] section
     # This prevents cachyos-calamares-next package slides from conflicting with our airootfs overlay.
@@ -158,13 +180,106 @@ PYEOF
     fi
 }
 
+# Build hyprbars into a rootfs at $HYPRBARS_INSTALL_PATH (see the constants at
+# the top for why this is a source build rather than a package).
+# Hyprland ships its own headers and hyprland.pc, so compiling against the
+# image's Hyprland keeps the plugin's API hash in sync with the running
+# compositor — no hyprpm state, no non-root build user, no AUR helper.
+# Returns non-zero when the plugin could not be produced; the caller only warns.
+install_hyprbars_plugin() {
+    local rootfs="$1"
+    local hyprland_ver tag src_dir dep
+    local build_deps=(make pkgconf)
+    local preinstalled_deps=()
+
+    hyprland_ver=$(arch-chroot "$rootfs" pacman -Q hyprland 2>/dev/null | awk '{print $2}') || true
+    hyprland_ver="${hyprland_ver##*:}" # drop a pkgver epoch, if any
+    hyprland_ver="${hyprland_ver%%-*}"
+    if [[ -z "$hyprland_ver" ]]; then
+        warn "hyprland not installed in $rootfs — cannot build hyprbars"
+        return 1
+    fi
+
+    # hyprland-plugins tags track Hyprland minor releases (v0.56.0 covers
+    # 0.56.x). Prefer an exact release tag, fall back to the minor one.
+    src_dir=$(mktemp -d)
+    for tag in "v$hyprland_ver" "v${hyprland_ver%.*}.0"; do
+        if git clone --depth 1 --branch "$tag" "$HYPRBARS_REPO" \
+            "$src_dir/hyprland-plugins" >/dev/null 2>&1; then
+            break
+        fi
+        rm -rf "$src_dir/hyprland-plugins"
+        tag=""
+    done
+    if [[ -z "$tag" ]]; then
+        rm -rf "$src_dir"
+        warn "no hyprland-plugins release tag for Hyprland $hyprland_ver — skipping hyprbars"
+        return 1
+    fi
+
+    # make + pkgconf are the only build tools missing from the live image;
+    # everything else (g++, the Hyprland headers, the wayland/drm/input libs)
+    # comes with the Hyprland installation itself.
+    for dep in "${build_deps[@]}"; do
+        if arch-chroot "$rootfs" pacman -Q "$dep" >/dev/null 2>&1; then
+            preinstalled_deps+=("$dep")
+        fi
+    done
+    if ! arch-chroot "$rootfs" pacman -S --noconfirm --needed --asdeps "${build_deps[@]}" >/dev/null 2>&1; then
+        rm -rf "$src_dir"
+        warn "could not install hyprbars build tools — skipping hyprbars"
+        return 1
+    fi
+
+    mkdir -p "$rootfs/tmp/hyprbars-build"
+    cp -a "$src_dir/hyprland-plugins/hyprbars/." "$rootfs/tmp/hyprbars-build/"
+    rm -rf "$src_dir"
+
+    local built=0 build_log
+    build_log=$(mktemp)
+    if arch-chroot "$rootfs" bash -c \
+        'set -e; cd /tmp/hyprbars-build; make; install -Dm755 hyprbars.so "$1"' \
+        _ "$HYPRBARS_INSTALL_PATH" >"$build_log" 2>&1; then
+        built=1
+    else
+        # Surface the failure instead of hiding it: this is the one plugin the
+        # ISO cannot get from a package.
+        tail -n 15 "$build_log" >&2 || true
+    fi
+    rm -f "$build_log"
+    rm -rf "$rootfs/tmp/hyprbars-build"
+
+    # Drop the build-only tools again so the ISO stays lean; keep any that the
+    # image already had for other reasons.
+    for dep in "${build_deps[@]}"; do
+        if [[ ! " ${preinstalled_deps[*]:-} " =~ " $dep " ]]; then
+            arch-chroot "$rootfs" pacman -Rdd --noconfirm "$dep" >/dev/null 2>&1 || true
+        fi
+    done
+
+    if [[ "$built" -eq 1 ]]; then
+        ok "hyprbars compiled into $rootfs$HYPRBARS_INSTALL_PATH ($tag)"
+    else
+        warn "hyprbars build failed — ISO ships without titlebar buttons"
+        return 1
+    fi
+}
+
 # ── Phase 2: Inject Syntropia slides into the ISO ──────────────
 phase2_inject_slides() {
     local input_iso="$OUT_DIR/${ISO_NAME}-stock.iso"
     local output_iso="$OUT_DIR/${ISO_NAME}.iso"
 
     if [[ ! -f "$input_iso" ]]; then
-        err "Stock ISO not found: $input_iso. Run --phase1 first."
+        local latest_stock
+        latest_stock=$(ls -t "$OUT_DIR"/syntropia-*-stock.iso 2>/dev/null | head -1)
+        if [[ -n "$latest_stock" && -f "$latest_stock" ]]; then
+            input_iso="$latest_stock"
+            output_iso="${latest_stock/-stock.iso/.iso}"
+            info "Auto-detected latest stock ISO: $(basename "$input_iso")"
+        else
+            err "Stock ISO not found: $input_iso. Run --phase1 first."
+        fi
     fi
 
     info "=== Phase 2: Injecting Syntropia branding slides ==="
@@ -183,6 +298,30 @@ phase2_inject_slides() {
     info "Extracting ISO..."
     bsdtar -xf "$input_iso"
     ok "ISO extracted"
+
+    # Step 1.5: Extract EFI boot partition from stock ISO for UEFI El Torito boot
+    info "Extracting EFI boot partition from stock ISO..."
+    local efiboot_img="$WORK_DIR/efiboot.img"
+    rm -f "$efiboot_img"
+    local efi_start efi_size
+    efi_start=$(sfdisk -d "$input_iso" 2>/dev/null | grep -i 'type=ef' | sed -n 's/.*start=[[:space:]]*\([0-9]*\).*/\1/p')
+    efi_size=$(sfdisk -d "$input_iso" 2>/dev/null | grep -i 'type=ef' | sed -n 's/.*size=[[:space:]]*\([0-9]*\).*/\1/p')
+    if [[ -n "$efi_start" && -n "$efi_size" ]]; then
+        dd if="$input_iso" of="$efiboot_img" bs=512 skip="$efi_start" count="$efi_size" status=none
+        ok "EFI boot partition extracted ($(du -h "$efiboot_img" | cut -f1))"
+    else
+        err "Could not locate EFI system partition (type=ef) in $input_iso"
+    fi
+
+    # Read original UUID / modification date from stock ISO to keep initramfs/GRUB matching
+    local orig_uuid orig_mod_date
+    orig_uuid=$(blkid -s UUID -o value "$input_iso" 2>/dev/null || echo "")
+    if [[ -n "$orig_uuid" ]]; then
+        orig_mod_date="${orig_uuid//-/}"
+        info "Stock ISO UUID: $orig_uuid (modification date: $orig_mod_date)"
+    else
+        warn "Could not read stock ISO UUID via blkid"
+    fi
 
     # Step 2: Unsquash the rootfs
     info "Unsquashing rootfs (this takes ~30s)..."
@@ -261,26 +400,56 @@ PYEOF
         ok "NoUpgrade already present for slide files"
     fi
 
-    # Step 3.5: Ensure the display manager is wired up so the live desktop
-    # auto-starts (the CachyOS profile's dmcheck script creates this symlink,
-    # but our mkarchiso build doesn't run it; the original CachyOS ISO ships
-    # the link pre-baked). Without it, the live ISO boots to a bare tty1
-    # console with no desktop and "Launch Installer" is unreachable.
-    info "Wiring display-manager.service -> plasmalogin.service..."
-    if [[ -f "rootfs/usr/lib/systemd/system/plasmalogin.service" ]]; then
-        ln -sf /usr/lib/systemd/system/plasmalogin.service \
-            "rootfs/etc/systemd/system/display-manager.service"
-        ok "display-manager.service symlink created"
-    else
-        # Fallback: try SDDM if plasmalogin isn't present
-        if [[ -f "rootfs/usr/lib/systemd/system/sddm.service" ]]; then
-            ln -sf /usr/lib/systemd/system/sddm.service \
-                "rootfs/etc/systemd/system/display-manager.service"
-            ok "display-manager.service symlink created (sddm)"
-        else
-            warn "No display-manager service found; live desktop won't auto-start!"
+    # Step 3.5: Configure direct TUI Omarchy-style installer on tty1
+    info "Configuring direct TUI Omarchy-style installer on tty1 (masking graphical display managers)..."
+    mkdir -p "rootfs/etc/systemd/system"
+    ln -sf /dev/null "rootfs/etc/systemd/system/display-manager.service"
+    ln -sf /dev/null "rootfs/etc/systemd/system/plasmalogin.service"
+    ln -sf /dev/null "rootfs/etc/systemd/system/sddm.service"
+    rm -f "rootfs/etc/systemd/system/default.target"
+    ln -sf /usr/lib/systemd/system/multi-user.target "rootfs/etc/systemd/system/default.target"
+    rm -f "rootfs/usr/local/bin/start-plasma" "rootfs/usr/local/bin/start-gui"
+
+    # 2-4. Install the setup TUI, the progress dashboard and the install runner.
+    #
+    # These are REAL FILES in iso/installer/ (plus iso/installer/lib/), not
+    # heredocs pasted into this script: they are the most-edited part of the
+    # install flow, and as files they can be syntax-checked, dry-run and tested
+    # (see phase1/tests/test_installer_tui.py). build.sh only ships them.
+    info "Installing Syntropia installer scripts (iso/installer/)..."
+    local installer_src="$REPO_ROOT/iso/installer"
+    local script lib
+    [[ -d "$installer_src/lib" ]] || err "iso/installer/lib missing — cannot build the install UI"
+    for script in syntropia-install syntropia-install-runner syntropia-install-dashboard; do
+        [[ -f "$installer_src/$script" ]] || err "iso/installer/$script missing"
+        install -Dm755 "$installer_src/$script" "rootfs/usr/local/bin/$script"
+    done
+    for lib in "$installer_src"/lib/*.sh; do
+        install -Dm644 "$lib" "rootfs/usr/local/lib/syntropia-installer/$(basename "$lib")"
+    done
+    ok "Installer UI, dashboard, runner and libraries installed"
+    cp "rootfs/usr/local/bin/syntropia-install" "rootfs/root/.automated_script.sh"
+    chmod +x "rootfs/root/.automated_script.sh"
+
+    # Install profile.d launcher so tty1 launches installer immediately
+    mkdir -p "rootfs/etc/profile.d"
+    cat > "rootfs/etc/profile.d/syntropia-live-installer.sh" << 'EOF'
+CUR_TTY=$(tty 2>/dev/null || echo "")
+if [[ ("$CUR_TTY" == "/dev/tty1" || "$CUR_TTY" == "/dev/console") && -z "${SYNTROPIA_INSTALLER_LAUNCHED:-}" ]]; then
+    export SYNTROPIA_INSTALLER_LAUNCHED=1
+    exec /usr/local/bin/syntropia-install
+fi
+EOF
+    chmod +x "rootfs/etc/profile.d/syntropia-live-installer.sh"
+
+    # Also hook into liveuser, skel, and root bashrc/profile for tty1
+    for d in "rootfs/etc/skel" "rootfs/home/liveuser" "rootfs/root"; do
+        if [[ -d "$d" ]]; then
+            echo 'CUR_TTY=$(tty 2>/dev/null || echo ""); [[ ("$CUR_TTY" == /dev/tty1 || "$CUR_TTY" == /dev/console) && -z "${SYNTROPIA_INSTALLER_LAUNCHED:-}" ]] && export SYNTROPIA_INSTALLER_LAUNCHED=1 && exec /usr/local/bin/syntropia-install' >> "$d/.bash_profile" 2>/dev/null || true
+            echo 'CUR_TTY=$(tty 2>/dev/null || echo ""); [[ ("$CUR_TTY" == /dev/tty1 || "$CUR_TTY" == /dev/console) && -z "${SYNTROPIA_INSTALLER_LAUNCHED:-}" ]] && export SYNTROPIA_INSTALLER_LAUNCHED=1 && exec /usr/local/bin/syntropia-install' >> "$d/.bashrc" 2>/dev/null || true
         fi
-    fi
+    done
+    ok "Direct TUI Omarchy-style installer configured to launch on tty1"
 
     # Step 3.6: Ship the apps wizard into /etc/syntropia/ so the first-boot
     # "pick your favorites" dialog is available on freshly-installed systems.
@@ -302,7 +471,7 @@ PYEOF
     local wizard_src="$wiz_x/app-wiz4rd-$APP_WIZ4RD_VERSION"
     mkdir -p "$syn_dir"
     cp "$wizard_src/app-wiz4rd" "$syn_dir/app-wiz4rd"
-    cp "$wizard_src/apps.list" "$syn_dir/apps.list"
+    cp "$REPO_ROOT/phase1/wizard/apps.list" "$syn_dir/apps.list"
     chmod +x "$syn_dir/app-wiz4rd"
 
     # The TUI dialog (dialog/syntropia-apps-tui) is the wizard's only
@@ -338,8 +507,124 @@ PYEOF
     sed "s|@SCRIPT@|/etc/syntropia/app-wiz4rd|" \
         "$wizard_src/syntropia-apps.desktop" \
         > "$syn_dir/syntropia-apps.desktop"
+
+    # App-menu launcher. The autostart entry is one-shot, so the wizard must also
+    # be reachable by hand — that is how picks queued during an offline install
+    # get finished after connecting (app-wiz4rd retries its pending queue on
+    # start, and `--resume` installs it without the picker). The tarball's
+    # launcher has a bare `app-wiz4rd` Exec; point it at the shipped path.
+    mkdir -p "rootfs/usr/share/applications"
+    sed "s|^Exec=app-wiz4rd$|Exec=/etc/syntropia/app-wiz4rd|" \
+        "$wizard_src/app-wiz4rd.desktop" \
+        > "rootfs/usr/share/applications/syntropia-apps.desktop"
+    chmod 644 "rootfs/usr/share/applications/syntropia-apps.desktop"
     rm -rf "$wiz_x"
     ok "Apps wizard shipped (/etc/syntropia/ from app-wiz4rd tarball)"
+
+    # Step 3.6b: Ship Hyprland Noctalia overlay & Syntropia tools
+    info "Shipping Hyprland Noctalia overlay & Syntropia tools..."
+    if [[ -d "$REPO_ROOT/iso/profiles/hyprland" ]]; then
+        mkdir -p "$syn_dir/profiles/hyprland"
+        cp -r "$REPO_ROOT/iso/profiles/hyprland/." "$syn_dir/profiles/hyprland/"
+        if [[ -d "$REPO_ROOT/iso/profiles/hyprland/bin" ]]; then
+            mkdir -p "rootfs/usr/local/bin"
+            cp -a "$REPO_ROOT/iso/profiles/hyprland/bin/"* "rootfs/usr/local/bin/" 2>/dev/null || true
+            chmod +x "rootfs/usr/local/bin"/syntropia-* 2>/dev/null || true
+        fi
+        ok "Hyprland Noctalia overlay shipped (/etc/syntropia/profiles/hyprland)"
+    fi
+
+    # Step 3.6c: Pre-install Hyprland Noctalia packages into the ISO rootfs
+    info "Pre-installing Hyprland Noctalia packages into ISO rootfs..."
+    local hypr_pkgs=(
+        cachyos-hypr-noctalia noctalia alacritty kitty
+    )
+    if command -v pacman >/dev/null 2>&1; then
+        # Ensure DNS works inside rootfs chroot during build
+        local resolv_backup=""
+        if [[ -L "rootfs/etc/resolv.conf" ]]; then
+            resolv_backup=$(readlink "rootfs/etc/resolv.conf")
+            rm -f "rootfs/etc/resolv.conf"
+        elif [[ -f "rootfs/etc/resolv.conf" ]]; then
+            resolv_backup="file"
+            mv "rootfs/etc/resolv.conf" "rootfs/etc/resolv.conf.bak"
+        fi
+        if [[ -f /run/systemd/resolve/resolv.conf ]]; then
+            cp -L /run/systemd/resolve/resolv.conf "rootfs/etc/resolv.conf" 2>/dev/null || true
+        else
+            echo "nameserver 1.1.1.1" > "rootfs/etc/resolv.conf"
+        fi
+        echo -e "nameserver 1.1.1.1\nnameserver 8.8.8.8" >> "rootfs/etc/resolv.conf"
+
+        # Populate host pacman keyring into rootfs so pacman can verify signatures
+        if [[ -d /etc/pacman.d/gnupg ]]; then
+            mkdir -p "rootfs/etc/pacman.d/gnupg"
+            cp -a /etc/pacman.d/gnupg/. "rootfs/etc/pacman.d/gnupg/" 2>/dev/null || true
+            rm -f "rootfs/etc/pacman.d/gnupg/S."*
+            chmod 700 "rootfs/etc/pacman.d/gnupg"
+        fi
+
+        # Temporarily back up pacman.conf and ensure packages can be installed smoothly
+        local pacman_conf_bak="rootfs/etc/pacman.conf.syntropia-bak"
+        if [[ -f "rootfs/etc/pacman.conf" ]]; then
+            cp "rootfs/etc/pacman.conf" "$pacman_conf_bak"
+            sed -i 's/^SigLevel.*/SigLevel = Optional TrustAll/' "rootfs/etc/pacman.conf"
+            sed -i 's/^LocalFileSigLevel.*/LocalFileSigLevel = Optional TrustAll/' "rootfs/etc/pacman.conf"
+        fi
+
+        info "Running pacman inside rootfs to bake Hyprland Noctalia suite..."
+        # cachyos-hypr-noctalia conflicts with cachyos-kde-settings (both provide
+        # cachyos-desktop-settings). Remove the KDE package first so the install
+        # proceeds non-interactively.
+        pacman -r "rootfs" -Rdd --noconfirm cachyos-kde-settings 2>/dev/null || true
+        arch-chroot "rootfs" pacman -Rdd --noconfirm cachyos-kde-settings 2>/dev/null || true
+        # Fix gstreamer/gst-plugins-base version conflict (1.28.6 vs 1.28.7):
+        # remove the old libraries so 1.28.7 installs cleanly.
+        pacman -r "rootfs" -Rdd --noconfirm \
+            gst-plugins-base gst-plugins-good gst-plugins-base-libs gstreamer \
+            2>/dev/null || true
+        arch-chroot "rootfs" pacman -Rdd --noconfirm \
+            gst-plugins-base gst-plugins-good gst-plugins-base-libs gstreamer \
+            2>/dev/null || true
+        arch-chroot "rootfs" pacman -Sy --noconfirm --needed --overwrite '*' "${hypr_pkgs[@]}" \
+            || die "Could not pre-install Hyprland packages into rootfs"
+
+        # Titlebar window buttons (hyprbars). Built here, while DNS and the
+        # permissive pacman.conf from above are still in place.
+        install_hyprbars_plugin "rootfs" || warn "Continuing without hyprbars (no titlebar buttons)"
+
+        # Clean downloaded pacman cache from rootfs to keep ISO size lean
+        rm -rf rootfs/var/cache/pacman/pkg/* 2>/dev/null || true
+
+        # Restore original pacman.conf
+        if [[ -f "$pacman_conf_bak" ]]; then
+            mv "$pacman_conf_bak" "rootfs/etc/pacman.conf"
+        fi
+
+        # Restore original resolv.conf
+        rm -f "rootfs/etc/resolv.conf"
+        if [[ "$resolv_backup" == "file" ]]; then
+            mv "rootfs/etc/resolv.conf.bak" "rootfs/etc/resolv.conf"
+        elif [[ -n "$resolv_backup" ]]; then
+            ln -sf "$resolv_backup" "rootfs/etc/resolv.conf"
+        else
+            ln -sf ../run/systemd/resolve/stub-resolv.conf "rootfs/etc/resolv.conf"
+        fi
+
+        if [[ -f "rootfs/usr/share/wayland-sessions/hyprland-uwsm.desktop" || -f "rootfs/usr/share/wayland-sessions/hyprland.desktop" || -f "rootfs/usr/bin/hyprland" ]]; then
+            ok "Hyprland Noctalia packages successfully pre-installed in ISO rootfs"
+        else
+            die "Hyprland binary not found in rootfs after installation attempt"
+        fi
+
+        # Deploy Syntropia Hyprland & Noctalia overlay into live rootfs /etc/skel
+        if [[ -d "$REPO_ROOT/iso/profiles/hyprland/.config" ]]; then
+            mkdir -p "rootfs/etc/skel/.config"
+            cp -r "$REPO_ROOT/iso/profiles/hyprland/.config/"* "rootfs/etc/skel/.config/" 2>/dev/null || true
+            ok "Syntropia Hyprland Noctalia overlay deployed to rootfs/etc/skel/.config"
+        fi
+    fi
+
 
     # Step 3.7: Make the wizard survive the INSTALL — Calamares builds a
     # fresh /etc for the target and does NOT copy our /etc/syntropia or the
@@ -394,18 +679,20 @@ PYEOF
     rm -f rootfs/etc/skel/.config/autostart/cachyos-hello.desktop
     ok "Wizard copy wired into Calamares; cachyos-hello first-run removed"
 
-    # Step 3.7b: Ship paru with EVERY install so the first-boot wizard never
-    # shows the "paru is not installed" bootstrap. The installed system is NOT
-    # a copy of the live rootfs — Calamares pacstraps a fresh base from
-    # pacstrap.conf's basePackages (paru lives only in the live packages
-    # list, so it never reaches the target). Add paru to basePackages here;
+    # Step 3.7b: Ship paru and limine with EVERY install. The Calamares
+    # bootloader step and a future `limine bios-install` need the package on
+    # the target, and the first-boot wizard must never show the "paru is not
+    # installed" bootstrap. The installed system is NOT a copy of the live
+    # rootfs — Calamares pacstraps a fresh base from pacstrap.conf's
+    # basePackages (paru/limine live only in the live packages list, so they
+    # never reach the target). Add both to basePackages here;
     # NoUpgrade-protected above so the live-boot cachyos-calamares-next
     # update can't revert it (same pattern as the settings files).
-    info "Adding paru to pacstrap basePackages..."
+    info "Adding paru + limine to pacstrap basePackages..."
     local pacstrap_conf="rootfs/etc/calamares/modules/pacstrap.conf"
-    if [[ -f "$pacstrap_conf" ]] && ! grep -q '^  - paru' "$pacstrap_conf"; then    # Insert into the basePackages list ONLY (the file has a second list,
+    if [[ -f "$pacstrap_conf" ]]; then    # Insert into the basePackages list ONLY (the file has a second list,
     # postInstallFiles, whose entries are also '  - ' — appending after the
-    # last such line would put paru in the WRONG list). Scan forward from
+    # last such line would put a package in the WRONG list). Scan forward from
     # 'basePackages:' until the next top-level key and append there.
     python3 - "$pacstrap_conf" << 'PYEOF'
 import sys, re
@@ -420,13 +707,20 @@ for i in range(start + 1, len(lines)):
         insert_at = i
         break
 assert insert_at is not None, "basePackages list has no end in pacstrap.conf"
-lines.insert(insert_at, '  - paru\n')
+added = []
+for pkg in ("paru", "limine"):
+    if f"  - {pkg}\n" in lines:
+        continue
+    lines.insert(insert_at, f"  - {pkg}\n")
+    insert_at += 1
+    added.append(pkg)
 with open(path, 'w') as f:
     f.writelines(lines)
+print(", ".join(added) if added else "none")
 PYEOF
-        ok "paru added to pacstrap basePackages (every install ships it)"
+        ok "paru + limine in pacstrap basePackages (every install ships them)"
     else
-        ok "paru already in pacstrap basePackages (or file missing)"
+        ok "pacstrap.conf missing — paru/limine left out of the target package set"
     fi
 
     # Step 3.8: Ship the terminal ASCII-art branding so fresh installs show
@@ -451,14 +745,25 @@ PYEOF
     # into the hicolor theme + repointed in the panel config by the branding
     # hook (single source of truth with apply_menu_icon in branding.py).
     cp "$brand_src/menu-icon.png" "$logo_dir/branding/menu-icon.png"
+    # Desktop wallpaper: referenced by the Hyprland profile's hyprpaper.conf
+    # and hyprlock.conf (/usr/share/syntropia/branding/wallpaper.png).
+    cp "$brand_src/wallpaper.png" "$logo_dir/branding/wallpaper.png"
     # KSplash theme: ships as splash/ (Splash.qml + images) and gets installed
     # into the target's look-and-feel + ksplashrc by the branding hook (single
     # source of truth with apply_splash in branding.py).
     cp -r "$brand_src/splash" "$logo_dir/branding/splash"
+    mkdir -p "rootfs/etc/skel/.local/share/plasma/look-and-feel/org.syntropia.desktop/contents/splash"
+    cp -a "$brand_src/splash/." "rootfs/etc/skel/.local/share/plasma/look-and-feel/org.syntropia.desktop/contents/splash/"
+    mkdir -p "rootfs/etc/skel/.config"
+    printf '[KSplash]\nEngine=none\nTheme=None\n' > "rootfs/etc/skel/.config/ksplashrc"
     # Plymouth boot animation: ships as plymouth/ (triangle particle swarm) and
     # gets installed to /usr/share/plymouth/themes/syntropia + set active by the
     # branding hook (single source of truth with apply_plymouth).
     cp -r "$brand_src/plymouth" "$logo_dir/branding/plymouth"
+    mkdir -p "rootfs/usr/share/plymouth/themes/syntropia"
+    cp -a "$brand_src/plymouth/." "rootfs/usr/share/plymouth/themes/syntropia/"
+    mkdir -p "rootfs/etc/plymouth"
+    printf '[Daemon]\nTheme=syntropia\n' > "rootfs/etc/plymouth/plymouthd.conf"
     mkdir -p "rootfs/etc/skel/.config/fastfetch"
     # Run from the remaster dir (cwd) but import the repo's config builder
     # via PYTHONPATH — same single source of truth as `syntropia transform`.
@@ -505,9 +810,9 @@ if content is None:
 (out / "os-release").write_text(content)
 (out / "lsb-release").write_text(
     "LSB_VERSION=1.4\n"
-    'DISTRIB_ID="Syntropia"\n'
+    'DISTRIB_ID="CachyOS"\n'
     "DISTRIB_RELEASE=rolling\n"
-    'DISTRIB_DESCRIPTION="Syntropia OS"\n'
+    'DISTRIB_DESCRIPTION="CachyOS Syntropia"\n'
     'DISTRIB_CODENAME="syntropia"\n'
 )
 PYEOF
@@ -583,11 +888,175 @@ for name in ("settings_online.conf", "settings_offline.conf"):
 PYEOF
     ok "Branding copy wired into Calamares"
 
-    # Step 4: Repack squashfs
-    info "Repacking squashfs (this takes ~5 min)..."
+    # Step 3.85: Rebrand Calamares installer, strip generic multi-OS chooser, and disable cachyos-hello
+    info "Patching Calamares to offer Syntropia only (removing generic multi-OS/desktop choosers)..."
+    for bdesc in rootfs/usr/share/calamares/branding/*/branding.desc rootfs/etc/calamares/branding/*/branding.desc; do
+        if [[ -f "$bdesc" ]]; then
+            sed -i 's/productName: .*/productName: Syntropia OS/' "$bdesc"
+            sed -i 's/shortProductName: .*/shortProductName: Syntropia/' "$bdesc"
+            sed -i 's/versionedName: .*/versionedName: Syntropia OS/' "$bdesc"
+            sed -i 's/shortVersionedName: .*/shortVersionedName: Syntropia/' "$bdesc"
+            sed -i 's/bootloaderEntryName: .*/bootloaderEntryName: Syntropia/' "$bdesc"
+            sed -i 's/windowPlacement: .*/windowPlacement: center/' "$bdesc"
+            sed -i 's/windowExpanding: .*/windowExpanding: normal/' "$bdesc"
+        fi
+    done
+
+    # Center installer windows via KWin window manager rules and configuration
+    info "Configuring KWin to center installer windows..."
+    for kwin_dir in "rootfs/etc/skel/.config" "rootfs/home/liveuser/.config"; do
+        mkdir -p "$kwin_dir"
+        if [[ -f "$kwin_dir/kwinrc" ]] && grep -q '\[Windows\]' "$kwin_dir/kwinrc"; then
+            sed -i '/\[Windows\]/a Placement=Centered' "$kwin_dir/kwinrc"
+        else
+            printf '\n[Windows]\nPlacement=Centered\n' >> "$kwin_dir/kwinrc"
+        fi
+        cat > "$kwin_dir/kwinrulesrc" << 'EOF'
+[1]
+Description=Center Calamares Installer
+clientmachine=localhost
+clientmachinematch=0
+placement=3
+placementrule=2
+wmclass=calamares
+wmclassmatch=1
+EOF
+    done
+    ok "KWin configured to open installer in center of screen"
+
+    # Configure bootloader module for robust systemd-boot installation (fixes 82% hang on missing limine)
+    info "Configuring Calamares bootloader module for systemd-boot..."
+    for bconf in rootfs/etc/calamares/modules/bootloader.conf rootfs/usr/share/calamares/modules/bootloader.conf; do
+        if [[ -f "$bconf" ]]; then
+            sed -i 's/efiBootLoader: .*/efiBootLoader: "systemd-boot"/' "$bconf"
+            sed -i 's/efiBootLoaderVar: .*/efiBootLoaderVar: ""/' "$bconf"
+            sed -i 's/efiBootloaderId: .*/efiBootloaderId: "syntropia"/' "$bconf"
+            sed -i 's/installEFIFallback: .*/installEFIFallback: true/' "$bconf"
+        fi
+    done
+    ok "Calamares bootloader configured to systemd-boot"
+
+    # Configure unpackfs to copy both default and LTS kernels
+    for uconf in rootfs/etc/calamares/modules/unpackfs.conf rootfs/usr/share/calamares/modules/unpackfs.conf; do
+        if [[ -f "$uconf" ]] && ! grep -q 'vmlinuz-linux-cachyos-lts' "$uconf"; then
+            python3 - "$uconf" << 'PYEOF'
+import sys
+p = sys.argv[1]
+with open(p) as f:
+    text = f.read()
+target = 'destination: "/boot/vmlinuz-linux-cachyos"'
+lts_entry = '''    -   source: "/run/archiso/bootmnt/arch/boot/x86_64/vmlinuz-linux-cachyos-lts"
+        sourcefs: "file"
+        destination: "/boot/vmlinuz-linux-cachyos-lts"
+        optional: true'''
+if target in text:
+    text = text.replace(target, target + "\n" + lts_entry)
+    with open(p, "w") as f:
+        f.write(text)
+PYEOF
+        fi
+    done
+
+    # Remove packagechooser (desktop/bootloader) and netinstall from Calamares sequence
+    python3 - "rootfs" << 'PYEOF'
+import sys, pathlib
+root = pathlib.Path(sys.argv[1])
+for name in ("settings_online.conf", "settings_offline.conf", "settings.conf"):
+    p = root / "usr/share/calamares" / name
+    if not p.exists():
+        continue
+    lines = p.read_text().splitlines()
+    filtered = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped in ("- packagechooser@desktop", "- packagechooser@bootloader", "- netinstall", "packagechooser@desktop", "packagechooser@bootloader", "netinstall"):
+            continue
+        filtered.append(line)
+    p.write_text("\n".join(filtered) + "\n")
+
+pk = root / "etc/calamares/modules/packagechooser_desktop.conf"
+if pk.exists():
+    pk_text = """---
+mode: required
+method: legacy
+default: Syntropia-Desktop
+items:
+    - id: Syntropia-Desktop
+      name: "Syntropia OS"
+      description: "Syntropia OS with customized desktop, CLI brews, and dark theme."
+      screenshot: "/etc/calamares/images/kde.webp"
+"""
+    pk.write_text(pk_text)
+PYEOF
+
+    # Configure finished page to keep restart unchecked so user can read USB removal prompt
+    for fconf in rootfs/etc/calamares/modules/finished.conf rootfs/usr/share/calamares/modules/finished.conf; do
+        if [[ -f "$fconf" ]]; then
+            sed -i 's/notifyOnFinished: .*/notifyOnFinished: true/' "$fconf"
+            sed -i 's/restartNowMode: .*/restartNowMode: user-unchecked/' "$fconf"
+        fi
+    done
+
+    # Patch calamares-online.sh launcher to use offline unpackfs & drop live-boot pacman clobber
+    if [[ -f "rootfs/usr/local/bin/calamares-online.sh" ]]; then
+        sed -i 's/sudo pacman -Sy --noconfirm cachyos-calamares-next/# skipped offline/' "rootfs/usr/local/bin/calamares-online.sh"
+        sed -i 's/sudo pacman -Sy --noconfirm archlinux-keyring cachyos-keyring/# skipped offline/' "rootfs/usr/local/bin/calamares-online.sh"
+        sed -i 's/local mode="online"/local mode="offline"/' "rootfs/usr/local/bin/calamares-online.sh"
+        ok "calamares-online.sh patched (offline unpackfs default, zero network stall)"
+    fi
+
+    # Clean up any desktop / autostart installer icons from rootfs
+    rm -f rootfs/home/liveuser/Desktop/install-syntropia.desktop
+    rm -f rootfs/etc/skel/Desktop/install-syntropia.desktop
+    rm -f rootfs/home/liveuser/.config/autostart/install-syntropia.desktop
+    rm -f rootfs/etc/skel/.config/autostart/install-syntropia.desktop
+    rm -f rootfs/home/liveuser/.config/autostart/cachyos-hello.desktop
+    rm -f rootfs/etc/skel/.config/autostart/cachyos-hello.desktop
+    rm -f rootfs/etc/xdg/autostart/cachyos-hello.desktop
+    ok "Live desktop icons removed; multi-OS chooser removed; cachyos-hello disabled"
+
+    # Step 3.95: Optimize ISO bootloader (faster boot, lower timeout, Syntropia title, direct multi-user)
+    info "Patching ISO bootloader configurations..."
+    if [[ -f "boot/grub/grub.cfg" ]]; then
+        sed -i 's/timeout=10/timeout=2/' "boot/grub/grub.cfg"
+        sed -i 's/Welcome to CachyOS/Welcome to Syntropia/' "boot/grub/grub.cfg"
+        sed -i 's/menuentry "CachyOS LTS Kernel"/menuentry "Syntropia (LTS Kernel)"/' "boot/grub/grub.cfg"
+        sed -i 's/menuentry "CachyOS Legacy Hardware (GPU nomodeset)"/menuentry "Syntropia (Safe Graphics \/ nomodeset)"/' "boot/grub/grub.cfg"
+        sed -i 's/menuentry "CachyOS"/menuentry "Syntropia"/' "boot/grub/grub.cfg"
+        sed -i -E 's/copytoram=auto/copytoram=auto systemd.unit=multi-user.target/g' "boot/grub/grub.cfg"
+        if [[ -n "${orig_uuid:-}" ]]; then
+            sed -i -E "s/archisosearchuuid=[^ ]+/archisosearchuuid=$orig_uuid/g" "boot/grub/grub.cfg"
+        fi
+        ok "ISO GRUB configuration optimized (timeout 2s, direct multi-user, UUID synced)"
+    fi
+    if [[ -f "boot/syslinux/archiso_sys.cfg" ]]; then
+        sed -i 's/TIMEOUT 150/TIMEOUT 30/' "boot/syslinux/archiso_sys.cfg"
+        ok "ISO Syslinux timeout set to 3s"
+    fi
+    for f in boot/syslinux/archiso_*.cfg; do
+        if [[ -f "$f" ]]; then
+            sed -i 's/MENU LABEL CachyOS default (x86_64, BIOS)/MENU LABEL Syntropia default (x86_64, BIOS)/g' "$f"
+            sed -i 's/MENU LABEL CachyOS Fallback (nomodeset, BIOS)/MENU LABEL Syntropia Fallback (nomodeset, BIOS)/g' "$f"
+            sed -i 's/MENU TITLE CachyOS/MENU TITLE Syntropia/g' "$f"
+            sed -i 's/Boot the CachyOS install medium/Boot the Syntropia install medium/g' "$f"
+            sed -i 's/install CachyOS/install Syntropia/g' "$f"
+            sed -i -E 's/copytoram=auto/copytoram=auto systemd.unit=multi-user.target/g' "$f"
+            if [[ -n "${orig_uuid:-}" ]]; then
+                sed -i -E "s/archisosearchuuid=[^ ]+/archisosearchuuid=$orig_uuid/g" "$f"
+            fi
+        fi
+    done
+    ok "ISO Syslinux rebranded to Syntropia"
+
+    # Step 4: Repack squashfs with zstd (9x faster page decompression than xz)
+    info "Repacking squashfs with zstd (high decompression throughput)..."
     rm -f arch/x86_64/airootfs.sfs
+    local nproc_limit
+    nproc_limit="$(nproc 2>/dev/null || echo 4)"
+    nproc_limit=$(( nproc_limit > 4 ? 4 : nproc_limit ))
     mksquashfs rootfs/ arch/x86_64/airootfs.sfs \
-        -comp xz -b 1M -Xbcj x86 -Xdict-size 1M -noappend
+        -comp zstd -Xcompression-level 19 -b 1M -noappend \
+        -processors "$nproc_limit" -mem 4G
     ok "Squashfs repacked ($(du -sh arch/x86_64/airootfs.sfs | cut -f1))"
 
     # Step 5: Update checksum
@@ -604,26 +1073,34 @@ PYEOF
 
     # Step 6: Rebuild hybrid ISO with xorriso
     info "Rebuilding ISO with xorriso..."
-    local efi_file
-    efi_file=$(ls EFI/BOOT/ | grep -i 'BOOTx64\.EFI$' | head -1)
-    if [[ -z "$efi_file" ]]; then
-        efi_file=$(ls EFI/BOOT/ | grep -i '\.efi$' | head -1)
-        info "Using EFI bootloader: $efi_file"
+    local xorriso_args=(
+        -as mkisofs
+        -iso-level 3
+        -full-iso9660-filenames
+        -joliet
+        -joliet-long
+        -rational-rock
+        -volid "SYNTROPIA"
+        -appid "Syntropia Live/Rescue DVD"
+        -publisher "Syntropia OS"
+        -eltorito-boot boot/syslinux/isolinux.bin
+        -eltorito-catalog boot/syslinux/boot.cat
+        -no-emul-boot -boot-load-size 4 -boot-info-table
+        -isohybrid-mbr boot/syslinux/isohdpfx.bin
+        -partition_offset 16
+        -append_partition 2 0xef "$efiboot_img"
+        -isohybrid-gpt-basdat
+        -eltorito-alt-boot
+        -e '--interval:appended_partition_2:all::'
+        -no-emul-boot
+    )
+
+    if [[ -n "${orig_mod_date:-}" ]]; then
+        xorriso_args+=( --modification-date="$orig_mod_date" )
     fi
 
-    xorriso -as mkisofs \
-        -iso-level 3 \
-        -full-iso9660-filenames \
-        -volid "SYNTROPIA" \
-        -eltorito-boot boot/syslinux/isolinux.bin \
-        -eltorito-catalog boot/syslinux/boot.cat \
-        -no-emul-boot -boot-load-size 4 -boot-info-table \
-        -isohybrid-mbr boot/syslinux/isohdpfx.bin \
-        -eltorito-alt-boot \
-        -e "EFI/BOOT/$efi_file" \
-        -no-emul-boot \
-        -output "$output_iso" \
-        .
+    xorriso "${xorriso_args[@]}" -output "$output_iso" .
+    rm -f "$efiboot_img"
 
     ok "Phase 2 complete: $output_iso ($(du -h "$output_iso" | cut -f1))"
     info "Your Syntropia-branded CachyOS installer ISO is ready!"

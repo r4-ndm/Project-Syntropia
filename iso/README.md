@@ -18,8 +18,9 @@ Output: `iso/out/syntropia-YYYY.MM.DD-x86_64.iso`
 ### Phase 1: mkarchiso (standard ISO)
 
 1. Clones/pulls [CachyOS/CachyOS-Live-ISO](https://github.com/CachyOS/CachyOS-Live-ISO)
-2. Applies two minimal patches:
+2. Applies three minimal patches:
    - Symlinks `packages.x86_64` → `packages_desktop.x86_64` (mkarchiso naming convention)
+   - Appends `limine` to that list: Limine is the installed bootloader, and the TUI installer copies the live rootfs onto the target, so its payloads have to exist in the live image
    - Adds `NoExtract` in `pacman.conf` to prevent slide conflicts
 3. Runs `mkarchiso` — the official Arch ISO builder — which:
    - Bootstraps a fresh pacman root
@@ -36,18 +37,86 @@ The CachyOS branding slides come from the `cachyos-calamares-next` package. We c
 1. Extract the ISO with `bsdtar`
 2. Unsquashfs the root filesystem
 3. Copy our 6 amended slide JXLs into `/usr/share/calamares/branding/cachyos/`
-4. Repack squashfs with matching xz compression options
-5. Rebuild the ISO with `xorriso` (BIOS + UEFI hybrid)
+4. Optimize ISO bootloader (GRUB timeout reduced to 2s, Syslinux to 3s, Syntropia menu title)
+5. Configure the direct Omarchy-style TUI installer on tty1 (centered terminal UI, network step, password panel, LUKS2 encryption, desktop experience selection, progress dashboard; graphical display manager disabled). The scripts come from `iso/installer/` — see below.
+6. Repack squashfs with `zstd` (`-comp zstd -Xcompression-level 19 -b 1M`) for ~9x faster kernel page decompression during live boot
+7. Rebuild the ISO with `xorriso` (BIOS + UEFI hybrid)
 
 Output: `iso/out/syntropia-YYYY.MM.DD-x86_64.iso`
 
 Phase 2 also ships the rest of the Syntropia install experience (not just slides):
-the apps wizard + TUI (`/etc/syntropia/`, from the vendored app-wiz4rd release tarball in `iso/vendor/`), paru in pacstrap `basePackages`, the
-fastfetch ASCII-art branding (`/usr/share/syntropia/`), the **Syntropia identity**
+the default LUKS2 full-disk encryption with Btrfs subvolumes,
+**Limine** as the installed bootloader (UEFI + BIOS, see below),
+the interactive DE profile selector (KDE Plasma vs Hyprland + Omarchy hotkey/helper suite),
+the apps wizard + TUI (`/etc/syntropia/`, from the vendored app-wiz4rd release tarball in `iso/vendor/`; shipped with an app-menu launcher, and picks made while offline are queued until a connection exists),
+the Hyprland profile configs & helper scripts (`/etc/syntropia/profiles/hyprland/`: a traditional-desktop Hyprland — bottom Noctalia bar with the taskbar widget, floating windows resizable from the border, and KDE-style titlebar buttons from the `hyprbars` plugin, which is compiled into the ISO because it is AUR-only), paru in pacstrap `basePackages`,
+the fastfetch ASCII-art branding (`/usr/share/syntropia/`), the **Syntropia identity**
 (`os-release`/`lsb-release` generated from `transform.py`, copied into the installed
 `/etc/` at install time), the `syntropia-${cpu}` hostname default, and the limine
 bootloader identity sync. See `.agents/skills/iso-builder/SKILL.md` for the full
 step list and pitfalls.
+
+## The installer UI (`iso/installer/`)
+
+The tty1 installer is **source code in this repo**, not heredocs pasted into
+`build.sh`:
+
+| Path | Role |
+|------|------|
+| `syntropia-install` | setup TUI: disk, identity, keymap, **network**, **passwords**, encryption, desktop, summary |
+| `syntropia-install-runner` | the destructive backend: partition, format, copy, chroot setup, Limine install |
+| `syntropia-install-dashboard` | progress dashboard that supervises the runner and reboots |
+| `lib/common.sh` | palette, geometry, centring, logo (shared by both UIs) |
+| `lib/config.sh` | the TUI↔runner config contract; writes `config.json` **0600** |
+| `lib/password.sh` | masked password entry, strength estimate, confirmation, root-password choice |
+| `lib/network.sh` | connectivity probe + `nmcli` Wi-Fi setup |
+| `lib/bootloader.sh` | `limine.conf` generation, UEFI copy + NVRAM entry, `limine bios-install` |
+
+`build.sh` installs the three scripts to `/usr/local/bin/` and the libs to
+`/usr/local/lib/syntropia-installer/` (both resolve their libs from either
+location).
+
+**Preview without installing anything:**
+
+```bash
+./iso/installer/syntropia-install --dry-run
+```
+
+### Bootloader: Limine
+
+Limine is the installed bootloader on both firmware types (confirmed in
+`NEXT_SESSION.md`); the runner writes no systemd-boot entries and runs no
+`grub-install`. The disk layout it creates is:
+
+| Partition | Size | Type | Purpose |
+|-----------|------|------|---------|
+| 1 | 1 MiB | `ef02` BIOS boot | Limine's BIOS stage 2 |
+| 2 | 512 MiB | `ef00` ESP | mounted at `/boot`: `limine.conf`, `limine-bios.sys`, kernels, initramfs, `EFI/BOOT/BOOTX64.EFI`, `EFI/limine/BOOTX64.EFI` |
+| 3 | rest | `8309` | Btrfs `@,@home,@log,@pkg`, LUKS2 when encryption is on |
+
+The ESP is mounted at `/boot`, which puts `limine.conf` at the volume root —
+Limine's own config search finds it for both EFI paths. The OS entry is named
+`/+CachyOS Syntropia` because that is os-release `PRETTY_NAME`; the branding
+hook's identity sync and `limine-snapper-sync` (`TARGET_OS_NAME`) both match on
+that exact string. Regenerating the config is safe:
+
+```bash
+source lib/bootloader.sh
+limine_conf_write /boot "$(cat /proc/cmdline)" 0
+```
+
+It asks the same questions, prints the plan, writes no config and touches no
+disk — which is also how `phase1/tests/test_installer_tui.py` drives it.
+
+Passwords: the account password (masked, with a strength estimate and a
+confirmation field) and the root password, which defaults to "same as the
+user" with an option to set a different one — so a fresh install asks for
+nothing at first boot. The account password doubles as the LUKS passphrase.
+
+Network: the installer probes for a connection and, if there is none, offers
+Wi-Fi setup (via `nmcli`), a re-check, or "continue offline". Offline installs
+are supported; apps picked in the first-boot wizard are queued and installed
+once the machine is online.
 
 ## Branding slides
 
@@ -160,9 +229,24 @@ name, but the branding hook renames os-release to Syntropia at the END of instal
 `limine-snapper-sync` matches the limine.conf OS entry against os-release
 (PRETTY_NAME) or `TARGET_OS_NAME` in `/etc/default/limine`, and warns on boot.
 
-**Fix**: `iso/hook-scripts/hook-branding-users.sh` sets the limine.conf entry to
-`/+Syntropia OS` and pins `TARGET_OS_NAME="Syntropia OS"` in `/etc/default/limine`.
-Keep both in sync whenever the os-release name changes.
+**Fix**: the installer's `lib/bootloader.sh` now generates the entry already named
+`/+CachyOS Syntropia`, and `iso/hook-scripts/hook-branding-users.sh` renames a
+still-bare `/+CachyOS` (the name CachyOS's own installer writes) and pins
+`TARGET_OS_NAME="CachyOS Syntropia"` in `/etc/default/limine`. The rename is
+anchored to the whole line, so re-running the hook is harmless. Keep both names
+in sync whenever the os-release name changes.
+
+### Installed disk has no boot entry (firmware falls through to the next device)
+
+**Cause**: the ESP does not hold Limine, or `efibootmgr` could not create the NVRAM
+entry and the firmware ignores the `\EFI\BOOT\BOOTX64.EFI` fallback.
+
+**Fix**: mount the ESP and check for `limine.conf`, `limine-bios.sys`,
+`EFI/BOOT/BOOTX64.EFI` and `EFI/limine/BOOTX64.EFI`. Register it by hand with
+`efibootmgr --create --disk /dev/sdX --part 2 --label "Syntropia OS" --loader '\EFI\limine\BOOTX64.EFI'`.
+On a BIOS machine, `limine bios-install /dev/sdX 1` must have been run against the
+`ef02` partition. The runner aborts (instead of finishing) when the limine package
+is missing from the image, so a completed install always had the payloads.
 
 ### Verify the amended slides are actually in the ISO
 

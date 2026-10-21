@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Syntropia OS — Wallpaper & Theme Selector (Omarchy-style / Noctalia IPC)
+# ==============================================================================
+set -euo pipefail
+
+action="${1:-toggle}"
+
+ipc_cmd() {
+    if command -v noctalia-ipc >/dev/null 2>&1; then
+        noctalia-ipc "$@"
+    elif command -v noctalia >/dev/null 2>&1; then
+        noctalia msg "$@"
+    else
+        echo "Error: Noctalia IPC not available" >&2
+        return 1
+    fi
+}
+
+case "$action" in
+    toggle|--toggle|"")
+        ipc_cmd panel-toggle wallpaper
+        ;;
+    next|--next)
+        ipc_cmd wallpaper-next
+        ;;
+    prev|previous|--prev)
+        ipc_cmd wallpaper-previous
+        ;;
+    random|--random)
+        ipc_cmd wallpaper-random
+        ;;
+    set|--set)
+        if [[ -n "${2:-}" ]]; then
+            ipc_cmd wallpaper-set "$2"
+        else
+            echo "Usage: syntropia-wallpaper-picker set <path>" >&2
+            exit 1
+        fi
+        ;;
+    *)
+        ipc_cmd panel-toggle wallpaper
+        ;;
+esac

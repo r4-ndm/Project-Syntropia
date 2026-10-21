@@ -1,0 +1,192 @@
+# ==============================================================================
+# Syntropia OS — Noctalia Shell Configuration (Omarchy Square Edge Styling)
+# ==============================================================================
+
+[accessibility]
+ui_scale = 1.20
+
+[bar.default]
+# Bottom bar: new users coming from KDE/Windows look for the taskbar at the
+# bottom edge, not the top.
+position = "bottom"
+scale = 1.10
+thickness = 35
+margin_edge = 0
+margin_ends = 0
+concave_edge_corners = false
+radius = 0
+radius_top_left = 0
+radius_top_right = 0
+radius_bottom_left = 0
+radius_bottom_right = 0
+capsule_radius = 0.0
+start = [ "launcher", "clock", "spacer_1", "group:g1" ]
+center = [ "workspaces", "taskbar", "active_window" ]
+end = [ "media", "spacer_1", "tray", "wallpaper", "notifications", "network", "volume", "session" ]
+
+    [[bar.default.capsule_group]]
+    id = "g1"
+    members = [ "temp", "sysmon_2", "sysmon_3" ]
+    fill = "on_secondary"
+    opacity = 1.0
+    padding = 6.0
+    radius = 0.0
+
+[shell]
+corner_radius_scale = 0.0
+button_borders = true
+input_borders = true
+popup_borders = true
+card_borders = true
+popup_shadows = false
+launch_apps_as_systemd_services = true
+polkit_agent = true
+settings_show_advanced = true
+clipboard_image_action_command = "swash --stdin --name \"swash-$(date +'%Y-%m-%d_%H:%M:%S').png\""
+
+    [shell.greeter_sync]
+    auto_sync = false
+
+    [shell.panel]
+    open_near_click_control_center = true
+    session_placement = "floating"
+    session_position = "center"
+
+    [shell.screenshot]
+    copy_to_clipboard = false
+    pipe_command = "swash --stdin --name \"swash-$(date +'%Y-%m-%d_%H:%M:%S').png\""
+    pipe_to_command = true
+    save_to_file = false
+
+    [[shell.session.actions]]
+    action = "lock"
+    countdown_seconds = 0.0
+    enabled = true
+    shortcut = "1"
+    variant = "default"
+
+    [[shell.session.actions]]
+    action = "logout"
+    countdown_seconds = 0.0
+    enabled = true
+    shortcut = "2"
+    variant = "default"
+
+    [[shell.session.actions]]
+    action = "lock_and_suspend"
+    countdown_seconds = 3.0
+    enabled = true
+    shortcut = "3"
+    variant = "default"
+
+    [[shell.session.actions]]
+    action = "reboot"
+    countdown_seconds = 3.0
+    enabled = true
+    shortcut = "4"
+    variant = "default"
+
+    [[shell.session.actions]]
+    action = "shutdown"
+    countdown_seconds = 3.0
+    enabled = true
+    shortcut = "5"
+    variant = "destructive"
+
+[system.monitor]
+gpu_poll_seconds = 2
+
+[theme]
+mode = "dark"
+source = "wallpaper"
+wallpaper_scheme = "m3-tonal-spot"
+
+    [theme.templates]
+    builtin_ids = [ "btop", "gtk3", "gtk4", "kcolorscheme", "kitty", "qt", "alacritty" ]
+
+[wallpaper]
+enabled = true
+fill_mode = "crop"
+directory = "/usr/share/syntropia/branding"
+directory_dark = "/usr/share/syntropia/branding"
+default_path = "/usr/share/syntropia/branding/wallpaper.png"
+transition_on_startup = true
+
+[wallpaper.default]
+path = "/usr/share/syntropia/branding/wallpaper.png"
+
+[widget.clock]
+color = "secondary"
+format = "{:%H:%M %A %m/%d/%y}"
+
+[widget.launcher]
+color = "secondary"
+glyph = "menu-2"
+custom_image = "/usr/share/syntropia/branding/menu-icon.png"
+custom_image_colorize = false
+
+[widget.wallpaper]
+glyph = "photo"
+color = "secondary"
+
+[widget.media]
+hide_when_no_media = true
+title_scroll = "on_hover"
+
+[widget.network]
+color = "secondary"
+
+[widget.notifications]
+color = "secondary"
+
+[widget.session]
+color = "error"
+
+[widget.spacer_1]
+type = "spacer"
+
+# KDE-style task buttons: one icon per running window, in the centre of the bar
+# next to the workspaces. Left-click focuses (or raises) a window, middle-click
+# closes it. Windows from every workspace are listed so a minimised or
+# workspace-hidden app is always one click away.
+[widget.taskbar]
+show_running = true
+show_all_outputs = false
+only_active_workspace = false
+group_by_workspace = false
+icon_scale = 1.0
+item_spacing = 6
+show_window_title = false
+show_active_indicator = true
+active_indicator_color = "primary"
+
+[widget.temp]
+show_value = false
+
+[widget.sysmon_2]
+glyph = "gpu-usage"
+show_value = false
+stat = "gpu_temp"
+type = "sysmon"
+
+[widget.sysmon_3]
+glyph = "cpu-2"
+stat = "ram_used"
+type = "sysmon"
+
+[widget.tray]
+capsule = true
+capsule_fill = "on_secondary"
+capsule_radius = 0.0
+
+[widget.volume]
+color = "secondary"
+
+[widget.workspaces]
+capsule = true
+capsule_fill = "on_primary"
+capsule_radius = 0.0
+pill_scale = 0.80
+active_pill_size = 2.5
+inactive_pill_size = 1.0
+show_labels = false

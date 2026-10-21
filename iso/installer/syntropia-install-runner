@@ -1,0 +1,436 @@
+#!/bin/bash
+# Syntropia installation runner: does the destructive work.
+# ==========================================================
+# Reads the answers syntropia-install wrote to config.json, partitions, formats,
+# copies the live image, sets up accounts/initramfs/Limine/desktop, and reports
+# progress through state.json for the dashboard to render.
+#
+# Passwords are read from config.json (0600, written by the TUI) and fed to
+# chpasswd over stdin — never on a command line, where `ps` would show them.
+set -euo pipefail
+
+STATE_FILE="/run/syntropia-install/state.json"
+CONFIG_FILE="${SYNTROPIA_INSTALL_CONFIG:-/run/syntropia-install/config.json}"
+TARGET="/mnt"
+
+# ── shared libraries ───────────────────────────────────────────────────────
+INSTALLER_LIB=""
+for candidate in "${SYNTROPIA_INSTALLER_LIB:-}" \
+    "$(dirname "$0")/lib" \
+    "$(dirname "$0")/../lib/syntropia-installer" \
+    /usr/local/lib/syntropia-installer; do
+  if [[ -n "$candidate" && -f "$candidate/config.sh" ]]; then
+    INSTALLER_LIB="$candidate"
+    break
+  fi
+done
+if [[ -z "$INSTALLER_LIB" ]]; then
+  echo "syntropia-install-runner: config library not found" >&2
+  exit 1
+fi
+# shellcheck source=lib/config.sh
+source "$INSTALLER_LIB/config.sh"
+# shellcheck source=lib/bootloader.sh
+source "$INSTALLER_LIB/bootloader.sh"
+
+set_phase() {
+  local phase="$1" pm="$2"
+  printf '{"current_phase":"%s","progress_pm":%d,"finished":false}\n' "$phase" "$pm" > "$STATE_FILE"
+}
+
+set_finished() {
+  printf '{"current_phase":"Installation complete","progress_pm":1000,"finished":true}\n' > "$STATE_FILE"
+}
+
+# Read target disk configuration
+if [[ ! -f "$CONFIG_FILE" ]]; then
+  echo "Configuration file missing: $CONFIG_FILE" >&2
+  exit 1
+fi
+
+TARGET_DISK=$(config_get "$CONFIG_FILE" disk '')
+USERNAME=$(config_get "$CONFIG_FILE" username 'syntropia')
+USER_PASSWORD=$(config_get "$CONFIG_FILE" password '')
+# Configs written before root had its own question reused the account password
+# for root; keep that as the fallback.
+ROOT_PASSWORD=$(config_get "$CONFIG_FILE" root_password "$USER_PASSWORD")
+HOSTNAME=$(config_get "$CONFIG_FILE" hostname 'syntropia')
+DESKTOP_ENV=$(config_get "$CONFIG_FILE" desktop_env 'plasma')
+ENCRYPT_DISK=$(config_get "$CONFIG_FILE" encrypt 'true')
+KEYMAP=$(config_get "$CONFIG_FILE" keymap 'us')
+ONLINE=$(config_get "$CONFIG_FILE" online 'false')
+
+if [[ -z "$TARGET_DISK" ]]; then
+  echo "config.json has no target disk — re-run the installer" >&2
+  exit 1
+fi
+if [[ -z "$USER_PASSWORD" || -z "$ROOT_PASSWORD" ]]; then
+  echo "config.json has no account/root password — re-run the installer" >&2
+  exit 1
+fi
+
+echo "=== Syntropia Install: Starting ==="
+echo "Target disk: $TARGET_DISK, User: $USERNAME, Host: $HOSTNAME, DE: $DESKTOP_ENV, Encrypt: $ENCRYPT_DISK, Keymap: $KEYMAP, Online: $ONLINE"
+
+set_phase "Partitioning target disk ($TARGET_DISK)" 50
+umount -R "$TARGET" 2>/dev/null || true
+swapoff -a 2>/dev/null || true
+cryptsetup close cryptroot 2>/dev/null || true
+
+# Partitioning: 1 MiB BIOS boot (type ef02, holds Limine's BIOS stage 2) +
+# 512M EFI System Partition (type ef00, mounted at /boot so Limine finds
+# limine.conf at the volume root) + Remaining for Btrfs / LUKS (type 8309).
+sgdisk -Z "$TARGET_DISK"
+sgdisk -n 1:0:+1M   -t 1:ef02 -c 1:"BIOS Boot" "$TARGET_DISK"
+sgdisk -n 2:0:+512M -t 2:ef00 -c 2:"EFI System Partition" "$TARGET_DISK"
+sgdisk -n 3:0:0     -t 3:8309 -c 3:"Syntropia Root" "$TARGET_DISK"
+
+partprobe "$TARGET_DISK"
+sleep 2
+
+# Resolve partition names (e.g. /dev/vda1 vs /dev/nvme0n1p1)
+if [[ "$TARGET_DISK" =~ [0-9]$ ]]; then
+  BIOS_PART="${TARGET_DISK}p1"
+  BOOT_PART="${TARGET_DISK}p2"
+  ROOT_PART="${TARGET_DISK}p3"
+else
+  BIOS_PART="${TARGET_DISK}1"
+  BOOT_PART="${TARGET_DISK}2"
+  ROOT_PART="${TARGET_DISK}3"
+fi
+
+if [[ "$ENCRYPT_DISK" == "true" ]]; then
+  set_phase "Setting up LUKS2 encryption ($ROOT_PART)" 100
+  # The disk passphrase is the account password, as the installer summary says:
+  # one secret to remember on a single-user machine.
+  printf '%s' "$USER_PASSWORD" | cryptsetup luksFormat --type luks2 --pbkdf argon2id --batch-mode "$ROOT_PART" -
+  printf '%s' "$USER_PASSWORD" | cryptsetup open "$ROOT_PART" cryptroot -
+  ROOT_DEV="/dev/mapper/cryptroot"
+else
+  ROOT_DEV="$ROOT_PART"
+fi
+
+set_phase "Formatting filesystems & Btrfs subvolumes" 150
+mkfs.fat -F32 -n "ESP" "$BOOT_PART"
+mkfs.btrfs -f -L "SYNTROPIA" "$ROOT_DEV"
+
+# Create Btrfs subvolumes
+mount "$ROOT_DEV" "$TARGET"
+btrfs subvolume create "$TARGET/@"
+btrfs subvolume create "$TARGET/@home"
+btrfs subvolume create "$TARGET/@log"
+btrfs subvolume create "$TARGET/@pkg"
+umount "$TARGET"
+
+set_phase "Mounting target filesystem hierarchy" 220
+mount -o noatime,compress=zstd,subvol=@ "$ROOT_DEV" "$TARGET"
+mkdir -p "$TARGET"/{boot,home,var/log,var/cache/pacman/pkg}
+mount -o noatime,compress=zstd,subvol=@home "$ROOT_DEV" "$TARGET/home"
+mount -o noatime,compress=zstd,subvol=@log "$ROOT_DEV" "$TARGET/var/log"
+mount -o noatime,compress=zstd,subvol=@pkg "$ROOT_DEV" "$TARGET/var/cache/pacman/pkg"
+mount "$BOOT_PART" "$TARGET/boot"
+
+set_phase "Copying Syntropia system image to disk" 350
+# Copy the live system directly to the target (excluding /boot/* since ESP is mounted there)
+rsync -aAX --exclude={"/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found","/boot/*"} / "$TARGET/"
+
+set_phase "Generating fstab and host identity" 680
+mkdir -p "$TARGET"/{dev,proc,sys,run,tmp}
+genfstab -U "$TARGET" > "$TARGET/etc/fstab"
+
+echo "$HOSTNAME" > "$TARGET/etc/hostname"
+cat > "$TARGET/etc/hosts" << HOSTSEOF
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   $HOSTNAME.localdomain $HOSTNAME
+HOSTSEOF
+
+echo "KEYMAP=$KEYMAP" > "$TARGET/etc/vconsole.conf"
+
+# Ensure numlock is enabled on boot in virtual consoles
+mkdir -p "$TARGET/etc/systemd/system/vconsole-setup.service.d"
+cat > "$TARGET/etc/systemd/system/vconsole-setup.service.d/numlock.conf" << 'NLCONF'
+[Service]
+ExecStartPost=/usr/bin/setleds -D +num
+NLCONF
+
+set_phase "Configuring user accounts & sudo" 750
+# Ensure necessary groups exist for desktop and autologin
+for grp in wheel video audio input storage power network rfkill sys users autologin nopasswdlogin; do
+  arch-chroot "$TARGET" groupadd -f "$grp" 2>/dev/null || true
+done
+
+# Clean up liveuser if a different user was requested
+if [[ "$USERNAME" != "liveuser" ]]; then
+  arch-chroot "$TARGET" userdel -r liveuser 2>/dev/null || true
+fi
+
+# Create target user with complete desktop and autologin groups
+if ! arch-chroot "$TARGET" id -u "$USERNAME" &>/dev/null; then
+  arch-chroot "$TARGET" useradd -m -u 1000 -G wheel,video,audio,input,storage,power,network,rfkill,sys,users,autologin,nopasswdlogin -s /bin/bash "$USERNAME" 2>/dev/null || \
+  arch-chroot "$TARGET" useradd -m -G wheel,video,audio,input,storage,power,network,rfkill,sys,users,autologin,nopasswdlogin -s /bin/bash "$USERNAME" 2>/dev/null || true
+else
+  arch-chroot "$TARGET" usermod -aG wheel,video,audio,input,storage,power,network,rfkill,sys,users,autologin,nopasswdlogin "$USERNAME" 2>/dev/null || true
+fi
+# Account and root passwords are collected separately by the installer (root
+# defaults to "same as the user"), so nothing is asked for at first boot.
+printf '%s:%s\n' "$USERNAME" "$USER_PASSWORD" | arch-chroot "$TARGET" chpasswd
+printf '%s:%s\n' "root" "$ROOT_PASSWORD" | arch-chroot "$TARGET" chpasswd
+mkdir -p "$TARGET/etc/sudoers.d"
+echo "%wheel ALL=(ALL:ALL) ALL" > "$TARGET/etc/sudoers.d/wheel"
+chmod 440 "$TARGET/etc/sudoers.d/wheel"
+
+set_phase "Configuring kernel & initramfs" 820
+mkdir -p "$TARGET/boot"
+
+# Clean up stray archiso presets that must not run on the installed system
+rm -f "$TARGET/etc/mkinitcpio.d/linux.preset"
+rm -f "$TARGET/etc/mkinitcpio.conf.d/archiso.conf"
+
+# Copy all available kernel images into /boot
+for moddir in "$TARGET"/usr/lib/modules/*; do
+  if [[ -f "$moddir/vmlinuz" ]]; then
+    kname=$(basename "$moddir")
+    if [[ "$kname" =~ "lts" ]]; then
+      cp -f "$moddir/vmlinuz" "$TARGET/boot/vmlinuz-linux-cachyos-lts"
+    else
+      cp -f "$moddir/vmlinuz" "$TARGET/boot/vmlinuz-linux-cachyos"
+    fi
+  fi
+done
+
+# Fallback: copy kernel from live boot media if not populated from modules
+if [[ ! -f "$TARGET/boot/vmlinuz-linux-cachyos" && -f /run/archiso/bootmnt/arch/boot/x86_64/vmlinuz-linux-cachyos ]]; then
+  cp -f /run/archiso/bootmnt/arch/boot/x86_64/vmlinuz-linux-cachyos "$TARGET/boot/vmlinuz-linux-cachyos"
+fi
+
+if [[ "$ENCRYPT_DISK" == "true" ]]; then
+  LUKS_UUID=$(blkid -s UUID -o value "$ROOT_PART")
+  # Use rd.luks.name so systemd-cryptsetup-generator activates the root partition as cryptroot
+  CMDLINE="rd.luks.name=$LUKS_UUID=cryptroot root=/dev/mapper/cryptroot rootflags=subvol=@ rw"
+  echo "cryptroot UUID=$LUKS_UUID none" > "$TARGET/etc/crypttab"
+  echo "cryptroot UUID=$LUKS_UUID none" > "$TARGET/etc/crypttab.initramfs"
+
+  # Explicitly replace active HOOKS= line (ignoring comments) with keyboard, sd-vconsole, block, sd-encrypt
+  sed -i '/^HOOKS=/c\HOOKS=(base systemd keyboard autodetect microcode modconf kms sd-vconsole block sd-encrypt filesystems fsck)' "$TARGET/etc/mkinitcpio.conf"
+  sed -i '/^MODULES=/c\MODULES=(btrfs dm_crypt dm_mod)' "$TARGET/etc/mkinitcpio.conf"
+else
+  ROOT_UUID=$(blkid -s UUID -o value "$ROOT_PART")
+  CMDLINE="root=UUID=$ROOT_UUID rootflags=subvol=@ rw"
+  sed -i '/^HOOKS=/c\HOOKS=(base systemd keyboard autodetect microcode modconf kms sd-vconsole block filesystems fsck)' "$TARGET/etc/mkinitcpio.conf"
+  sed -i '/^MODULES=/c\MODULES=(btrfs)' "$TARGET/etc/mkinitcpio.conf"
+fi
+
+# Generate initramfs for all installed kernels with encryption support
+echo "Generating initramfs images with mkinitcpio..."
+arch-chroot "$TARGET" mkinitcpio -P
+
+set_phase "Installing Limine bootloader" 850
+# Limine is the installed bootloader (NEXT_SESSION.md). Everything it reads
+# lives on the ESP, which is mounted at /boot: limine.conf at the volume
+# root, the kernels and the initramfs next to it. The live rootfs is rsynced
+# to the target, so limine's payloads are already at $TARGET/usr/share/limine.
+# An image built without them can only be repaired online — and silently
+# shipping a system that cannot boot is worse than stopping here.
+LIMINE_SRC="$(limine_tools_dir "$TARGET")" || LIMINE_SRC=""
+if [[ -z "$LIMINE_SRC" && "$ONLINE" == "true" ]]; then
+  echo "limine not in the image — installing it into the target..."
+  arch-chroot "$TARGET" pacman -Sy --noconfirm --needed limine || true
+  LIMINE_SRC="$(limine_tools_dir "$TARGET")" || LIMINE_SRC=""
+fi
+if [[ -z "$LIMINE_SRC" ]]; then
+  echo "Limine is missing from this image and there is no network to install it." >&2
+  echo "Rebuild the ISO (iso/build.sh ships the limine package) and reinstall." >&2
+  exit 1
+fi
+
+if [[ -f "$TARGET/boot/$LIMINE_LTS_KERNEL" && -f "$TARGET/boot/$LIMINE_LTS_INITRAMFS" ]]; then
+  LIMINE_HAS_LTS=1
+else
+  LIMINE_HAS_LTS=0
+fi
+limine_conf_write "$TARGET/boot" "$CMDLINE" "$LIMINE_HAS_LTS"
+
+BOOT_PART_NUM=$(echo "$BOOT_PART" | grep -o '[0-9]*$')
+BIOS_PART_NUM=$(echo "$BIOS_PART" | grep -o '[0-9]*$')
+
+# UEFI: copy BOOTX64.EFI to the ESP and register it in NVRAM.
+if ! limine_install_efi "$LIMINE_SRC" "$TARGET/boot" "$TARGET_DISK" "$BOOT_PART_NUM"; then
+  if [[ -d /sys/firmware/efi/efivars ]]; then
+    echo "Limine UEFI install failed on a UEFI machine — the system would not boot." >&2
+    exit 1
+  fi
+  echo "warning: Limine UEFI install skipped (BIOS machine)" >&2
+fi
+
+# BIOS: stage 1 in the MBR, stage 2 in the BIOS boot partition. On a UEFI
+# machine a failure here only costs hybrid/legacy boot, so it stays a warning.
+if ! limine_install_bios "$LIMINE_SRC" "$TARGET/boot" "$(limine_bin "$TARGET")" "$TARGET_DISK" "$BIOS_PART_NUM"; then
+  if [[ -d /sys/firmware/efi/efivars ]]; then
+    echo "warning: Limine BIOS install failed (UEFI machine — boots via EFI)" >&2
+  else
+    echo "Limine BIOS install failed on a BIOS machine — the system would not boot." >&2
+    exit 1
+  fi
+fi
+
+set_phase "Configuring Desktop ($DESKTOP_ENV) & Noctalia shell" 890
+SESSION_NAME="plasma.desktop"
+
+if [[ "$DESKTOP_ENV" == "hyprland" ]]; then
+  echo "Installing CachyOS Hyprland Noctalia suite..."
+  # hyprbars is AUR-only: build.sh compiles it into the ISO and the copy below
+  # carries it into the target — see install_hyprbars_plugin().
+  HYPR_PKGS="cachyos-hypr-noctalia noctalia alacritty kitty"
+  
+  # The suite is baked into the live image, so this fallback only exists for an
+  # image that lost it. Skip it entirely when the installer was told there is no
+  # internet: pacman -Sy on a dead link stalls the install for no benefit.
+  if [[ "$ONLINE" == "true" ]] \
+     && [[ ! -f "$TARGET/usr/share/wayland-sessions/hyprland-uwsm.desktop" && ! -f "$TARGET/usr/share/wayland-sessions/hyprland.desktop" && ! -f "$TARGET/usr/share/wayland-sessions/Hyprland.desktop" ]]; then
+    if [[ -f /etc/resolv.conf ]]; then
+      cp -L /etc/resolv.conf "$TARGET/etc/resolv.conf" 2>/dev/null || true
+    fi
+    arch-chroot "$TARGET" pacman -Sy --noconfirm --needed $HYPR_PKGS 2>&1 || true
+  fi
+
+  # Deploy Syntropia Hyprland Noctalia overlay to skel and user home
+  if [[ -d /etc/syntropia/profiles/hyprland ]]; then
+    mkdir -p "$TARGET/etc/skel/.config" "$TARGET/home/$USERNAME/.config"
+    if [[ -d /etc/syntropia/profiles/hyprland/.config ]]; then
+      cp -r /etc/syntropia/profiles/hyprland/.config/* "$TARGET/etc/skel/.config/" 2>/dev/null || true
+      cp -r /etc/syntropia/profiles/hyprland/.config/* "$TARGET/home/$USERNAME/.config/" 2>/dev/null || true
+    fi
+
+    # Copy helper scripts
+    if [[ -d /etc/syntropia/profiles/hyprland/bin ]]; then
+      mkdir -p "$TARGET/usr/local/bin"
+      cp -a /etc/syntropia/profiles/hyprland/bin/* "$TARGET/usr/local/bin/" 2>/dev/null || true
+      chmod +x "$TARGET/usr/local/bin"/syntropia-* 2>/dev/null || true
+    fi
+  fi
+
+  # Titlebar buttons (hyprbars) are compiled into the live ISO by build.sh
+  # phase 2. Carry the module into the target only when both sides run the same
+  # Hyprland release: the plugin bakes Hyprland's API hash in at compile time,
+  # so an online install that pulled a newer Hyprland must not get this copy.
+  live_hypr_ver=$(pacman -Q hyprland 2>/dev/null | awk '{print $2}') || true
+  target_hypr_ver=$(arch-chroot "$TARGET" pacman -Q hyprland 2>/dev/null | awk '{print $2}') || true
+  if [[ -f /usr/lib/hyprland/hyprbars.so && -n "$live_hypr_ver" && "$live_hypr_ver" == "$target_hypr_ver" ]]; then
+    install -Dm755 /usr/lib/hyprland/hyprbars.so "$TARGET/usr/lib/hyprland/hyprbars.so" 2>/dev/null || true
+  fi
+
+  # Fallback safety: verify that hyprland session actually exists on target (prefer hyprland-uwsm)
+  if [[ -f "$TARGET/usr/share/wayland-sessions/hyprland-uwsm.desktop" ]]; then
+    SESSION_NAME="hyprland-uwsm.desktop"
+  elif [[ -f "$TARGET/usr/share/wayland-sessions/hyprland.desktop" ]]; then
+    SESSION_NAME="hyprland.desktop"
+  elif [[ -f "$TARGET/usr/share/wayland-sessions/Hyprland.desktop" ]]; then
+    SESSION_NAME="Hyprland.desktop"
+  else
+    echo "Warning: hyprland session not found, falling back to plasma.desktop"
+    SESSION_NAME="plasma.desktop"
+  fi
+fi
+
+# Configure plasmalogin autologin configuration (both base and drop-in to override live image)
+mkdir -p "$TARGET/etc/plasmalogin.conf.d"
+cat > "$TARGET/etc/plasmalogin.conf" << PLASMACONF
+[Autologin]
+User=$USERNAME
+Session=$SESSION_NAME
+Relogin=false
+
+[Users]
+MinimumUid=100
+MaximumUid=60000
+PLASMACONF
+
+cat > "$TARGET/etc/plasmalogin.conf.d/autologin.conf" << PLASMACONF
+[Autologin]
+User=$USERNAME
+Session=$SESSION_NAME
+Relogin=false
+
+[Users]
+MinimumUid=100
+MaximumUid=60000
+PLASMACONF
+
+# Configure SDDM autologin configuration as well
+mkdir -p "$TARGET/etc/sddm.conf.d"
+cat > "$TARGET/etc/sddm.conf" << SDDMCONF
+[Autologin]
+User=$USERNAME
+Session=$SESSION_NAME
+Relogin=false
+SDDMCONF
+
+cat > "$TARGET/etc/sddm.conf.d/autologin.conf" << SDDMCONF
+[Autologin]
+User=$USERNAME
+Session=$SESSION_NAME
+Relogin=false
+SDDMCONF
+
+# Explicitly unmask and wire display-manager and graphical.target for installed system
+mkdir -p "$TARGET/etc/systemd/system"
+rm -f "$TARGET/etc/systemd/system/display-manager.service"
+rm -f "$TARGET/etc/systemd/system/plasmalogin.service"
+rm -f "$TARGET/etc/systemd/system/sddm.service"
+
+if [[ -f "$TARGET/usr/lib/systemd/system/plasmalogin.service" ]]; then
+  ln -sf /usr/lib/systemd/system/plasmalogin.service "$TARGET/etc/systemd/system/display-manager.service"
+  arch-chroot "$TARGET" systemctl enable plasmalogin.service 2>/dev/null || true
+elif [[ -f "$TARGET/usr/lib/systemd/system/sddm.service" ]]; then
+  ln -sf /usr/lib/systemd/system/sddm.service "$TARGET/etc/systemd/system/display-manager.service"
+  arch-chroot "$TARGET" systemctl enable sddm.service 2>/dev/null || true
+fi
+ln -sf /usr/lib/systemd/system/graphical.target "$TARGET/etc/systemd/system/default.target"
+arch-chroot "$TARGET" systemctl set-default graphical.target 2>/dev/null || true
+arch-chroot "$TARGET" chown -R "$USERNAME:$USERNAME" "/home/$USERNAME" 2>/dev/null || true
+
+set_phase "Applying Syntropia branding & identity" 950
+if [[ -f /etc/syntropia/hook-branding-users.sh ]]; then
+  bash /etc/syntropia/hook-branding-users.sh "$TARGET" 2>/dev/null || true
+fi
+
+# Enable Apps Wizard autostart on first desktop login
+mkdir -p "$TARGET/etc/xdg/autostart"
+if [[ -f /etc/syntropia/syntropia-apps.desktop ]]; then
+  cp /etc/syntropia/syntropia-apps.desktop "$TARGET/etc/xdg/autostart/"
+fi
+
+# Clean up live-only installer scripts and conflicting services from target system
+rm -rf "$TARGET/etc/systemd/system/getty@tty1.service.d"
+rm -f "$TARGET/etc/systemd/system/etc-pacman.d-gnupg.mount"
+rm -f "$TARGET/etc/systemd/system/livecd-alsa-unmuter.service"
+rm -f "$TARGET/etc/systemd/system/livecd-talk.service"
+rm -f "$TARGET/etc/systemd/system/pacman-init.service"
+rm -f "$TARGET/etc/systemd/system/multi-user.target.wants/livecd-talk.service"
+rm -f "$TARGET/etc/systemd/system/multi-user.target.wants/pacman-init.service"
+rm -f "$TARGET/etc/systemd/system/sound.target.wants/livecd-alsa-unmuter.service"
+rm -f "$TARGET/etc/profile.d/syntropia-live-installer.sh"
+rm -f "$TARGET/root/.automated_script.sh"
+rm -f "$TARGET/home/$USERNAME/Desktop/install-syntropia.desktop" "$TARGET/etc/skel/Desktop/install-syntropia.desktop"
+rm -f "$TARGET/home/$USERNAME/Desktop/cachyos-hello.desktop" "$TARGET/etc/skel/Desktop/cachyos-hello.desktop"
+rm -rf "$TARGET/etc/calamares"
+for f in "$TARGET/root/.bash_profile" "$TARGET/root/.bashrc" "$TARGET/etc/skel/.bash_profile" "$TARGET/etc/skel/.bashrc" "$TARGET/home/$USERNAME/.bash_profile" "$TARGET/home/$USERNAME/.bashrc"; do
+  if [[ -f "$f" ]]; then
+    sed -i '/syntropia-install/d' "$f"
+  fi
+done
+
+# Enable NetworkManager for installed system
+arch-chroot "$TARGET" systemctl enable NetworkManager.service 2>/dev/null || true
+
+set_phase "Syncing disk & finalizing" 980
+sync
+umount -R "$TARGET" 2>/dev/null || true
+if [[ "$ENCRYPT_DISK" == "true" ]]; then
+  cryptsetup close cryptroot 2>/dev/null || true
+fi
+
+set_finished
+echo "=== Syntropia Install: Successfully Finished ==="
+exit 0
