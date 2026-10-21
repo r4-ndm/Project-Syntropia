@@ -328,6 +328,18 @@ phase2_inject_slides() {
     unsquashfs -d rootfs arch/x86_64/airootfs.sfs
     ok "Rootfs unsquashed ($(du -sh rootfs | cut -f1))"
 
+    # Step 2.5: the stock image must already carry the current live package
+    # set. Phase 2 swaps files but cannot install packages, and the TUI runner
+    # needs limine's payloads in the live rootfs (it rsyncs them to the target,
+    # and aborts when they are absent). A stale stock ISO remasters perfectly
+    # and then cannot install anything, so stop here with the reason instead.
+    # Guard lives in iso/lib/verify-live-image.sh so it is testable on its own.
+    info "Verifying the stock image carries the current live package set..."
+    if ! "$SCRIPT_DIR/lib/verify-live-image.sh" "$remaster_dir/rootfs" "$input_iso"; then
+        err "Stale stock ISO — refusing to remaster an image that cannot install (see above)."
+    fi
+    ok "Stock image is current (limine package + payloads present)"
+
     # Step 3: Swap in our amended slides
     info "Injecting Syntropia slides..."
     local cal_dir="rootfs/usr/share/calamares/branding/cachyos"

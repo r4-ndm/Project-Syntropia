@@ -397,6 +397,28 @@ if [[ -f /etc/syntropia/hook-branding-users.sh ]]; then
   bash /etc/syntropia/hook-branding-users.sh "$TARGET" 2>/dev/null || true
 fi
 
+# --- Syntropia identity: os-release / lsb-release -------------------------
+# Calamares copies the generated identity in its syntropia_branding
+# shellprocess (iso/build.sh), but the TUI path shipped only the branding
+# assets: the installed system kept CachyOS' stock /etc/os-release, so
+# PRETTY_NAME ("CachyOS") disagreed with limine.conf's OS entry and
+# TARGET_OS_NAME ("CachyOS Syntropia"). Found in the 2026-10-21 VM test.
+# Copy the same two files Calamares writes, after the branding hook so nothing
+# overwrites them. The identity file is the single source of truth: build.sh
+# generates it from transform.py (OS_RELEASE_CONTENT).
+for identity_file in os-release lsb-release; do
+  identity_src="/usr/share/syntropia/branding/$identity_file"
+  if [[ -f "$identity_src" ]]; then
+    install -Dm644 "$identity_src" "$TARGET/etc/$identity_file"
+  else
+    echo "warning: $identity_src missing — /etc/$identity_file keeps the CachyOS identity" >&2
+  fi
+done
+if [[ -f "$TARGET/etc/os-release" ]]; then
+  echo "Identity: $(grep -m1 '^PRETTY_NAME=' "$TARGET/etc/os-release" || echo 'PRETTY_NAME unknown')"
+fi
+# --- end Syntropia identity -----------------------------------------------
+
 # Enable Apps Wizard autostart on first desktop login
 mkdir -p "$TARGET/etc/xdg/autostart"
 if [[ -f /etc/syntropia/syntropia-apps.desktop ]]; then
