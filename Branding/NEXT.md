@@ -15,7 +15,7 @@ branding end-to-end, and fastfetch shows the white triangle logo.
 | GRUB | ✅ vanilla CachyOS — the transform leaves it untouched |
 | `calamares/slides/slide1-6.png` + `.jxl` | ✅ amended (build.sh reads `slides/`) |
 | `wallpaper.png` (1920×1080) | ✅ shipped + installed by transform |
-| `plymouth/` boot animation (88-frame triangle swarm + 41 throbber) | ✅ triangle particle swarm generated + shipped |
+| `plymouth/` boot animation (88-frame triangle swarm) | ✅ triangle particle swarm generated + shipped |
 | `calamares/usr/.../icon.png, logo.png, welcome.png` | ⏳ present but not confirmed re-skinned |
 | Identity (os-release/lsb-release/hostname, limine sync) | ✅ shipped in ISO (build.sh + branding hook) |
 
@@ -23,15 +23,13 @@ branding end-to-end, and fastfetch shows the white triangle logo.
 The boot splash is now the Syntropia **triangle particle swarm** — an 88-frame
 full-screen animation mirroring CachyOS's `cachyos-bootanimation`: the triangle
 holds full, disperses into a particle scatter, vanishes, then re-forms. It
-ships in `Branding/syntropia/plymouth/` (88 `animation-*.png` + 41
-`throbber-*.png` + `syntropia.plymouth`).
+ships in `Branding/syntropia/plymouth/` (88 `animation-*.png` +
+`syntropia.plymouth`).
 
 Regenerate the frames from the triangle mark:
 
 ```bash
-python3 phase1/tools/generate_bootanimation.py \
-  --logo Branding/syntropia/menu-icon.png \
-  --out Branding/syntropia/plymouth
+python3 phase1/tools/generate_bootanimation.py
 ```
 
 - White particles on transparent (Plymouth composites over black), 300×300.
@@ -89,9 +87,7 @@ fastfetch
     cjxl --effort 7 -q 90 slides/slide$i.png slides/slide$i.jxl
   done
   ```
-- Loose PNGs at `Branding/` root — junk swept (19 deleted); the keepers
-  (`iuuu66mage8.png` — used in §1, `r4ndm6688-1.png`, `syntropia.png`,
-  `agent-brave-icon.png`, etc.) are source material for the art. Try to
-  keep the root tidy going forward.
+- Loose PNGs at `Branding/` root — all swept and cleaned up.
+  Assets live exclusively under `Branding/syntropia/`.
 - Agent rules live in `agent-rules/` — the transform-safety rule (snapshot
   first, `--check`, never touch a non-test system) applies to any real run.

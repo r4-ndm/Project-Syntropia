@@ -21,9 +21,11 @@ syntropia/
 │                              #   for when color placeholders return
 ├── plymouth/                  # whole boot-splash theme (copied as-is)
 │   ├── syntropia.plymouth    # theme descriptor (Name=Syntropia)
-│   ├── animation-00..87.png  # 88-frame triangle particle swarm — regenerable
-│   │                         #   via phase1/tools/generate_bootanimation.py
-│   └── throbber-00..40.png   # 41 boot-progress frames
+│   └── animation-00..87.png  # 88-frame triangle particle swarm — regenerable
+│                             #   via phase1/tools/generate_bootanimation.py
+├── splash/                    # KSplash login theme (org.syntropia.desktop)
+│   ├── Splash.qml            # pure triangle mark animation
+│   └── images/logo.png       # Syntropia triangle logo
 ├── calamares/                # installer branding (for the ISO builder)
 │   ├── slides/               # SINGLE source of truth for slides (amended ✓)
 │   │   └── slide1-6.png + .jxl  # the show.qml slideshow uses 6 slides
@@ -74,7 +76,7 @@ syntropia/
   into the fastfetch config automatically.
 - **Boot animation frames**: don't hand-edit — regenerate the 88-frame triangle
   swarm with
-  `python3 phase1/tools/generate_bootanimation.py --logo Branding/syntropia/menu-icon.png`
+  `python3 phase1/tools/generate_bootanimation.py`
   (defaults write straight into `plymouth/`).
 - **JXL slides**: GIMP can't open JXL — edit the PNG in `calamares/slides/`,
   then regenerate with the canonical libjxl encoder (better fidelity than
