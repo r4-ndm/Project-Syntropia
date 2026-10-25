@@ -171,21 +171,23 @@ def test_os_release_backup_and_idempotent(tmp_path: Path, monkeypatch: pytest.Mo
     transform = T.Transform(paths, dry_run=False)
     transform.apply_os_release()
     transform.apply_os_release()
-    assert "ID=syntropia" in paths.os_release.read_text(encoding="utf-8")
+    assert "VARIANT_ID=syntropia" in paths.os_release.read_text(encoding="utf-8")
     backup = paths.os_release.with_name("os-release.syntropia.bak")
     assert backup.exists()
     assert "CachyOS" in backup.read_text(encoding="utf-8")
 
 
 def test_os_release_identity_contract():
-    # Syntropia is a CachyOS re-skin (Mint→Ubuntu model): the name reads
-    # Syntropia, but the cachyos lineage must stay discoverable via ID_LIKE
-    # so cachyos tooling keeps recognising the base. This is the identity
-    # contract — changing any of these should be a deliberate decision.
-    assert "ID=syntropia\n" in T.OS_RELEASE_CONTENT
-    assert 'ID_LIKE="arch cachyos"\n' in T.OS_RELEASE_CONTENT
+    # Syntropia is a CachyOS derivative (Mint→Ubuntu model): keep ID=cachyos
+    # so CachyOS tooling (kernel-manager, hello, settings) keeps working.
+    # VARIANT_ID=syntropia is the freedesktop-standard way for a derivative
+    # to declare itself (Fedora Silverblue uses ID=fedora + VARIANT_ID=silverblue).
+    assert "ID=cachyos\n" in T.OS_RELEASE_CONTENT
+    assert "VARIANT_ID=syntropia\n" in T.OS_RELEASE_CONTENT
+    assert 'VARIANT="Syntropia"\n' in T.OS_RELEASE_CONTENT
     assert 'NAME="Syntropia"\n' in T.OS_RELEASE_CONTENT
-    assert 'PRETTY_NAME="Syntropia OS"\n' in T.OS_RELEASE_CONTENT
+    assert 'PRETTY_NAME="CachyOS Syntropia"\n' in T.OS_RELEASE_CONTENT
+    assert 'ID_LIKE="arch"\n' in T.OS_RELEASE_CONTENT
 
 
 def test_pipewire_config_written(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):

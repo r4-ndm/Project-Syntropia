@@ -86,7 +86,7 @@ package() {
         chmod -R 755 "$_branding/plymouth"
     fi
 
-    # splash/ (KSplash theme: triangle mark -> Plasma logo -> boot)
+    # splash/ (KSplash theme: pure triangle mark)
     if [[ -d "$_repo/Branding/syntropia/splash" ]]; then
         cp -r "$_repo/Branding/syntropia/splash" "$_branding/splash"
         chmod -R 755 "$_branding/splash"

@@ -2,65 +2,57 @@
 #
 # One app per line. Format (pipe-separated):
 #   category|display name|package|short description
-#
-# - category: the wizard shows one grouped dialog with a section per
-#   category, in file order (Syntropia → Chat → Browser → DAW → Audio → AI →
-#   Terminal → CLI → Video → Graphics → Wallet)
-#
-# CLI apps work exactly like any other package line — paru installs them;
-# no launcher or GUI needed (e.g. Freebuff is a CLI app and lives under AI).
-# - display name: shown in the dialog; must be unique
-# - package:
-#     * a pacman repo OR AUR package name — installed via paru, OR
-#     * an https:// URL — a WEB APP: the wizard creates a launcher that
-#       opens the site in its own dedicated window (like a PWA)
-# - description: informational (not shown in the dialog)
-#
-# Lines starting with # are comments. To add your own app, copy this file
-# to ~/.config/syntropia/apps.list and edit it there — the wizard prefers
-# the user copy over the system one. New category = just use a new category
-# name on the line.
-#
-# Rule of thumb: prefer official-repo packages (instant) and binary / .deb
-# repackage AUR packages (fast); source-compiling AUR packages work but slow
-# the wizard down. Use web apps (URL) for services without a good native
-# client (WhatsApp, YouTube Music, Notion…).
-#
-# Notes on picks (verified against the repos/AUR):
-# - Firefox ships with CachyOS by default, so the browser slot offers Brave
-#   (AUR -bin) instead; LibreWolf left the AUR.
-# - Reaper is in the official extra repo since 7.x; Bitwig is AUR (.deb
-#   repackage). Both are native Linux DAWs.
-# - Ollama (official repo) powers local LLMs for the AI agents.
 
-# Syntropia's own packages — opt in to the tooling and, optionally, the
-# Windows-app helper. `syntropia-cli` is a dependency of both and is pulled
-# automatically, so it isn't listed. Deselect Brews for a no-Wine Syntropia.
-# NOTE: these resolve via paru from the AUR — they must be published there
-# (release tarballs + .SRCINFO) before paru can install them.
-Syntropia|Syntropia|syntropia|Rebrand tooling — syntropia transform + update
 Syntropia|Syntropia Brews|syntropia-brews|Install Windows DAWs and VSTs via Wine + yabridge
 
 Chat|Telegram|telegram-desktop|Messaging app
 Chat|Discord|discord|Voice, video and text chat
+Chat|Element|element-desktop|End-to-end encrypted Matrix chat
+Chat|Keet|keet-bin|P2P encrypted messaging application
+
 Browser|Brave|brave-bin|Ad-blocking Chromium browser
+Browser|Chromium|chromium|Open-source web browser
+Browser|Grayjay|grayjay-bin|Multi-platform decentralized video client
+
 DAW|Bitwig Studio|bitwig-studio|Digital audio workstation
 DAW|Reaper|reaper|Digital audio workstation (native Linux)
 Audio|Audacity|audacity|Audio editor (record, edit, mix)
+Audio|Ocenaudio|ocenaudio|Fast, intuitive audio editor
+
+AI|Antigravity|antigravity|Google Antigravity multi-agent coding IDE
+AI|Cursor|cursor-bin|AI-first code editor
+AI|Claude Code|claude-code|Agentic coding tool for the terminal
+AI|Hermes Agent|hermes-agent|Locally-run autonomous AI agent
 AI|Kiro IDE|kiro-ide|Agentic AI code editor
+AI|Ollama|ollama|Run local LLMs from terminal / API
 AI|Freebuff|freebuff-bin|AI coding agent for the terminal
-AI|Ollama|ollama|Run local LLMs
+
+Terminal|Ghostty|ghostty|Fast, native GPU-accelerated terminal
+Terminal|Warp|warp-terminal-bin|Fast Rust-based terminal with AI built-in
 Terminal|Wezterm|wezterm|GPU-accelerated terminal emulator
+Terminal|Micro|micro|Intuitive terminal text editor
+
 CLI|ripgrep|ripgrep|Blazingly fast grep
 CLI|fzf|fzf|Fuzzy finder for the shell
 CLI|zoxide|zoxide|Smarter cd
 CLI|eza|eza|Modern ls replacement
 CLI|bat|bat|cat with syntax highlighting
-CLI|yazi|yazi|Terminal file manager
+CLI|yazi|yazi|Terminal file manager with image previews
 CLI|btop|btop|System monitor
 CLI|tmux|tmux|Terminal multiplexer
+
 Video|mpv|mpv|Minimal video player
+Video|VLC|vlc|Versatile multimedia player
 Video|OBS Studio|obs-studio|Screen recording and streaming
+Video|Video Downloader|video-downloader|GUI video/audio downloader
+
 Graphics|GIMP|gimp|Raster graphics editor (Photoshop alternative)
+Graphics|Flameshot|flameshot|Screenshot and annotation tool
+
+Privacy|Mysterium VPN|mysterium-vpn-desktop-bin|Decentralized P2P VPN client
+Privacy|QRedshift|qredshift|Screen color temperature & blue light filter
+Privacy|Pass|pass|Standard Unix password manager
+Privacy|qBittorrent|qbittorrent|BitTorrent client
+
 Wallet|Electrum|electrum|Bitcoin wallet
 Wallet|ZKX Wallet|https://app.zkxwallet.com/#/unlock|Web wallet (requires Brave browser)

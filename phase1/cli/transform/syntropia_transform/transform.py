@@ -45,12 +45,17 @@ BRANDING_DIR = "/usr/share/syntropia/branding"
 
 OS_RELEASE_CONTENT = (
     'NAME="Syntropia"\n'
-    'PRETTY_NAME="Syntropia OS"\n'
-    "ID=syntropia\n"
-    # Syntropia is a CachyOS re-skin today (Mint→Ubuntu model): keep the
-    # cachyos lineage so tooling that checks ID_LIKE still recognises it.
-    # When we become a proper fork with our own repos, this may change.
-    'ID_LIKE="arch cachyos"\n'
+    'PRETTY_NAME="CachyOS Syntropia"\n'
+    # Syntropia is a CachyOS re-skin (Mint→Ubuntu model).  Keep ID=cachyos
+    # so CachyOS-specific tooling (cachyos-kernel-manager, cachyos-hello,
+    # cachyos-settings) keeps recognising the base system.  VARIANT_ID is
+    # the freedesktop-standard way for a derivative to declare itself —
+    # exactly how Fedora Silverblue uses ID=fedora + VARIANT_ID=silverblue.
+    # When we become a proper fork with our own repos, ID may change.
+    "ID=cachyos\n"
+    'ID_LIKE="arch"\n'
+    'VARIANT="Syntropia"\n'
+    "VARIANT_ID=syntropia\n"
     "BUILD_ID=rolling\n"
     'ANSI_COLOR="38;2;255;0;0"\n'
     'HOME_URL="https://github.com/r4-ndm/Project-Syntropia"\n'
@@ -311,7 +316,7 @@ class Transform:
 
     def apply_os_release(self) -> None:
         path = self.paths.os_release
-        if path.exists() and "ID=syntropia" in path.read_text(encoding="utf-8"):
+        if path.exists() and "VARIANT_ID=syntropia" in path.read_text(encoding="utf-8"):
             self.log("os-release", "already branded, skipping")
             return
         self._would("os-release", f"write {path} (original backed up)")
