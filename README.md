@@ -5,11 +5,12 @@
 ## 🧬 Identity
 
 Syntropia is a **CachyOS re-skin** today — the same relationship Linux Mint has
-to Ubuntu. It keeps CachyOS as the base system (`ID=syntropia`,
-`ID_LIKE="arch cachyos"`), pulls packages from the cachyos repos, and layers
-Syntropia branding, the apps wizard, and the audio stack on top. The long-term
-goal is a full fork with our own repos; until then, updates and the package
-base stay CachyOS.
+to Ubuntu. It keeps CachyOS as the base system (`ID=cachyos`,
+`VARIANT_ID=syntropia`, `PRETTY_NAME="CachyOS Syntropia"`), pulls packages from
+the cachyos repos, and layers Syntropia branding, the apps wizard, and the audio
+stack on top. The `VARIANT_ID` pattern follows the freedesktop standard for
+derivative distros (same as Fedora Silverblue). The long-term goal is a full
+fork with our own repos; until then, updates and the package base stay CachyOS.
 
 Syntropia targets CachyOS's **KDE Plasma** edition: the desktop branding
 (start-menu icon, KSplash, SDDM autologin) is Plasma-only, while the boot

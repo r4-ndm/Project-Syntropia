@@ -20,7 +20,7 @@
 #   * `FORCE=1` skips the CachyOS distribution check.
 #
 # Env overrides:
-#   SYNTROPIA_SRC      where to clone/expect the repo  (default ~/syntropia)
+#   SYNTROPIA_SRC      where to clone/expect the repo  (default script dir or ~/syntropia)
 #   SYNTROPIA_REPO_URL git URL to clone                 (default the GitHub repo)
 #   SYNTROPIA_BRANCH   branch to clone                  (default main)
 #   SYNTROPIA_YES=1    skip confirmation
@@ -30,7 +30,10 @@ set -euo pipefail
 
 REPO_URL="${SYNTROPIA_REPO_URL:-https://github.com/r4-ndm/Project-Syntropia}"
 BRANCH="${SYNTROPIA_BRANCH:-main}"
-SRC="${SYNTROPIA_SRC:-$HOME/syntropia}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+DEFAULT_SRC="$HOME/syntropia"
+[[ -f "$SCRIPT_DIR/phase1/cli/pyproject.toml" ]] && DEFAULT_SRC="$SCRIPT_DIR"
+SRC="${SYNTROPIA_SRC:-$DEFAULT_SRC}"
 MODE="${1:---install}"   # --check | --install
 
 P="\033[1;36m[syntropia]\033[0m"
@@ -42,9 +45,9 @@ need() { command -v "$1" >/dev/null 2>&1; }
 # -- 1. distribution guard ----------------------------------------------
 if [[ "${FORCE:-0}" != "1" ]]; then
     # Accept a plain CachyOS box or one already branded by a previous
-    # transform (which rewrites /etc/os-release to ID=syntropia).
+    # transform (ID=syntropia or VARIANT_ID=syntropia).
     if [[ ! -f /etc/os-release ]] \
-        || ! grep -qE '^ID=(cachyos|syntropia)' /etc/os-release; then
+        || ! grep -qE '^(ID=(cachyos|syntropia)|VARIANT_ID=syntropia)' /etc/os-release; then
         die "this looks like it is not CachyOS — transform targets CachyOS. Re-run with FORCE=1 to override (at your own risk)."
     fi
     say "CachyOS/Syntropia detected ✓"
@@ -97,22 +100,23 @@ fi
 
 # -- 4. venv + install ----------------------------------------------------
 VENV="$SRC/.venv"
-if [[ ! -x "$VENV/bin/syntropia" ]]; then
+if [[ ! -x "$VENV/bin/syntropia" ]] \
+    || ! "$VENV/bin/python" -c 'import syntropia, syntropia_brews, syntropia_transform' 2>/dev/null; then
     say "building venv"
-    if [[ "${MODE}" == "--check" ]]; then
-        say "[--check] would create $VENV and pip install -e the three packages under $SRC/phase1/cli"
-    else
+    if [[ ! -d "$VENV" ]]; then
         python3 -m venv "$VENV"
         "$VENV/bin/pip" install --quiet --upgrade pip
-        # Install all three packages: the core (cli/), the brew engine
-        # (cli/brews/), and the rebrand (cli/transform/) — each is its own
-        # distribution with its own pyproject.toml.
-        "$VENV/bin/pip" install --quiet -e "$SRC/phase1/cli" \
-            -e "$SRC/phase1/cli/brews" \
-            -e "$SRC/phase1/cli/transform"
     fi
+    # Install all three packages: the core (cli/), the brew engine
+    # (cli/brews/), and the rebrand (cli/transform/) — each is its own
+    # distribution with its own pyproject.toml.
+    "$VENV/bin/pip" install --quiet -e "$SRC/phase1/cli" \
+        -e "$SRC/phase1/cli/brews" \
+        -e "$SRC/phase1/cli/transform"
 fi
-[[ -x "$VENV/bin/syntropia" ]] || die "venv build did not produce syntropia — run the installer without --check first, then re-run with --check for the plan"
+[[ -x "$VENV/bin/syntropia" ]] \
+    && "$VENV/bin/python" -c 'import syntropia, syntropia_brews, syntropia_transform' 2>/dev/null \
+    || die "venv build did not produce syntropia with all three packages (cli, brews, transform)"
 
 BRANDING="$SRC/Branding/syntropia"
 

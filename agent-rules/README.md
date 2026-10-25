@@ -7,9 +7,16 @@
 These rules are binding. They exist so the swarm makes consistent decisions without asking
 the Final Boss the same questions twice. 😈
 
+## Mission
+
+The mission and current project status live in **[`NEXT_SESSION.md`](../NEXT_SESSION.md)** —
+read it FIRST, before any task. It is the single source of truth for what
+Syntropia is, what works, and what's next. Update it in the same commit as any
+status-changing work.
+
 ## Protocol
 
-1. **Read all** `.md` files in this folder before the first task of a session.
+1. **Read `NEXT_SESSION.md`** (mission + status), then **all** `.md` files in this folder before the first task of a session.
 2. **Apply them** to every task, even small ones. When a rule applies, cite it.
 3. **Ambiguity** → ask the Final Boss (L5). Never guess when a rule could be interpreted two ways.
 4. **Precedence:** explicit Final Boss instructions > these rules > habit. The Final Boss can override anything, but expect a follow-up question about why.
