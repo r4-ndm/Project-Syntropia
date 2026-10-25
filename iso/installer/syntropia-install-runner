@@ -283,6 +283,13 @@ fi
 limine_conf_write "$TARGET/boot" "$CMDLINE" "$LIMINE_HAS_LTS" \
   "/usr/share/syntropia/branding/wallpaper.png"
 
+# The live medium boots with `module_blacklist=nvidia,...` on its default entry
+# (pre-Turing cards have no nvidia-open support). Carry that decision onto the
+# target: limine.conf cmdline, /etc/default/limine (snapshot entries are
+# regenerated from it) and modprobe.d. No-op when the live cmdline did not
+# blacklist nvidia — an NVIDIA-Open boot must keep the open module.
+syntropia_blacklist_propagate "$TARGET"
+
 BOOT_PART_NUM=$(echo "$BOOT_PART" | grep -o '[0-9]*$')
 BIOS_PART_NUM=$(echo "$BIOS_PART" | grep -o '[0-9]*$')
 

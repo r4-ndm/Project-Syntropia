@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# syntropia-app-wiz4rd — First-boot / pending apps wizard launcher
+#
+# Ensures app-wiz4rd runs inside a visible, floating terminal window.
+# Gated to installed systems only (never live ISO / liveuser).
+# Idempotent: exits cleanly when complete, re-fires while apps are pending.
+# ==============================================================================
+set -euo pipefail
+
+# Gate: never run on live ISO or for liveuser
+if [[ "${USER:-}" == "liveuser" || -d /run/archiso ]]; then
+    exit 0
+fi
+
+# Locate the app-wiz4rd executable
+WIZARD_BIN=""
+for candidate in \
+    "/etc/syntropia/app-wiz4rd" \
+    "/usr/local/bin/app-wiz4rd" \
+    "/usr/bin/app-wiz4rd"; do
+    if [[ -x "$candidate" ]]; then
+        WIZARD_BIN="$candidate"
+        break
+    fi
+done
+
+if [[ -z "$WIZARD_BIN" ]]; then
+    if command -v app-wiz4rd >/dev/null 2>&1; then
+        WIZARD_BIN="$(command -v app-wiz4rd)"
+    else
+        exit 0
+    fi
+fi
+
+# Idempotency & pending queue check:
+# app-wiz4rd writes DONE_MARKER (~/.config/syntropia/apps-wizard.done) on full completion.
+# If DONE_MARKER exists and PENDING_FILE (~/.config/syntropia/apps-wizard.pending)
+# does not exist or has 0 entries, wizard is done — exit silently without opening a window.
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+DONE_MARKER="$CONFIG_HOME/syntropia/apps-wizard.done"
+PENDING_FILE="$CONFIG_HOME/syntropia/apps-wizard.pending"
+
+if [[ -f "$DONE_MARKER" ]]; then
+    if [[ ! -f "$PENDING_FILE" ]] || ! grep -q '[^[:space:]]' "$PENDING_FILE" 2>/dev/null; then
+        exit 0
+    fi
+fi
+
+# Prevent multiple concurrent instances from opening duplicate windows
+LOCK_DIR="${XDG_RUNTIME_DIR:-/tmp}/syntropia-app-wiz4rd.lock"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    exit 0
+fi
+trap 'rm -rf "$LOCK_DIR"' EXIT
+
+# Detect preferred terminal emulator
+# CachyOS Hyprland ships kitty and alacritty; Plasma ships konsole.
+TERM_BIN=""
+if [[ -n "${TERMINAL:-}" ]] && command -v "$TERMINAL" >/dev/null 2>&1; then
+    TERM_BIN="$TERMINAL"
+else
+    for t in kitty alacritty konsole foot ghostty wezterm xfce4-terminal gnome-terminal xterm; do
+        if command -v "$t" >/dev/null 2>&1; then
+            TERM_BIN="$t"
+            break
+        fi
+    done
+fi
+
+if [[ -z "$TERM_BIN" ]]; then
+    exit 1
+fi
+
+# Build terminal launch command.
+# Use --class floating_terminal so Hyprland window rules float and center it at 840x640.
+WIZARD_ARGS=("${@:---once}")
+
+case "$TERM_BIN" in
+    kitty)
+        TERM_CMD=(kitty --class floating_terminal --title "Syntropia App Wizard" -e "$WIZARD_BIN" "${WIZARD_ARGS[@]}")
+        ;;
+    alacritty)
+        TERM_CMD=(alacritty --class floating_terminal -T "Syntropia App Wizard" -e "$WIZARD_BIN" "${WIZARD_ARGS[@]}")
+        ;;
+    konsole)
+        TERM_CMD=(konsole --class floating_terminal -p tabtitle="Syntropia App Wizard" -e "$WIZARD_BIN" "${WIZARD_ARGS[@]}")
+        ;;
+    foot)
+        TERM_CMD=(foot --app-id=floating_terminal --title="Syntropia App Wizard" "$WIZARD_BIN" "${WIZARD_ARGS[@]}")
+        ;;
+    ghostty)
+        TERM_CMD=(ghostty --class=floating_terminal --title="Syntropia App Wizard" -e "$WIZARD_BIN" "${WIZARD_ARGS[@]}")
+        ;;
+    *)
+        TERM_CMD=("$TERM_BIN" -e "$WIZARD_BIN" "${WIZARD_ARGS[@]}")
+        ;;
+esac
+
+# Launch via uwsm if running under a Wayland session managed by uwsm,
+# with fallback to direct exec.
+if command -v uwsm >/dev/null 2>&1 && [[ -n "${WAYLAND_DISPLAY:-}" || -n "${UWSM_WAIT_VARNAMES:-}" ]]; then
+    uwsm app -- "${TERM_CMD[@]}" 2>/dev/null || exec "${TERM_CMD[@]}"
+else
+    exec "${TERM_CMD[@]}"
+fi

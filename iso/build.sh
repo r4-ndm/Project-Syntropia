@@ -83,6 +83,24 @@ warn()  { echo -e "${RED}[WARN]${NC} $*"; }
 err()   { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 die()   { err "$@"; }
 
+# Detach kernel mounts that a killed run can leave inside the unsquashed
+# rootfs. Two reasons this is not optional:
+#   * mksquashfs would swallow the HOST's /proc and /sys into the shipped
+#     squashfs (a live image with the builder's process table), and
+#   * the `rm -rf rootfs` cleanup would then try to delete through them.
+# Lazy unmount (`umount -l`) is the only form that works for a mount still in
+# use, and it is a no-op when nothing is mounted there. Order matters:
+# efivars lives under sys, so it has to go first.
+lazy_umount_rootfs() {
+    local rootfs="$1" mountpoint
+    for mountpoint in sys/firmware/efi/efivars sys proc dev run; do
+        if mountpoint -q "$rootfs/$mountpoint" 2>/dev/null; then
+            umount -l "$rootfs/$mountpoint" 2>/dev/null \
+                || warn "Could not lazily unmount $rootfs/$mountpoint"
+        fi
+    done
+}
+
 # ── Pre-flight checks ─────────────────────────────────────────
 check_root() {
     if [[ $EUID -ne 0 ]]; then
@@ -1182,6 +1200,25 @@ PYEOF
     rm -f rootfs/etc/xdg/autostart/cachyos-hello.desktop
     ok "Live desktop icons removed; multi-OS chooser removed; cachyos-hello disabled"
 
+    # Step 3.94: Patch the live image's DRM module awaiter generator.
+    # CachyOS's generator (shipped by the live image) cannot see a
+    # `module_blacklist=` on the kernel command line, so on the default entry —
+    # which blacklists the nvidia modules — it still puts nvidia_drm in the DRM
+    # target and the target times out without a display (pre-Turing cards have
+    # no nvidia-open support at all). iso/lib/drm-module-awaiter-generator is
+    # that generator patched to honour the cmdline blacklist, force nouveau when
+    # nvidia is blacklisted, detect pre-Turing GPUs via sysfs, and generate no
+    # target at all under `nomodeset`. It was an untracked leftover of the lost
+    # boot fix; shipping it from here is what makes it part of the build.
+    local awaiter_src="$SCRIPT_DIR/lib/drm-module-awaiter-generator"
+    local awaiter_dst="rootfs/usr/lib/systemd/system-generators/drm-module-awaiter-generator"
+    if [[ -f "$awaiter_src" ]]; then
+        install -Dm755 "$awaiter_src" "$awaiter_dst"
+        ok "DRM module awaiter patched (cmdline blacklist + nomodeset aware)"
+    else
+        warn "iso/lib/drm-module-awaiter-generator missing — live NVIDIA fallback stays stock"
+    fi
+
     # Step 3.95: Optimize ISO bootloader (faster boot, lower timeout, Syntropia title, direct multi-user)
     info "Patching ISO bootloader configurations..."
     if [[ -f "boot/grub/grub.cfg" ]]; then
@@ -1194,7 +1231,17 @@ PYEOF
         if [[ -n "${orig_uuid:-}" ]]; then
             sed -i -E "s/archisosearchuuid=[^ ]+/archisosearchuuid=$orig_uuid/g" "boot/grub/grub.cfg"
         fi
-        ok "ISO GRUB configuration optimized (timeout 2s, direct multi-user, UUID synced)"
+        # Kernel arguments + the NVIDIA-Open entry. Done in one pass in
+        # iso/lib/iso-boot-config.py because it is structural (entry blocks),
+        # not line-oriented: the default entry gets the full nvidia blacklist
+        # (pre-Turing cards have no nvidia-open support and hang without a
+        # DRM device), the LTS entry mirrors it, the Turing+ entry drops it,
+        # and `nomodeset` stays exactly as shipped. The same pass normalises
+        # any `}}` menuentry closer — the USB-boot bug, which
+        # grub-script-check does NOT report.
+        "$SCRIPT_DIR/lib/iso-boot-config.py" patch-grub boot/grub/grub.cfg \
+            || err "Could not patch boot/grub/grub.cfg (GRUB kernel args + NVIDIA entry)"
+        ok "ISO GRUB configuration optimized (timeout 2s, direct multi-user, UUID synced, NVIDIA entries)"
     fi
     if [[ -f "boot/syslinux/archiso_sys.cfg" ]]; then
         sed -i 's/TIMEOUT 150/TIMEOUT 30/' "boot/syslinux/archiso_sys.cfg"
@@ -1215,16 +1262,53 @@ PYEOF
     done
     ok "ISO Syslinux rebranded to Syntropia"
 
+    # BIOS path: the same entries as GRUB, in the menu archiso_sys.cfg
+    # includes (archiso_sys-linux.cfg holds the LABEL blocks). Runs after the
+    # rebranding loop above so the derived NVIDIA entry inherits the Syntropia
+    # labels, UUID and multi-user target.
+    if [[ -f "boot/syslinux/archiso_sys-linux.cfg" ]]; then
+        "$SCRIPT_DIR/lib/iso-boot-config.py" patch-syslinux boot/syslinux/archiso_sys-linux.cfg \
+            || err "Could not patch boot/syslinux/archiso_sys-linux.cfg (BIOS kernel args + NVIDIA entry)"
+        ok "BIOS (syslinux) entries patched (same NVIDIA blacklist as GRUB)"
+    else
+        warn "boot/syslinux/archiso_sys-linux.cfg missing — BIOS menu not patched"
+    fi
+
+    # Guard: the boot configs about to be packed must be valid. `grub-script-check`
+    # is NOT enough — it accepts the `}}` closers that broke every USB boot
+    # (2026-10-24), so the check below looks for exactly that shape and for a
+    # menuentry that never closes, and names the file and line.
+    info "Validating bootloader configuration syntax..."
+    "$SCRIPT_DIR/lib/iso-boot-config.py" check boot \
+        || err "Invalid bootloader configuration — refusing to build an unbootable ISO (see the file:line above)"
+    ok "Boot configs validated (single-brace menuentry closers, no doubled-brace lines)"
+
     # Step 4: Repack squashfs with zstd (9x faster page decompression than xz)
     info "Repacking squashfs with zstd (high decompression throughput)..."
     rm -f arch/x86_64/airootfs.sfs
+    # A killed run leaves the chroot mounts behind; repacking over them would
+    # pull the host's /proc and /sys into the image (~100 MB of nonsense and an
+    # unbootable live system). Drop them before the pack AND before any cleanup
+    # that ever touches the rootfs.
+    lazy_umount_rootfs rootfs
     local nproc_limit
     nproc_limit="$(nproc 2>/dev/null || echo 4)"
     nproc_limit=$(( nproc_limit > 4 ? 4 : nproc_limit ))
+    # zstd level 15, not 19: -19 costs ~45-70 min of the build on the 16 GB /
+    # 4-core box for a compression gain that live boot never notices (boot time
+    # is dominated by single-threaded kernel page decompression, which is the
+    # same at both levels). The excludes keep the kernel filesystems out of the
+    # pack even if a mount survives the lazy unmount.
     mksquashfs rootfs/ arch/x86_64/airootfs.sfs \
-        -comp zstd -Xcompression-level 19 -b 1M -noappend \
-        -processors "$nproc_limit" -mem 4G
+        -comp zstd -Xcompression-level 15 -b 1M -noappend \
+        -processors "$nproc_limit" -mem 4G \
+        -e proc sys dev run
     ok "Squashfs repacked ($(du -sh arch/x86_64/airootfs.sfs | cut -f1))"
+
+    # Step 4.5: Kernel mounts can reappear between the pack and the cleanup
+    # (a failed mksquashfs leaves the tree mounted); unmount again so the
+    # `rm -rf` below deletes the rootfs, not the host's /proc and /sys.
+    lazy_umount_rootfs rootfs
 
     # Step 5: Update checksum
     cd arch/x86_64
@@ -1235,6 +1319,7 @@ PYEOF
     # Step 5.5: Remove the unsquashed rootfs to keep ISO size reasonable
     # (the remaster dir becomes the ISO root; we only need the packaged sfs)
     info "Cleaning up unsquashed rootfs..."
+    lazy_umount_rootfs rootfs
     rm -rf rootfs
     ok "Cleaned rootfs ($(du -sh . | cut -f1) remaining)"
 

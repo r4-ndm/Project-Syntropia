@@ -37,6 +37,13 @@ LIMINE_LTS_INITRAMFS="${LIMINE_LTS_INITRAMFS:-initramfs-linux-cachyos-lts.img}"
 # Overridable so tests can exercise both firmware paths on any host.
 LIMINE_EFIVARS_DIR="${LIMINE_EFIVARS_DIR:-/sys/firmware/efi/efivars}"
 
+# Kernel-arg propagation (see syntropia_blacklist_propagate below). Paths are
+# relative to the target root so the Calamares hook (`ROOT` = target mount
+# point) and the TUI runner (`TARGET` = /mnt) can share the same functions.
+SYNTROPIA_LIVE_CMDLINE="${SYNTROPIA_LIVE_CMDLINE:-/proc/cmdline}"
+SYNTROPIA_BLACKLIST_FILE="${SYNTROPIA_BLACKLIST_FILE:-etc/modprobe.d/50-syntropia-nvidia-blacklist.conf}"
+SYNTROPIA_DEFAULT_LIMINE="${SYNTROPIA_DEFAULT_LIMINE:-etc/default/limine}"
+
 # limine_conf_write <boot-dir> <kernel-cmdline> [lts 0|1] [splash-src]
 #
 # Writes <boot-dir>/limine.conf. `path:` / `module_path:` are relative to
@@ -158,6 +165,141 @@ limine_tools_dir() {
         fi
     done
     return 1
+}
+
+# live_module_blacklist [cmdline-source]
+#
+# Prints the module blacklist the LIVE medium booted with, comma-joined and
+# de-duplicated (empty when there is none). Both spellings the kernel accepts
+# are read: `module_blacklist=` and `modprobe.blacklist=`.
+#
+# Why this exists: the ISO's default boot entry blacklists the nvidia modules
+# (pre-Turing cards have no nvidia-open support and end up with no DRM device
+# without it — see iso/lib/iso-boot-config.py). The installed system has to
+# keep that decision, otherwise the first boot from disk loads nvidia again.
+live_module_blacklist() {
+    local source="${1:-$SYNTROPIA_LIVE_CMDLINE}" line token module list=""
+    [[ -r "$source" ]] || return 0
+    line="$(cat "$source")"
+    for token in $line; do
+        case "$token" in
+            module_blacklist=*|modprobe.blacklist=*) ;;
+            *) continue ;;
+        esac
+        for module in $(printf '%s' "${token#*=}" | tr ',' ' '); do
+            [[ -n "$module" && ",$list," == *",$module,"* ]] && continue
+            list="${list:+$list,}$module"
+        done
+    done
+    printf '%s' "$list"
+}
+
+# _merge_comma_list <existing> <extra> — union, order preserved, no duplicates.
+_merge_comma_list() {
+    local existing="$1" extra="$2" module result=""
+    for module in $(printf '%s' "$existing" | tr ',' ' ') $(printf '%s' "$extra" | tr ',' ' '); do
+        [[ -z "$module" || ",$result," == *",$module,"* ]] && continue
+        result="${result:+$result,}$module"
+    done
+    printf '%s' "$result"
+}
+
+# limine_conf_add_blacklist <boot-dir> <list>
+#
+# Adds `module_blacklist=<list>` to every `cmdline:` line of <boot-dir>
+# /limine.conf. Existing tokens are merged (union), never duplicated, so
+# re-running an install is a no-op instead of stacking tokens.
+limine_conf_add_blacklist() {
+    local boot_dir="$1" list="${2:-}"
+    local conf="$boot_dir/limine.conf" out line indent rest current merged
+    [[ -n "$list" && -f "$conf" ]] || return 0
+    out="$(mktemp)"
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" =~ ^([[:space:]]*)cmdline:[[:space:]]*(.*)$ ]]; then
+            indent="${BASH_REMATCH[1]}"
+            rest="${BASH_REMATCH[2]}"
+            if [[ " $rest " =~ [[:space:]]module_blacklist=([^[:space:]]+) ]]; then
+                current="${BASH_REMATCH[1]}"
+                merged="$(_merge_comma_list "$current" "$list")"
+                rest="${rest/module_blacklist=$current/module_blacklist=$merged}"
+            else
+                rest="${rest} module_blacklist=$list"
+            fi
+            line="${indent}cmdline: $rest"
+        fi
+        printf '%s\n' "$line" >> "$out"
+    done < "$conf"
+    mv "$out" "$conf"
+}
+
+# blacklist_modprobe_write <target-root> <list>
+#
+# Mirrors the live blacklist into the target's modprobe.d, so the modules stay
+# off even when something regenerates the kernel command line without it (a
+# boot-manager rewrite, a rescue boot, a manual `limine.conf` edit).
+blacklist_modprobe_write() {
+    local target="$1" list="${2:-}" file module
+    [[ -n "$list" ]] || return 0
+    file="$target/$SYNTROPIA_BLACKLIST_FILE"
+    install -d "$(dirname "$file")"
+    {
+        printf '# Syntropia: mirrors the live ISO command line (module_blacklist=%s).\n' "$list"
+        printf '# Pre-Turing NVIDIA cards have no nvidia-open support; without this the\n'
+        printf '# installed system can load nvidia_drm and end up with no DRM device.\n'
+        for module in $(printf '%s' "$list" | tr ',' ' '); do
+            printf 'blacklist %s\n' "$module"
+        done
+    } > "$file"
+}
+
+# default_limine_pin_blacklist <target-root> <list>
+#
+# limine-snapper-sync regenerates snapshot entries from KERNEL_CMDLINE in
+# /etc/default/limine, so the blacklist has to be pinned there too — otherwise
+# booting a snapshot silently brings nvidia back. An existing
+# KERNEL_CMDLINE[default] line keeps its other parameters (the token is
+# inserted before the closing quote); a missing one is created.
+default_limine_pin_blacklist() {
+    local target="$1" list="${2:-}" file token tmp
+    [[ -n "$list" ]] || return 0
+    file="$target/$SYNTROPIA_DEFAULT_LIMINE"
+    install -d "$(dirname "$file")"
+    touch "$file"
+    token="module_blacklist=$list"
+    tmp="$(mktemp)"
+    awk -v token="$token" '
+        /^KERNEL_CMDLINE\[default\][+]?=/ {
+            line = $0
+            if (index(line, "module_blacklist=") == 0) {
+                sub(/"[[:space:]]*$/, " " token "\"", line)
+            }
+            print line
+            seen = 1
+            next
+        }
+        { print }
+        END { if (!seen) printf "KERNEL_CMDLINE[default]=\"%s\"\n", token }
+    ' "$file" > "$tmp"
+    mv "$tmp" "$file"
+}
+
+# syntropia_blacklist_propagate <target-root> [cmdline-source]
+#
+# One call for both install paths: TUI (syntropia-install-runner, after
+# limine_conf_write) and Calamares (hook-branding-users.sh sources this file
+# from the live image). No-op unless the live cmdline blacklists nvidia, so the
+# NVIDIA-Open entry's own install keeps the open module.
+syntropia_blacklist_propagate() {
+    local target="${1:-/}" source="${2:-$SYNTROPIA_LIVE_CMDLINE}" list
+    list="$(live_module_blacklist "$source")"
+    case ",$list," in
+        *,nvidia,*) ;;
+        *) return 0 ;;
+    esac
+    limine_conf_add_blacklist "$target/boot" "$list"
+    blacklist_modprobe_write "$target" "$list"
+    default_limine_pin_blacklist "$target" "$list"
+    echo "NVIDIA modules stay blacklisted on the installed system (module_blacklist=$list)"
 }
 
 # limine_bin <target-root> — the limine host binary for `bios-install`.

@@ -156,6 +156,22 @@ if ! grep -q '^TARGET_OS_NAME' "$ROOT/etc/default/limine" 2>/dev/null; then
     printf 'TARGET_OS_NAME="CachyOS Syntropia"\n' >> "$ROOT/etc/default/limine"
 fi
 
+# --- NVIDIA module blacklist propagation (Calamares path) ---
+# The live medium's default entry boots with `module_blacklist=nvidia,...`
+# (pre-Turing cards have no nvidia-open support). The installed system must
+# keep that decision, and the TUI installer does it through the same code —
+# iso/installer/lib/bootloader.sh, shipped to /usr/local/lib/syntropia-installer
+# by build.sh. Sourcing it here instead of duplicating the logic keeps the two
+# install paths from drifting. It writes the target's limine.conf cmdline,
+# /etc/default/limine and /etc/modprobe.d/50-syntropia-nvidia-blacklist.conf;
+# no library = nothing to propagate (not a stock-CachyOS live session).
+syntropia_installer_lib="${SYNTROPIA_INSTALLER_LIB:-/usr/local/lib/syntropia-installer}"
+if [[ -f "$syntropia_installer_lib/bootloader.sh" ]]; then
+    # shellcheck source=/dev/null
+    . "$syntropia_installer_lib/bootloader.sh"
+    syntropia_blacklist_propagate "$ROOT" || true
+fi
+
 # --- USB Removal Notification ---
 # Notify the user on the live desktop that installation is complete and they must remove the USB stick before rebooting.
 if command -v kdialog >/dev/null 2>&1; then

@@ -37,10 +37,11 @@ The CachyOS branding slides come from the `cachyos-calamares-next` package. We c
 1. Extract the ISO with `bsdtar`
 2. Unsquashfs the root filesystem
 3. Copy our 6 amended slide JXLs into `/usr/share/calamares/branding/cachyos/`
-4. Optimize ISO bootloader (GRUB timeout reduced to 2s, Syslinux to 3s, Syntropia menu title)
+4. Optimize ISO bootloader (GRUB timeout reduced to 2s, Syslinux to 3s, Syntropia menu titles) and rewrite the menu entries with `iso/lib/iso-boot-config.py` (`patch-grub` / `patch-syslinux`): the default and LTS entries get `module_blacklist=nvidia,nvidia_modeset,nvidia_uvm,nvidia_drm,pcspkr` + `nouveau.modeset=1` (pre-Turing cards have no nvidia-open support), an extra `Syntropia (NVIDIA Open / Turing+)` entry keeps the open module for Turing and newer, and the `nomodeset` fallback is left exactly as shipped. The same three entries go into the BIOS (syslinux) menu. `iso/lib/drm-module-awaiter-generator` replaces the stock generator in the live image so the cmdline blacklist actually selects nouveau.
 5. Configure the direct Omarchy-style TUI installer on tty1 (centered terminal UI, network step, password panel, LUKS2 encryption, desktop experience selection, progress dashboard; graphical display manager disabled). The scripts come from `iso/installer/` — see below.
-6. Repack squashfs with `zstd` (`-comp zstd -Xcompression-level 19 -b 1M`) for ~9x faster kernel page decompression during live boot
-7. Rebuild the ISO with `xorriso` (BIOS + UEFI hybrid)
+6. Validate every `boot/**/*.cfg` with `iso-boot-config.py check`. The build **fails**, naming file and line, on a doubled-brace menuentry closer or a `menuentry` that never closes — `grub-script-check` accepts both (see the USB-boot pitfall below).
+7. Repack squashfs with `zstd` (`-comp zstd -Xcompression-level 15 -b 1M … -e proc sys dev run`) for ~9x faster kernel page decompression during live boot. Level 15, not 19: -19 costs ~45-70 min on the 16 GB/4-core build box for a gain live boot never notices. Kernel mounts left inside the rootfs by a killed run are lazily unmounted before the pack and before the rootfs cleanup, so the host's `/proc` and `/sys` can never be swallowed into the image.
+8. Rebuild the ISO with `xorriso` (BIOS + UEFI hybrid)
 
 Output: `iso/out/syntropia-YYYY.MM.DD-x86_64.iso`
 
@@ -71,7 +72,7 @@ The tty1 installer is **source code in this repo**, not heredocs pasted into
 | `lib/password.sh` | masked password entry, strength estimate, confirmation, root-locked default |
 | `lib/network.sh` | connectivity probe, `nmcli` Wi-Fi setup, `nmtui-connect` fallback |
 | `lib/keyring.sh` | KWallet PAM auto-unlock, autologin/loadkey rule, Secret Service bridge |
-| `lib/bootloader.sh` | `limine.conf` generation, UEFI copy + NVRAM entry, `limine bios-install` |
+| `lib/bootloader.sh` | `limine.conf` generation, UEFI copy + NVRAM entry, `limine bios-install`, live NVIDIA blacklist → target |
 
 `build.sh` installs the three scripts to `/usr/local/bin/` and the libs to
 `/usr/local/lib/syntropia-installer/` (both resolve their libs from either
@@ -103,6 +104,18 @@ paths** (confirmed in `NEXT_SESSION.md`):
 
 Both paths end up with the same ESP layout and the same OS entry name, so
 `limine-snapper-sync` (when installed) and the identity sync agree.
+
+Both paths also carry the live medium's NVIDIA module blacklist onto the
+installed system. When the live cmdline has `module_blacklist=nvidia,...` (the
+default ISO entry), `syntropia_blacklist_propagate` writes the same list into
+the target's `/boot/limine.conf` cmdline, `/etc/default/limine`
+(`KERNEL_CMDLINE[default]`, which `limine-snapper-sync` regenerates snapshot
+entries from) and `/etc/modprobe.d/50-syntropia-nvidia-blacklist.conf`.
+`syntropia-install-runner` calls it right after `limine_conf_write`, and
+`hook-branding-users.sh` sources the same `iso/installer/lib/bootloader.sh` in
+the live env — one implementation, so the two install paths cannot drift. It is
+a no-op when the machine booted the NVIDIA-Open entry (which must keep the open
+module).
 
 The TUI layout is:
 
@@ -329,6 +342,27 @@ picker offers `nmtui-connect` before the app list; picks then wait in
 The wizard is shipped from `iso/vendor/app-wiz4rd-*.tar` (sha-pinned in
 `build.sh`), so a wizard fix only reaches the ISO after regenerating that
 tarball and bumping `APP_WIZ4RD_SHA256`.
+
+### USB-booted stick shows GRUB syntax errors or a broken menu (`}}` closers)
+
+**Symptom:** the ISO boots fine in OVMF/QEMU attached as a **CD-ROM**, but the
+same image `dd`'d to a USB stick and booted as a raw disk (OVMF `-device
+usb-storage`, or a real laptop's UEFI) prints many
+`script/lexer.c:grub_script_yyerror:352:syntax error. Incorrect command.`
+lines and then a menu whose entries are unusable.
+
+**Cause:** `boot/grub/grub.cfg` inside the ISO closed menuentries with `}}`
+instead of `}`. The El Torito path never re-parses the file the same way, so
+the CD-ROM boot hid the bug. `grub-script-check` does **not** report it — do not
+use it as the validator.
+
+**Fix:** phase 2 normalises closers and then fails the build on this shape:
+`iso/lib/iso-boot-config.py check boot` reports the file and line for any line
+starting with `}}` or any `menuentry` without a matching single-`}` close. If a
+hand-patched ISO is in play, run
+`iso/lib/iso-boot-config.py check <extracted-boot-dir>` before flashing.
+Always test the raw-disk path (`-device usb-storage`, or a real stick) before
+shipping — a CD-ROM-only test does not cover it.
 
 ### Verify the amended slides are actually in the ISO
 

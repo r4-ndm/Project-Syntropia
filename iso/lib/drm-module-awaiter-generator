@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+# Copyright (C) 2026 Vasiliy Stelmachenok for CachyOS
+# Patched for Syntropia: pre-Turing NVIDIA (Pascal etc.) support, cmdline blacklist check & nomodeset safety
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+# Get generator normal directory
+generator_dir="$1"
+
+# NVIDIA driver can be in a race state with additional driver like amdgpu,
+# especially on laptops. This configuration forces NVIDIA driver to load later
+# than the iGPU one, which eliminates this issue.
+function postpone_nvidia_module() {
+    local module="$1"
+
+    mkdir -p /run/modprobe.d
+    if [[ "$nvidia_module" == "nvidia_drm" ]]; then
+        cat <<EOF >"/run/modprobe.d/30-$module-load-reorder.conf"
+softdep $module post: nvidia nvidia_drm nvidia_modeset nvidia_uvm
+softdep nvidia pre: $module post:
+softdep nvidia_drm pre: $module post:
+softdep nvidia_modeset pre: $module post:
+softdep nvidia_uvm pre: $module post:
+EOF
+    elif [[ "$nvidia_module" == "nouveau" ]]; then
+        cat <<EOF >"/run/modprobe.d/30-$module-load-reorder.conf"
+softdep $module post: nouveau
+softdep nouveau pre: $module post:
+EOF
+    fi
+}
+
+function is_module_forced() {
+    local module="$1"
+
+    while IFS= read -r value; do
+        [[ "${value,,}" == "!${device}" ]] && return 1
+        [[ "${value,,}" == "${device}" ]] && return 0
+    done < <(modprobe --showconfig \
+        | grep -Po "^options ${module} force_probe=\K(.*)$" \
+        | tr ',' '\n')
+
+    return 1
+}
+
+function is_module_loadable() {
+    local module="$1"
+    modprobe --showconfig | grep -q "^blacklist $1\$" && return 1
+    if [[ -r /proc/cmdline ]] && grep -qE "(module_blacklist|modprobe\.blacklist)=[^ ]*\b$1\b" /proc/cmdline; then
+        return 1
+    fi
+    [[ "${modaliases[*]}" =~ $module ]] && return 0
+    return 1
+}
+
+function archiso_nvidia_module() {
+    mkdir -p /run/modprobe.d
+
+    # If nvidia is blacklisted on kernel command line, force nouveau
+    if [[ -r /proc/cmdline ]] && grep -qE "(module_blacklist|modprobe\.blacklist)=[^ ]*\bnvidia\b" /proc/cmdline; then
+        cat <<'EOF' >"/run/modprobe.d/archiso.conf"
+install nvidia modprobe nouveau
+install nvidia_drm modprobe nouveau
+install nvidia_modeset modprobe nouveau
+install nvidia_uvm modprobe nouveau
+EOF
+        echo "nouveau"
+        return 0
+    fi
+
+    # Upstream had typo 'check --check "nvidia-dkms-580xx"' — fixed to 'chwd --check'
+    if (chwd --check "nouveau" \
+        || chwd --check "nvidia-dkms-470xx" \
+        || chwd --check "nvidia-dkms-580xx") &>/dev/null
+    then
+        cat <<'EOF' >"/run/modprobe.d/archiso.conf"
+install nvidia modprobe nouveau
+install nvidia_drm modprobe nouveau
+install nvidia_modeset modprobe nouveau
+install nvidia_uvm modprobe nouveau
+EOF
+        echo "nouveau"
+    elif (chwd --check "nvidia-open-dkms" \
+        || chwd --check "nvidia-open-dkms.prime") &>/dev/null;
+    then
+        echo "nvidia_drm"
+    else
+        # Direct sysfs fallback: any NVIDIA GPU with device ID < 0x1e00 is pre-Turing
+        for dev_class in /sys/bus/pci/devices/*/class; do
+            [[ -f "$dev_class" ]] || continue
+            if [[ "$(cat "$dev_class" 2>/dev/null)" =~ ^0x030[0-9]00 ]]; then
+                local dev_dir="${dev_class%/class}"
+                if [[ "$(cat "$dev_dir/vendor" 2>/dev/null)" == "0x10de" ]]; then
+                    local dev_id="$(cat "$dev_dir/device" 2>/dev/null)"
+                    local dev_dec=$(( 16#${dev_id#0x} ))
+                    if (( dev_dec < 0x1e00 )); then
+                        cat <<'EOF' >"/run/modprobe.d/archiso.conf"
+install nvidia modprobe nouveau
+install nvidia_drm modprobe nouveau
+install nvidia_modeset modprobe nouveau
+install nvidia_uvm modprobe nouveau
+EOF
+                        echo "nouveau"
+                        return 0
+                    fi
+                fi
+            fi
+        done
+    fi
+}
+
+function generate_load_target() {
+    local device class vendor sysfs modalias nvidia_module kernel modprobe
+    local -a modules=()
+    local -a modaliases=()
+
+    # If nomodeset is active, KMS is disabled — do not generate DRM awaiter targets
+    if [[ -r /proc/cmdline ]] && grep -qw "nomodeset" /proc/cmdline; then
+        return 0
+    fi
+
+    while read -r class; do
+        sysfs="${class%%/class}"
+        device="$(cat "${sysfs}/device" | sed 's/0x//')"
+        vendor="$(cat "${sysfs}/vendor")"
+        modalias="$(cat "${sysfs}/modalias")"
+        modprobe="$(modprobe -R "$modalias")"
+
+        if [ -z "$modprobe" ]; then
+            continue
+        fi
+
+        readarray -t modaliases <<< "$modprobe"
+
+        case "$vendor" in
+            0x10de)
+                if is_module_loadable "nvidia"; then
+                    nvidia_module="nvidia_drm"
+                elif is_module_loadable "nouveau"; then
+                    nvidia_module="nouveau"
+                fi
+                ;;
+            0x1002)
+                if is_module_loadable "amdgpu"; then
+                    modules+=(amdgpu)
+                elif is_module_loadable "radeon"; then
+                    modules+=(radeon)
+                fi
+                ;;
+            0x8086)
+                if is_module_loadable "i915" && ! is_module_forced "xe" "$device"; then
+                    modules+=(i915)
+                elif is_module_loadable "xe" && ! is_module_forced "i915" "$device"; then
+                    modules+=(xe)
+                fi
+                ;;
+            *)
+                module="${modaliases[-1]}"
+                if is_module_loadable "$module"; then
+                    modules+=("${module}")
+                fi
+                ;;
+        esac
+    done < <(grep -l "0x030[0-9]00" /sys/bus/pci/devices/*/class)
+
+    if [[ -d /run/archiso ]]; then
+        nvidia_module="$(archiso_nvidia_module)"
+    fi
+
+    if [ -n "$nvidia_module" ]; then
+        for module in "${modules[@]}"; do
+            postpone_nvidia_module "$module" "$nvidia_module"
+        done
+        modules+=("$nvidia_module")
+    fi
+
+    if [ -z "${modules[0]}" ]; then
+        return 0
+    fi
+
+    local -a devices=()
+    for module in "${modules[@]}"; do
+        devices+=("sys-module-${module}.device")
+    done
+
+    mkdir -p /run/udev/rules.d
+    kernel="$(echo "${modules[@]}" | tr ' ' '|')"
+cat <<EOF >/run/udev/rules.d/30-drm-awaiter.rules
+# Creates device units for DRM modules
+ACTION=="add", SUBSYSTEM=="module", KERNEL=="$kernel", TAG+="systemd"
+EOF
+
+    cat <<EOF >"$generator_dir"/drm-module-load.target
+[Unit]
+Description=DRM module load target
+Documentation=man:systemd.special(7)
+JobTimeoutSec=30s
+OnFailure=emergency.target drm-failure-handler.service
+OnFailureJobMode=replace-irreversibly
+
+Before=getty@tty1.service kmsconvt@tty1.service display-manager.service
+After=${devices[@]} plymouth-quit.service
+Wants=${devices[@]}
+EOF
+
+    mkdir -p "$generator_dir"/getty@tty1.service.wants "$generator_dir"/display-manager.service.wants "$generator_dir"/kmsconvt@tty1.service.wants
+    ln -s ../drm-module-load.target "$generator_dir"/kmsconvt@tty1.service.wants/drm-module-load.target
+    ln -s ../drm-module-load.target "$generator_dir"/getty@tty1.service.wants/drm-module-load.target
+    ln -s ../drm-module-load.target "$generator_dir"/display-manager.service.wants/drm-module-load.target
+}
+
+generate_load_target
+exit 0
