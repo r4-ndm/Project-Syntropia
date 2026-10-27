@@ -18,13 +18,15 @@ Output: `iso/out/syntropia-YYYY.MM.DD-x86_64.iso`
 ### Phase 1: mkarchiso (standard ISO)
 
 1. Clones/pulls [CachyOS/CachyOS-Live-ISO](https://github.com/CachyOS/CachyOS-Live-ISO)
-2. Applies three minimal patches:
+2. Applies five minimal patches:
    - Symlinks `packages.x86_64` → `packages_desktop.x86_64` (mkarchiso naming convention)
    - Appends `limine` to that list: Limine is the installed bootloader, and the TUI installer copies the live rootfs onto the target, so its payloads have to exist in the live image
+   - Appends `kwallet-pam` + `socat`: the wallet auto-unlock chain (see the keyring section below)
+   - Curates the desktop package set: drops the nine stock Plasma entries (`plasma-desktop`, `plasma-workspace`, `plasma-login-manager`, …) and adds `sddm`, so **Hyprland (UWSM) + Noctalia is the only session** in the live image and in the target
    - Adds `NoExtract` in `pacman.conf` to prevent slide conflicts
 3. Runs `mkarchiso` — the official Arch ISO builder — which:
    - Bootstraps a fresh pacman root
-   - Installs 991 packages (CachyOS kernels, KDE Plasma, Calamares, etc.)
+   - Installs the CachyOS desktop package set (kernels, Hyprland + Noctalia, Calamares, etc.) with the Plasma session curated out (patch above)
    - Builds the squashfs rootfs with correct ownership/capabilities
    - Assembles the bootable hybrid ISO (BIOS + UEFI)
 
@@ -38,7 +40,7 @@ The CachyOS branding slides come from the `cachyos-calamares-next` package. We c
 2. Unsquashfs the root filesystem
 3. Copy our 6 amended slide JXLs into `/usr/share/calamares/branding/cachyos/`
 4. Optimize ISO bootloader (GRUB timeout reduced to 2s, Syslinux to 3s, Syntropia menu titles) and rewrite the menu entries with `iso/lib/iso-boot-config.py` (`patch-grub` / `patch-syslinux`): the default and LTS entries get `module_blacklist=nvidia,nvidia_modeset,nvidia_uvm,nvidia_drm,pcspkr` + `nouveau.modeset=1` (pre-Turing cards have no nvidia-open support), an extra `Syntropia (NVIDIA Open / Turing+)` entry keeps the open module for Turing and newer, and the `nomodeset` fallback is left exactly as shipped. The same three entries go into the BIOS (syslinux) menu. `iso/lib/drm-module-awaiter-generator` replaces the stock generator in the live image so the cmdline blacklist actually selects nouveau.
-5. Configure the direct Omarchy-style TUI installer on tty1 (centered terminal UI, network step, password panel, LUKS2 encryption, desktop experience selection, progress dashboard; graphical display manager disabled). The scripts come from `iso/installer/` — see below.
+5. Configure the direct Omarchy-style TUI installer on tty1 (centered terminal UI, network step, password panel, LUKS2 encryption, install summary, progress dashboard; graphical display manager disabled). The scripts come from `iso/installer/` — see below.
 6. Validate every `boot/**/*.cfg` with `iso-boot-config.py check`. The build **fails**, naming file and line, on a doubled-brace menuentry closer or a `menuentry` that never closes — `grub-script-check` accepts both (see the USB-boot pitfall below).
 7. Repack squashfs with `zstd` (`-comp zstd -Xcompression-level 15 -b 1M … -e proc sys dev run`) for ~9x faster kernel page decompression during live boot. Level 15, not 19: -19 costs ~45-70 min on the 16 GB/4-core build box for a gain live boot never notices. Kernel mounts left inside the rootfs by a killed run are lazily unmounted before the pack and before the rootfs cleanup, so the host's `/proc` and `/sys` can never be swallowed into the image.
 8. Rebuild the ISO with `xorriso` (BIOS + UEFI hybrid)
@@ -48,7 +50,7 @@ Output: `iso/out/syntropia-YYYY.MM.DD-x86_64.iso`
 Phase 2 also ships the rest of the Syntropia install experience (not just slides):
 the default LUKS2 full-disk encryption with Btrfs subvolumes,
 **Limine** as the installed bootloader (UEFI + BIOS, see below),
-the interactive DE profile selector (KDE Plasma vs Hyprland + Omarchy hotkey/helper suite),
+the **Hyprland (UWSM) + Noctalia** desktop with the Omarchy hotkey/helper suite (the only session — Plasma is removed from both the live image and the installed system),
 the apps wizard + TUI (`/etc/syntropia/`, from the vendored app-wiz4rd release tarball in `iso/vendor/`; shipped with an app-menu launcher, and picks made while offline are queued until a connection exists),
 the Hyprland profile configs & helper scripts (`/etc/syntropia/profiles/hyprland/`: a traditional-desktop Hyprland — bottom Noctalia bar with the taskbar widget, floating windows resizable from the border, and KDE-style titlebar buttons from the `hyprbars` plugin, which is compiled into the ISO because it is AUR-only), paru in pacstrap `basePackages`,
 the fastfetch ASCII-art branding (`/usr/share/syntropia/`), the **Syntropia identity**
@@ -146,16 +148,24 @@ archinstall/Omarchy model. `--root-password` opts back into the old "same as
 the user"/"different" menu (recorded as `root_password_mode` in `config.json`).
 The account password doubles as the LUKS passphrase.
 
-Keyring: the image ships KWallet, not gnome-keyring. `lib/keyring.sh` wires
-`pam_kwallet5.so` into the installed display manager (`plasmalogin`, `sddm`,
-plus `login`) so the wallet is created and unlocked with the login password —
-ksecretd's PAM path creates a missing `kdewallet` silently, which is what
-prevents the "create a new keyring password" dialog at first login. Autologin
-types no password, so it is only enabled when `pam_systemd_loadkey` can recover
-the LUKS passphrase (encrypted installs, with `KeyringMode=inherit`); an
-unencrypted install gets a normal login screen so the password reaches PAM.
+Keyring: KWallet is the wallet. `lib/keyring.sh` wires the full
+`auth`/`password`/`session` `pam_kwallet5.so` stack into the installed display
+manager (`sddm` + `sddm-autologin`, plus `login` for tty logins) so the wallet
+is created and unlocked with the login password — ksecretd's PAM path creates a
+missing `kdewallet` silently, which is what prevents the "create a new keyring
+password" dialog at first login. The image also carries **gnome-keyring** (the
+CachyOS package set pulls it in) and SDDM's stock PAM stack carries
+`pam_gnome_keyring` lines that plasmalogin's never had, so the library comments
+those out and parks gnome-keyring's `org.freedesktop.secrets` / Secret-portal
+D-Bus activation files — otherwise a locked gnome keyring answers libsecret
+requests instead of the ksecretd PAM just unlocked (the 2026-10-25 laptop
+regression). Autologin types no password, so it is only enabled when
+`pam_systemd_loadkey` can recover the LUKS passphrase (encrypted installs, with
+`KeyringMode=inherit`) *and* a wallet daemon exists; when the chain is
+incomplete the runner drops autologin so SDDM asks for the password.
 `~/.config/kwalletrc` enables `[org.freedesktop.secrets]` so libsecret apps
-(Chromium, Electron) reuse the same wallet. Requires `kwallet-pam` + `socat` in
+(Chromium, Electron) reuse the same wallet. Requires `kwallet-pam` + `kwallet` +
+`socat` in
 the image — phase 1 adds both to the package list and warns if they are missing.
 The installer/wizard *code* ships with a phase-2 remaster, but those packages
 cannot be installed by one: the first build after this change must be a full
@@ -317,12 +327,14 @@ is missing from the image, so a completed install always had the payloads.
 app that stores a secret asks the user to invent a wallet password. Autologin
 makes it unavoidable: no password ever passes through PAM.
 
-**Fix**: phase 1 ships `kwallet-pam` + `socat` in the live image and
+**Fix**: phase 1 ships `kwallet-pam` + `kwallet` + `socat` in the live image and
 `syntropia-install-runner` calls `lib/keyring.sh`. On an installed system:
 
 ```bash
-grep -n pam_kwallet /etc/pam.d/plasmalogin /etc/pam.d/sddm
-autologin=... ; grep -n '^\[Autologin\]' /etc/plasmalogin.conf   # only when encrypted
+grep -n pam_kwallet /etc/pam.d/sddm /etc/pam.d/sddm-autologin
+! grep -n '^[^#]*pam_gnome_keyring' /etc/pam.d/sddm    # commented out: KWallet owns the wallet
+ls /usr/share/dbus-1/services/*.syntropia-disabled      # gnome-keyring's secrets activation parked
+grep -n '^\[Autologin\]' /etc/sddm.conf                  # only when encrypted
 qdbus org.kde.kwalletd6 /modules/kwalletd6 isOpen kdewallet         # after login
 ls ~/.local/share/kwalletd/kdewallet.kwl
 ```
@@ -330,6 +342,19 @@ ls ~/.local/share/kwalletd/kdewallet.kwl
 If `pam_kwallet5.so` is missing, the image predates patch 1c — rebuild phase 1.
 Root being locked is intentional (see the installer section); do not "fix" sudo
 by setting a root password unless the user asked for one.
+
+### Brave starts to a blank window or exits (Firefox is fine)
+
+**Cause**: `brave-bin` (installed by the first-boot wizard via paru) can land
+`chrome-sandbox` without the root-owned setuid bit, and Chromium refuses to run
+without it.
+
+**Fix**: `build.sh` ships `/usr/local/bin/syntropia-fix-chrome-sandbox` plus the
+pacman hook `/etc/pacman.d/hooks/syntropia-chrome-sandbox.hook`, which runs it
+after any transaction that installs `chrome-sandbox` (Brave, Chromium, Chrome).
+Check with `stat -c '%U:%G %a' /opt/brave.com/brave/chrome-sandbox` →
+`root:root 4755`; run `sudo syntropia-fix-chrome-sandbox` if it drifted. Never
+"fix" this with a `--no-sandbox` wrapper — that disables the process sandbox.
 
 ### Apps picked in the first-boot wizard but nothing installed
 
