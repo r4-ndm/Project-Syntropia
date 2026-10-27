@@ -97,41 +97,56 @@ Syntropia"`); the long-term goal is a full fork, but **not yet**.
   The USB stick is dd'd with the OLDER 22:39 build (Hyprland-only, keyring/mouse/
   Brave fixes NOT on it). Final Boss paused here: rebuild happens tomorrow (2026-10-26).
 
-## ⏭️ Where we are / resume here (written 2026-10-27, after the laptop session)
+## ⏭️ Where we are / resume here (written 2026-10-27, end of session — take a break)
 
-**LAPTOP IS FULLY GREEN (2026-10-27).** Evidence collected over SSH
-(`r@192.168.1.22`, key-based, sshd enabled on the laptop):
+**STATUS: ALL MAJOR ITEMS DONE.** The keyring/noctalia saga is closed, the
+2026.10.27 ISO is built, verified, on the stick, and proven by a fresh-VM
+install. Tree is clean and committed (tip 61b6701+). Nothing is on fire.
 
-- The Oct-26 21:56 install WAS a fresh install and DID carry the PAM
-  `auto_start kwalletd=` fix — but its `/usr/local/lib/syntropia-installer/`
-  was the OLD pre-fix keyring.sh (no force_run logic, no gnome-keyring purge,
-  no `[Wallet]` seeding). The repo fixes never reached that install.
-- Fix applied to the laptop in place (scripts /tmp/fix*.sh there): gnome-keyring
-  purged, PAM lines commented, D-Bus files parked, `force_run kwalletd=`
-  added to sddm + sddm-autologin, full kwalletrc seeded. Reboot verified:
-  **no keyring prompt, no Noctalia welcome, ksecretd running via --pam-login.**
-- The wizard failure was a stale CachyOS mirror (agent-browser 404 + bad
-  signature aborting the whole pacman transaction). `cachyos-rate-mirrors` +
-  retry fixed it; all 9 picks installed and verified. Wizard hardened: batch
-  failure now falls back to per-package installs so one bad package cannot
-  starve the queue (vendored tarball + sha pin updated; pending tests updated).
-- New build guard: `verify_installer_libs()` in build.sh runs after every
-  phase-2 — extracts the embedded installer libs from the finished ISO and
-  byte-compares them with `iso/installer/lib/`; mismatch fails the build.
-  (Happy path verified against the existing 21:40 ISO.)
-- Laptop is package-current: linux-cachyos 7.2.7 = repo version, 0 updates
-  pending. SSH lesson: sudo over `ssh -t` needs `-t`; faillock lockouts show
-  "Sorry, try again" for CORRECT passwords (10-min window, 5 tries).
-- Whole batch COMMITTED 2026-10-27 (d4a5e8b fixes, 90c8d73+1fe1b5b docs/tests),
-  416 phase-1 tests pass. Tree clean.
-- NEXT: ~~rebuild the ISO~~ DONE 2026-10-27: `syntropia-2026.10.27-x86_64.iso`
-  built (sha256 f3080cf609f2…aace0c3), guard passed at build, freshness check
-  clean, dd'd to stick, content check on the flashed stick confirms the FIXED
-  keyring.sh. **Final fresh-VM install verified end-to-end**: installer →
-  app-wiz4rd picker (esc = clean cancel with resume note) → Hyprland/Noctalia
-  desktop with NO keyring prompt and NO Noctalia welcome. VM disk was wiped
-  first (rm qcow2 + OVMF_VARS — the stale-disk lesson). ISO + stick + laptop
-  + fresh VM all consistent. Branch is ahead of origin — push when ready.
+Done today (in order):
+1. SSH into laptop set up (`r@192.168.1.22`, key-based; sshd enabled). Evidence
+   collected: the Oct-26 install was fresh and carried the PAM sed fix, but its
+   `/usr/local/lib/syntropia-installer/keyring.sh` was the OLD pre-fix lib —
+   the stick's ISO (airootfs hash `e4769656…`) predated the repo fixes. The
+   re-test failure was a stale-image problem, never an installer bug.
+2. Laptop patched in place (/tmp/fix*.sh on it): gnome-keyring purged, PAM
+   gnome lines commented, D-Bus files parked, `force_run kwalletd=` in both
+   sddm stacks, full kwalletrc. Reboot → **no keyring prompt, no welcome,
+   ksecretd running**. (faillock lesson: 5 tries/10 min lockout shows
+   "Sorry, try again" for CORRECT passwords — wait, don't retype.)
+3. Wizard failure diagnosed: stale CachyOS mirror (agent-browser 404 + bad
+   sig) aborted the whole pacman batch. Mirrors re-rated; all 9 picks
+   installed. Wizard hardened: per-package fallback retry (committed).
+4. Committed everything in logical batches (d4a5e8b fixes, 90c8d73/1fe1b5b
+   docs+tests, 1276aab wizard+guard, 61b6701 vm-verify).
+5. Rebuilt: `iso/out/syntropia-2026.10.27-x86_64.iso` (sha256
+   f3080cf609f2…aace0c3). New `verify_installer_libs()` build guard passed.
+   Stick dd'd and content-verified (fixed keyring.sh on the stick).
+6. Fresh-VM install (disk+vars wiped first) verified end-to-end: installer →
+   app-wiz4rd picker (esc cancels cleanly) → desktop with no keyring prompt
+   and no Noctalia welcome. SUPER+drag move/resize verified in-VM (needs qemu
+   keyboard grab; xdotool can't send SUPER through QEMU GTK).
+7. New skill `syntropia-usb-stick` — flash/verify checklist (freshness check +
+   content check; never trust byte-exact dd alone).
+
+## ⏭️ NEXT SESSION — only small things left
+
+1. **Push** — branch is ~16 commits ahead of origin, unpushed. `git push`.
+2. **Two open checklist items** (one casual laptop session):
+   - Brave launches after the wizard installs it
+   - No limine-snapper name warning at boot
+3. **Optional laptop hygiene:** the in-place /tmp/fix scripts patched the
+   install, but it was installed from the older ISO. Reinstalling from the
+   2026.10.27 stick would make the laptop match the verified path exactly
+   (NOT urgent — current state is verified working).
+4. **After a fully clean laptop install:** AUR/package refresh + base-refresh
+   policy check (see .agents/skills/iso-builder/SKILL.md), then consider the
+   next phase of the mission.
+
+VM helpers: `~/vm-test/run-install-vm.sh` (now points at the 2026.10.27 ISO),
+`~/vm-test/run-keytest-vm.sh` (adds `-monitor unix:` socket + `-k en-us` +
+grab-on-hover for input testing). Wipe qcow2+OVMF_VARS before install tests.
+
 
 ## ✅ Verification checklist
 
