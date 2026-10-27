@@ -42,7 +42,7 @@ BRANDING_SRC="$REPO_ROOT/Branding/syntropia/calamares/slides"
 #   the hash on every commit even when the files don't)
 # then copy it into iso/vendor/ and set APP_WIZ4RD_SHA256 (sha256sum).
 APP_WIZ4RD_VERSION="0.1.0"
-APP_WIZ4RD_SHA256="a7129d0cfc8c47ead1dd888df081647ca10ef4f1c16c6f3b9b7c84f3e4ea7ae7"
+APP_WIZ4RD_SHA256="f277eb837ca272d82165b255ee705c528caa4c1b2c6b0292e298bd5e956e0bf9"
 APP_WIZ4RD_TARBALL="$REPO_ROOT/iso/vendor/app-wiz4rd-$APP_WIZ4RD_VERSION.tar"
 
 # hyprbars: the upstream Hyprland plugin that draws titlebars with window
@@ -1446,9 +1446,40 @@ PYEOF
     xorriso "${xorriso_args[@]}" -output "$output_iso" .
     rm -f "$efiboot_img"
 
+    verify_installer_libs "$output_iso"
+
     ok "Phase 2 complete: $output_iso ($(du -h "$output_iso" | cut -f1))"
     info "Your Syntropia-branded CachyOS installer ISO is ready!"
     info "  $output_iso"
+}
+
+# ── Installer-lib staleness guard ─────────────────────────────
+# The Oct-26 laptop failure shipped an ISO whose embedded keyring.sh predated
+# the repo fix — the stick tested an old installer while the tree said FIXED.
+# After every ISO is assembled, pull the embedded installer libs back out of
+# the image and byte-compare them with the repo copies. A mismatch fails the
+# build instead of masquerading as a fix on the next install.
+verify_installer_libs() {
+    local output_iso="$1"
+    local extract_dir lib rel
+    extract_dir="$(mktemp -d /tmp/syntropia-verify.XXXXXX)"
+    info "Verifying embedded installer libraries match the repo..."
+    bsdtar -xf "$output_iso" -C "$extract_dir" arch/x86_64/airootfs.sfs
+    local -a paths=()
+    for lib in "$SCRIPT_DIR"/installer/lib/*.sh; do
+        paths+=("usr/local/lib/syntropia-installer/$(basename "$lib")")
+    done
+    unsquashfs -n -f -d "$extract_dir/rootfs" \
+        "$extract_dir/arch/x86_64/airootfs.sfs" "${paths[@]}" >/dev/null 2>&1
+    for lib in "$SCRIPT_DIR"/installer/lib/*.sh; do
+        rel="usr/local/lib/syntropia-installer/$(basename "$lib")"
+        [[ -f "$extract_dir/rootfs/$rel" ]] \
+            || err "ISO verification: $rel missing from the built image"
+        cmp -s "$lib" "$extract_dir/rootfs/$rel" \
+            || err "stale installer lib in the built ISO: iso/installer/lib/$(basename "$lib") does not match what shipped — the image would install yesterday's installer. Rebuild from the current tree."
+    done
+    rm -rf "$extract_dir"
+    ok "embedded installer libs match the repo ($(basename -a "$SCRIPT_DIR"/installer/lib/*.sh | tr '\n' ' '))"
 }
 
 # ── Main ───────────────────────────────────────────────────────

@@ -97,34 +97,36 @@ Syntropia"`); the long-term goal is a full fork, but **not yet**.
   The USB stick is dd'd with the OLDER 22:39 build (Hyprland-only, keyring/mouse/
   Brave fixes NOT on it). Final Boss paused here: rebuild happens tomorrow (2026-10-26).
 
-## ⏭️ Where we are / resume here (written 2026-10-26 evening)
+## ⏭️ Where we are / resume here (written 2026-10-27, after the laptop session)
 
-1. Laptop re-test of the 2026-10-26 20:10+ ISO (stick dd'd, verified byte-exact)
-   STILL shows BOTH: keyring "choose password" prompt AND "Welcome to Noctalia".
-   VM install from the SAME ISO was clean (Final Boss: "looks good").
-2. Root cause of the keyring prompt WAS found and fixed via VM-disk inspection
-   (qcow2 → qemu-nbd → LUKS mount): keyring.sh:295 sed jammed
-   `auto_startforce_run` into the PAM line, so pam_kwallet5.so never
-   force-started the daemon. Fixed + regression test (416 tests). The fixed ISO
-   is built and on the stick — the laptop re-test that still failed was run
-   against an install whose actual state we have NOT verified.
-3. TOMORROW: collect from the laptop (decisive evidence, in this order):
-   - `stat -c '%y' /etc/pam.d/sddm` → the REAL install date
-   - `grep -E 'kwallet|gnome' /etc/pam.d/sddm` → fixed line present?
-   - `pacman -Q gnome-keyring kwallet-pam` → purge applied?
-   - `ls -la ~/.config/noctalia/ ~/.local/state/noctalia/`
-   - `cat ~/.config/kwalletrc` → check Enabled= (was flipped to false on VM)
-   Working theory: the laptop install reuses/keeps the old @home subvolume, so
-   the broken kwallet + noctalia wizard state survives every "fresh" install.
-4. Noctalia welcome is a layer-surface, not a window — the windowrule fallback
-   CANNOT catch it. Real suppression: setup_wizard_enabled=false +
-   [shell.launcher.panels] ignored += "setup-wizard" + .setup-complete markers
-   seeded synchronously BEFORE `noctalia` execs (autostart.lua chains them).
-5. After laptop evidence: one scoped agent pass on the true cause, rebuild,
-   re-flash, re-test. THEN ask the Final Boss to commit the whole batch
-   (Plasma removal + all laptop fixes) — do not let the tree sit dirty
-   (the Oct-24 loss lesson). Repo currently: ~15 files modified/untracked,
-   all verified, 416 phase-1 tests pass.
+**LAPTOP IS FULLY GREEN (2026-10-27).** Evidence collected over SSH
+(`r@192.168.1.22`, key-based, sshd enabled on the laptop):
+
+- The Oct-26 21:56 install WAS a fresh install and DID carry the PAM
+  `auto_start kwalletd=` fix — but its `/usr/local/lib/syntropia-installer/`
+  was the OLD pre-fix keyring.sh (no force_run logic, no gnome-keyring purge,
+  no `[Wallet]` seeding). The repo fixes never reached that install.
+- Fix applied to the laptop in place (scripts /tmp/fix*.sh there): gnome-keyring
+  purged, PAM lines commented, D-Bus files parked, `force_run kwalletd=`
+  added to sddm + sddm-autologin, full kwalletrc seeded. Reboot verified:
+  **no keyring prompt, no Noctalia welcome, ksecretd running via --pam-login.**
+- The wizard failure was a stale CachyOS mirror (agent-browser 404 + bad
+  signature aborting the whole pacman transaction). `cachyos-rate-mirrors` +
+  retry fixed it; all 9 picks installed and verified. Wizard hardened: batch
+  failure now falls back to per-package installs so one bad package cannot
+  starve the queue (vendored tarball + sha pin updated; pending tests updated).
+- New build guard: `verify_installer_libs()` in build.sh runs after every
+  phase-2 — extracts the embedded installer libs from the finished ISO and
+  byte-compares them with `iso/installer/lib/`; mismatch fails the build.
+  (Happy path verified against the existing 21:40 ISO.)
+- Laptop is package-current: linux-cachyos 7.2.7 = repo version, 0 updates
+  pending. SSH lesson: sudo over `ssh -t` needs `-t`; faillock lockouts show
+  "Sorry, try again" for CORRECT passwords (10-min window, 5 tries).
+- Whole batch COMMITTED 2026-10-27 (d4a5e8b fixes, 90c8d73+1fe1b5b docs/tests),
+  416 phase-1 tests pass. Tree clean.
+- NEXT: rebuild the ISO (wizard fallback + guard now in tree), re-flash the
+  stick, and do one final fresh VM install to confirm end-to-end. The current
+  stick image is fine for the laptop as-is (already patched in place).
 
 ## ✅ Verification checklist
 

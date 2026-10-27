@@ -314,10 +314,18 @@ def test_partial_paru_failure_unqueues_only_installed_picks(wizard: dict) -> Non
     result = run_picker(wizard, "reaper bitwig", "--once")
 
     assert result.returncode == 0, result.stderr
-    # reaper really installed; bitwig is the only thing left to do.
+    # Batch aborted (reaper landed in the transaction, bitwig did not); the
+    # per-package fallback skips installed reaper, solo-installs... fails on
+    # bitwig, which stays queued. Nothing installed is ever re-queued.
+    log = wizard["paru_log"].read_text()
+    assert "paru -S --noconfirm --needed reaper bitwig" in log
+    assert "paru -S --noconfirm --needed bitwig\n" in log  # solo retry call
+    trace = install_log(wizard).read_text()
+    assert "bitwig (solo retry)" in trace
+    assert "reaper (solo retry)" not in trace
     assert queued(wizard) == ["bitwig"]
     assert not done_marker(wizard).exists()
-    assert "could not install everything" in result.stdout
+    assert "could not install: bitwig" in result.stdout
 
 
 def test_build_sh_pins_the_vendored_tarball() -> None:
