@@ -201,7 +201,6 @@ def test_dry_run_asks_for_one_password_and_changes_nothing(tmp_path: Path) -> No
             "correct horse battery staple",  # account password
             "correct horse battery staple",  # confirmation
             "",  # encryption (default: on) — no root question in between
-            "",  # desktop (default: plasma)
             "y",  # proceed
         ]
     )
@@ -218,6 +217,10 @@ def test_dry_run_asks_for_one_password_and_changes_nothing(tmp_path: Path) -> No
     assert "locked (sudo uses your password)" in out
     assert "no internet connection detected" in out
     assert "dry run" in out
+    # The desktop is not a question any more: Hyprland (UWSM) + Noctalia is the
+    # only session in the image, so the summary states it instead of asking.
+    assert "Syntropia Hyprland (Noctalia, UWSM)" in out
+    assert "Select desktop" not in out
     # Dry run must not leave the credentials on disk.
     assert not Path(installer_env(tmp_path)["SYNTROPIA_INSTALL_CONFIG"]).exists()
 
@@ -237,7 +240,6 @@ def test_dry_run_separate_root_password(tmp_path: Path) -> None:
             "root passphrase 2",  # root password
             "root passphrase 2",  # root confirmation
             "2",  # encryption off
-            "2",  # hyprland
             "y",
         ]
     )
@@ -265,7 +267,6 @@ def test_rejects_short_password_and_bad_disk_choice(tmp_path: Path) -> None:
             "k",
             "abcdefghij",  # confirmation
             "",  # encryption
-            "",  # desktop
             "y",
         ]
     )
