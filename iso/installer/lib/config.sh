@@ -33,7 +33,9 @@ data = {
     # runner to run `passwd -l root` instead of `chpasswd`.
     "root_password": env.get("INSTALL_ROOT_PASSWORD", ""),
     "root_password_mode": env.get("INSTALL_ROOT_PASSWORD_MODE", "locked"),
-    "desktop_env":   env.get("INSTALL_DESKTOP", "plasma"),
+    # Hyprland (UWSM) is the only desktop the image ships; the key is kept as
+    # a record of the install, not as a choice (NEXT_SESSION.md item 4).
+    "desktop_env":   env.get("INSTALL_DESKTOP", "hyprland"),
     "encrypt":       env.get("INSTALL_ENCRYPT", "true") == "true",
     "keymap":        env.get("INSTALL_KEYMAP", "us"),
     "online":        env.get("INSTALL_ONLINE", "false") == "true",

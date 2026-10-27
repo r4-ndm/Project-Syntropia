@@ -41,14 +41,40 @@ for h in "$ROOT"/home/*; do
         cp -r "$ROOT/etc/syntropia/profiles/hyprland/.config/"* "$h/.config/" 2>/dev/null || true
     fi
 
+    # Suppress Noctalia first-boot welcome/setup wizard
+    mkdir -p "$ROOT/etc/skel/.config/noctalia" "$ROOT/etc/skel/.local/state/noctalia"
+    touch "$ROOT/etc/skel/.config/noctalia/.setup-complete" "$ROOT/etc/skel/.local/state/noctalia/.setup-complete"
+    mkdir -p "$h/.config/noctalia" "$h/.local/state/noctalia"
+    touch "$h/.config/noctalia/.setup-complete" "$h/.local/state/noctalia/.setup-complete"
+
+    # Ensure setup_wizard_enabled = false is written to configs
+    for cfg in "$ROOT/etc/skel/.config/noctalia/config.toml" "$h/.config/noctalia/config.toml"; do
+        if [[ -f "$cfg" ]]; then
+            grep -q '^setup_wizard_enabled' "$cfg" || sed -i '/^\[shell\]/a setup_wizard_enabled = false' "$cfg"
+        fi
+    done
+
     # chown numerically from the TARGET's passwd (the user exists there, not
     # in the live env); fall back to root if the user can't be resolved.
     uid="$(awk -F: -v u="$u" '$1==u{print $3; exit}' "$ROOT/etc/passwd" 2>/dev/null)"
     gid="$(awk -F: -v u="$u" '$1==u{print $4; exit}' "$ROOT/etc/passwd" 2>/dev/null)"
     if [ -n "${uid:-}" ] && [ -n "${gid:-}" ]; then
-        chown -R "$uid:$gid" "$h/.config" 2>/dev/null || true
+        chown -R "$uid:$gid" "$h/.config" "$h/.local" 2>/dev/null || true
     fi
 done
+
+# Purge and neutralize gnome-keyring from the installed target (KWallet owns secrets)
+syntropia_installer_lib="${SYNTROPIA_INSTALLER_LIB:-/usr/local/lib/syntropia-installer}"
+if [[ -f "$syntropia_installer_lib/keyring.sh" ]]; then
+    FORCE_DISABLE_GNOME_KEYRING=1
+    # shellcheck source=/dev/null
+    . "$syntropia_installer_lib/keyring.sh"
+    keyring_disable_gnome_keyring_secrets "$ROOT" 2>/dev/null || true
+fi
+arch-chroot "$ROOT" pacman -Rdd --noconfirm gnome-keyring 2>/dev/null || true
+if [[ -e "$ROOT/usr/bin/gnome-keyring-daemon" ]]; then
+    mv -f "$ROOT/usr/bin/gnome-keyring-daemon" "$ROOT/usr/bin/gnome-keyring-daemon.syntropia-disabled" 2>/dev/null || chmod 000 "$ROOT/usr/bin/gnome-keyring-daemon" 2>/dev/null || true
+fi
 
 # Deploy Hyprland / Noctalia profile helper tools to /usr/local/bin
 if [[ -d "$ROOT/etc/syntropia/profiles/hyprland/bin" ]]; then

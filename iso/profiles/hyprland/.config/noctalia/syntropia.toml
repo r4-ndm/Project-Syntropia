@@ -14,6 +14,10 @@ input_borders = true
 popup_borders = true
 card_borders = true
 popup_shadows = false
+setup_wizard_enabled = false
+
+    [shell.launcher.panels]
+    ignored = [ "polkit", "setup-wizard", "test", "launcher" ]
 
 [bar.default]
 # Bottom bar to match a traditional desktop taskbar (see config.toml for the

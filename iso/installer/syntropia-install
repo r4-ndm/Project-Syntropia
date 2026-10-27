@@ -2,8 +2,11 @@
 # Syntropia live ISO first-install entry point (tty1).
 # ===================================================
 # A keyboard-driven setup wizard: target disk, identity, keymap, network,
-# passwords, encryption and desktop, then a summary and hand-off to the
-# progress dashboard (which supervises syntropia-install-runner).
+# passwords and encryption, then a summary and hand-off to the progress
+# dashboard (which supervises syntropia-install-runner).
+#
+# There is no desktop choice: Hyprland (UWSM) is the only session, in the live
+# image and on the installed system (NEXT_SESSION.md architecture item 4).
 #
 # Lives in iso/installer/ as a real script (not a heredoc inside build.sh) so
 # it can be syntax-checked, dry-run and tested. build.sh only copies this file
@@ -81,7 +84,8 @@ USER_PASSWORD=""
 ROOT_PASSWORD=""
 ROOT_PASSWORD_MODE="locked"
 ENCRYPT_DISK="true"
-DESKTOP_ENV="plasma"
+# Fixed: the install is Hyprland-only, so this is never asked and never changes.
+DESKTOP_ENV="hyprland"
 INSTALL_ONLINE="false"
 
 # ── terminal setup ─────────────────────────────────────────────────────────
@@ -249,21 +253,6 @@ step_encryption() {
     note "$GREEN" "✓" "encryption: $([[ "$ENCRYPT_DISK" == "true" ]] && echo "LUKS2 (unlocked with your account password)" || echo "off")"
 }
 
-step_desktop() {
-    local answer=""
-
-    printf '\n'
-    section_rule "Desktop"
-    printf '%s    [1] Syntropia Plasma   — KDE Plasma 6 + Syntropia suite %s(default)%s\n' "$INDENT" "$DIM" "$RESET"
-    printf '%s    [2] Syntropia Hyprland — Noctalia shell + audio workflow\n\n' "$INDENT"
-    ask_line "Select desktop [1-2]" answer "1" || abort_no_input
-    case "${answer:-1}" in
-        2) DESKTOP_ENV="hyprland" ;;
-        *) DESKTOP_ENV="plasma" ;;
-    esac
-    note "$GREEN" "✓" "desktop: $([[ "$DESKTOP_ENV" == "plasma" ]] && echo "Syntropia Plasma" || echo "Syntropia Hyprland")"
-}
-
 step_summary() {
     local answer=""
 
@@ -276,7 +265,7 @@ step_summary() {
     field_line "Keymap" "$SELECTED_KEYMAP"
     field_line "Encryption" "$([[ "$ENCRYPT_DISK" == "true" ]] && echo "LUKS2" || echo "off")"
     field_line "Root account" "$(root_password_summary "$USERNAME")"
-    field_line "Desktop" "$([[ "$DESKTOP_ENV" == "plasma" ]] && echo "Syntropia Plasma (KDE)" || echo "Syntropia Hyprland")"
+    field_line "Desktop" "Syntropia Hyprland (Noctalia, UWSM)"
     field_line "Bootloader" "Limine (UEFI + BIOS)"
     field_line "Filesystem" "Btrfs (@, @home, @log, @pkg)"
     field_line "Network" "$([[ "$INSTALL_ONLINE" == "true" ]] && echo "online" || echo "offline (apps wizard resumes later)")"
@@ -356,7 +345,6 @@ main() {
             step_network
             step_passwords
             step_encryption
-            step_desktop
             step_summary
             launch_install
             ;;

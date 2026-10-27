@@ -148,17 +148,55 @@ phase1_build_iso() {
         ok "limine added to the live package list"
     fi
 
-    # Patch 1c: KWallet's PAM auto-unlock needs pam_kwallet5.so (kwallet-pam)
-    # and socat, the helper its pam_kwallet_init script uses to hand the
-    # password to ksecretd. CachyOS pulls in kwallet itself but not these two,
-    # and without them the installed system asks the user to create a NEW
-    # wallet password at first login (2026-10-21 laptop install).
-    for pkg in kwallet-pam socat; do
+    # Patch 1c: KWallet's PAM auto-unlock needs pam_kwallet5.so (kwallet-pam),
+    # the wallet daemon it launches (kwallet: ksecretd + kwalletd6) and socat,
+    # the helper its pam_kwallet_init script uses to hand the password over.
+    # CachyOS pulls kwallet in as a Plasma dependency, and Plasma is no longer
+    # in the list, so all three are named explicitly: without them the installed
+    # system asks the user to create a NEW wallet password at first login
+    # (2026-10-21 and 2026-10-25 laptop installs).
+    for pkg in kwallet-pam kwallet socat; do
         if ! grep -qx "$pkg" packages.x86_64; then
             printf '%s\n' "$pkg" >> packages.x86_64
             ok "$pkg added to the live package list (keyring auto-unlock)"
         fi
     done
+
+    # Patch 1d: Hyprland (UWSM) is the only desktop. Plasma is removed from
+    # both the live image and the installed target (NEXT_SESSION.md item 4), so
+    # the stock profile's KDE entries must never be pacstrapped: mkarchiso
+    # installs the whole list in ONE transaction, before any of phase 2 runs,
+    # so the entries are deleted from the profile here and not removed later.
+    # The edits go to packages_desktop.x86_64, the real file: `sed -i` on the
+    # packages.x86_64 symlink would replace the symlink itself.
+    local -a plasma_pkgs=(
+        kde-gtk-config plasma-desktop plasma-integration plasma-nm plasma-pa
+        plasma-thunderbolt plasma-workspace polkit-kde-agent
+        plasma-login-manager
+    )
+    local plasma_pkg
+    for plasma_pkg in "${plasma_pkgs[@]}"; do
+        if grep -qx "$plasma_pkg" packages_desktop.x86_64; then
+            sed -i "/^${plasma_pkg}\$/d" packages_desktop.x86_64
+            ok "$plasma_pkg removed from the live package list (Hyprland-only)"
+        fi
+    done
+
+    # gnome-keyring conflicts with KWallet/ksecretd Secret Service ownership and
+    # causes "Choose password for new keyring" prompts at login / browser startup.
+    # We remove gnome-keyring from the package list entirely.
+    if grep -qx 'gnome-keyring' packages_desktop.x86_64; then
+        sed -i "/^gnome-keyring\$/d" packages_desktop.x86_64
+        ok "gnome-keyring removed from the live package list (KWallet is the Secret Service)"
+    fi
+
+    # plasma-login-manager was the image's only display manager, so removing it
+    # means shipping SDDM explicitly: the installer wires SDDM autologin into the
+    # hyprland-uwsm session and the keyring PAM drop-in patches sddm/sddm-autologin.
+    if ! grep -qx 'sddm' packages.x86_64; then
+        printf 'sddm\n' >> packages.x86_64
+        ok "sddm added to the live package list (the login manager)"
+    fi
 
     # Patch 2: Add NoExtract for slide files in pacman.conf [options] section
     # This prevents cachyos-calamares-next package slides from conflicting with our airootfs overlay.
@@ -242,10 +280,11 @@ PYEOF
     local built_rootfs
     built_rootfs="$WORK_DIR/mkarchiso-work/x86_64/airootfs"
     if [[ -f "$built_rootfs/usr/lib/security/pam_kwallet5.so" ]] \
-        && [[ -x "$built_rootfs/usr/bin/socat" ]]; then
-        ok "Keyring PAM module + socat are in the live image (wallet auto-unlock can work)"
+        && [[ -x "$built_rootfs/usr/bin/socat" ]] \
+        && [[ -x "$built_rootfs/usr/bin/ksecretd" || -x "$built_rootfs/usr/bin/kwalletd6" ]]; then
+        ok "Keyring PAM module + wallet daemon + socat are in the live image (wallet auto-unlock can work)"
     else
-        warn "pam_kwallet5.so or socat is missing from the live image — installs will ask to create a wallet password"
+        warn "pam_kwallet5.so, the kwallet daemon or socat is missing from the live image — installs will ask to create a wallet password"
     fi
 
     # ── Rename whatever mkarchiso actually produced ──
@@ -442,8 +481,9 @@ phase2_inject_slides() {
     # socat. Warn instead of failing — an online install can pacman them into the
     # target itself, and the runner says so when it cannot.
     if [[ ! -f "$remaster_dir/rootfs/usr/lib/security/pam_kwallet5.so" ]] \
-        || [[ ! -x "$remaster_dir/rootfs/usr/bin/socat" ]]; then
-        warn "Stock image lacks kwallet-pam/socat — offline installs will ask to create a wallet password (needs a phase-1 rebuild)"
+        || [[ ! -x "$remaster_dir/rootfs/usr/bin/socat" ]] \
+        || [[ ! -x "$remaster_dir/rootfs/usr/bin/ksecretd" && ! -x "$remaster_dir/rootfs/usr/bin/kwalletd6" ]]; then
+        warn "Stock image lacks kwallet-pam/kwallet/socat — offline installs will ask to create a wallet password (needs a phase-1 rebuild)"
     fi
 
     # Step 3: Swap in our amended slides
@@ -522,7 +562,6 @@ PYEOF
     info "Configuring direct TUI Omarchy-style installer on tty1 (masking graphical display managers)..."
     mkdir -p "rootfs/etc/systemd/system"
     ln -sf /dev/null "rootfs/etc/systemd/system/display-manager.service"
-    ln -sf /dev/null "rootfs/etc/systemd/system/plasmalogin.service"
     ln -sf /dev/null "rootfs/etc/systemd/system/sddm.service"
     rm -f "rootfs/etc/systemd/system/default.target"
     ln -sf /usr/lib/systemd/system/multi-user.target "rootfs/etc/systemd/system/default.target"
@@ -653,6 +692,37 @@ EOF
         ok "Hyprland Noctalia overlay shipped (/etc/syntropia/profiles/hyprland)"
     fi
 
+    # Step 3.6b2: Chromium-family sandbox helper fix.
+    #
+    # Brave is installed by the apps wizard (paru/AUR `brave-bin`), not by the
+    # installer, so the fix has to be waiting for it in the target. A pacman
+    # hook is the one place that applies to every install path (wizard, manual
+    # `paru -S`, future brew) — the wizard itself is a sha256-pinned vendored
+    # tarball from the app-wiz4rd repo and is not ours to edit here.
+    # chrome-sandbox must be root:root 4755 or Brave refuses to start; without
+    # the setuid bit the browser is dead on arrival (2026-10-25 laptop install).
+    info "Installing chrome-sandbox (Brave/Chromium) post-install fix..."
+    install -Dm755 "$SCRIPT_DIR/hook-scripts/hook-chrome-sandbox.sh" \
+        "rootfs/usr/local/bin/syntropia-fix-chrome-sandbox"
+    mkdir -p "rootfs/etc/pacman.d/hooks"
+    cat > "rootfs/etc/pacman.d/hooks/syntropia-chrome-sandbox.hook" << 'HOOKEOF'
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Path
+Target = opt/brave.com/brave/chrome-sandbox
+Target = usr/lib/brave/chrome-sandbox
+Target = usr/lib/brave-bin/chrome-sandbox
+Target = opt/google/chrome/chrome-sandbox
+Target = usr/lib/chromium/chrome-sandbox
+
+[Action]
+Description = Syntropia: make chrome-sandbox a root-owned setuid helper (Brave/Chromium)
+When = PostTransaction
+Exec = /usr/local/bin/syntropia-fix-chrome-sandbox
+HOOKEOF
+    ok "chrome-sandbox fix hooked into pacman (carried into the installed target)"
+
     # Step 3.6c: Pre-install Hyprland Noctalia packages into the ISO rootfs
     info "Pre-installing Hyprland Noctalia packages into ISO rootfs..."
     local hypr_pkgs=(
@@ -708,6 +778,17 @@ EOF
         arch-chroot "rootfs" pacman -Sy --noconfirm --needed --overwrite '*' "${hypr_pkgs[@]}" \
             || die "Could not pre-install Hyprland packages into rootfs"
 
+        # cachyos-hypr-noctalia brings gnome-keyring as a dependency, but KWallet
+        # (ksecretd) is Syntropia's Secret Service provider. Remove gnome-keyring
+        # from the live rootfs so it does not compete or prompt for passwords.
+        pacman -r "rootfs" -Rdd --noconfirm gnome-keyring 2>/dev/null || true
+        arch-chroot "rootfs" pacman -Rdd --noconfirm gnome-keyring 2>/dev/null || true
+        rm -f rootfs/usr/share/dbus-1/services/org.gnome.keyring*.service \
+              rootfs/usr/share/dbus-1/services/org.freedesktop.secrets.service \
+              rootfs/usr/share/xdg-desktop-portal/portals/gnome-keyring.portal \
+              rootfs/etc/xdg/autostart/gnome-keyring*.desktop \
+              rootfs/etc/systemd/user/sockets.target.wants/gnome-keyring-daemon.socket
+
         # Titlebar window buttons (hyprbars). Built here, while DNS and the
         # permissive pacman.conf from above are still in place.
         install_hyprbars_plugin "rootfs" || warn "Continuing without hyprbars (no titlebar buttons)"
@@ -740,6 +821,17 @@ EOF
         if [[ -d "$REPO_ROOT/iso/profiles/hyprland/.config" ]]; then
             mkdir -p "rootfs/etc/skel/.config"
             cp -r "$REPO_ROOT/iso/profiles/hyprland/.config/"* "rootfs/etc/skel/.config/" 2>/dev/null || true
+            mkdir -p "rootfs/etc/skel/.config/noctalia" "rootfs/etc/skel/.local/state/noctalia"
+            touch "rootfs/etc/skel/.config/noctalia/.setup-complete" "rootfs/etc/skel/.local/state/noctalia/.setup-complete"
+            for n_cfg in "rootfs/etc/skel/.config/noctalia/config.toml" "rootfs/home/liveuser/.config/noctalia/config.toml"; do
+                if [[ -f "$n_cfg" ]]; then
+                    grep -q '^setup_wizard_enabled' "$n_cfg" || sed -i '/^\[shell\]/a setup_wizard_enabled = false' "$n_cfg"
+                fi
+            done
+            if [[ -d "rootfs/home/liveuser" ]]; then
+                mkdir -p "rootfs/home/liveuser/.config/noctalia" "rootfs/home/liveuser/.local/state/noctalia"
+                touch "rootfs/home/liveuser/.config/noctalia/.setup-complete" "rootfs/home/liveuser/.local/state/noctalia/.setup-complete"
+            fi
             ok "Syntropia Hyprland Noctalia overlay deployed to rootfs/etc/skel/.config"
         fi
     fi

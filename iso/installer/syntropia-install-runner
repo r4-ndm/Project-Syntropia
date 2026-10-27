@@ -61,7 +61,6 @@ if [[ -z "$ROOT_PASSWORD_MODE" ]]; then
   [[ -n "$ROOT_PASSWORD" ]] && ROOT_PASSWORD_MODE="same-as-user" || ROOT_PASSWORD_MODE="locked"
 fi
 HOSTNAME=$(config_get "$CONFIG_FILE" hostname 'syntropia')
-DESKTOP_ENV=$(config_get "$CONFIG_FILE" desktop_env 'plasma')
 ENCRYPT_DISK=$(config_get "$CONFIG_FILE" encrypt 'true')
 KEYMAP=$(config_get "$CONFIG_FILE" keymap 'us')
 ONLINE=$(config_get "$CONFIG_FILE" online 'false')
@@ -80,7 +79,7 @@ if [[ "$ROOT_PASSWORD_MODE" != "locked" && -z "$ROOT_PASSWORD" ]]; then
 fi
 
 echo "=== Syntropia Install: Starting ==="
-echo "Target disk: $TARGET_DISK, User: $USERNAME, Host: $HOSTNAME, DE: $DESKTOP_ENV, Encrypt: $ENCRYPT_DISK, Keymap: $KEYMAP, Online: $ONLINE"
+echo "Target disk: $TARGET_DISK, User: $USERNAME, Host: $HOSTNAME, DE: hyprland, Encrypt: $ENCRYPT_DISK, Keymap: $KEYMAP, Online: $ONLINE"
 
 set_phase "Partitioning target disk ($TARGET_DISK)" 50
 umount -R "$TARGET" 2>/dev/null || true
@@ -313,78 +312,86 @@ if ! limine_install_bios "$LIMINE_SRC" "$TARGET/boot" "$(limine_bin "$TARGET")" 
   fi
 fi
 
-set_phase "Configuring Desktop ($DESKTOP_ENV) & Noctalia shell" 890
-SESSION_NAME="plasma.desktop"
+set_phase "Configuring Hyprland (UWSM) & Noctalia shell" 890
+echo "Installing CachyOS Hyprland Noctalia suite..."
+# hyprbars is AUR-only: build.sh compiles it into the ISO and the copy below
+# carries it into the target — see install_hyprbars_plugin(). sddm is the
+# login manager the autologin path below wires up.
+HYPR_PKGS="cachyos-hypr-noctalia noctalia sddm alacritty kitty"
 
-if [[ "$DESKTOP_ENV" == "hyprland" ]]; then
-  echo "Installing CachyOS Hyprland Noctalia suite..."
-  # hyprbars is AUR-only: build.sh compiles it into the ISO and the copy below
-  # carries it into the target — see install_hyprbars_plugin().
-  HYPR_PKGS="cachyos-hypr-noctalia noctalia alacritty kitty"
-  
-  # The suite is baked into the live image, so this fallback only exists for an
-  # image that lost it. Skip it entirely when the installer was told there is no
-  # internet: pacman -Sy on a dead link stalls the install for no benefit.
-  if [[ "$ONLINE" == "true" ]] \
-     && [[ ! -f "$TARGET/usr/share/wayland-sessions/hyprland-uwsm.desktop" && ! -f "$TARGET/usr/share/wayland-sessions/hyprland.desktop" && ! -f "$TARGET/usr/share/wayland-sessions/Hyprland.desktop" ]]; then
-    if [[ -f /etc/resolv.conf ]]; then
-      cp -L /etc/resolv.conf "$TARGET/etc/resolv.conf" 2>/dev/null || true
-    fi
-    arch-chroot "$TARGET" pacman -Sy --noconfirm --needed $HYPR_PKGS 2>&1 || true
+# The suite is baked into the live image, so this fallback only exists for an
+# image that lost it. Skip it entirely when the installer was told there is no
+# internet: pacman -Sy on a dead link stalls the install for no benefit.
+if [[ "$ONLINE" == "true" ]] \
+   && [[ ! -f "$TARGET/usr/share/wayland-sessions/hyprland-uwsm.desktop" ]]; then
+  if [[ -f /etc/resolv.conf ]]; then
+    cp -L /etc/resolv.conf "$TARGET/etc/resolv.conf" 2>/dev/null || true
+  fi
+  arch-chroot "$TARGET" pacman -Sy --noconfirm --needed $HYPR_PKGS 2>&1 || true
+fi
+
+# Deploy Syntropia Hyprland Noctalia overlay to skel and user home
+if [[ -d /etc/syntropia/profiles/hyprland ]]; then
+  mkdir -p "$TARGET/etc/skel/.config" "$TARGET/home/$USERNAME/.config"
+  if [[ -d /etc/syntropia/profiles/hyprland/.config ]]; then
+    cp -r /etc/syntropia/profiles/hyprland/.config/* "$TARGET/etc/skel/.config/" 2>/dev/null || true
+    cp -r /etc/syntropia/profiles/hyprland/.config/* "$TARGET/home/$USERNAME/.config/" 2>/dev/null || true
   fi
 
-  # Deploy Syntropia Hyprland Noctalia overlay to skel and user home
-  if [[ -d /etc/syntropia/profiles/hyprland ]]; then
-    mkdir -p "$TARGET/etc/skel/.config" "$TARGET/home/$USERNAME/.config"
-    if [[ -d /etc/syntropia/profiles/hyprland/.config ]]; then
-      cp -r /etc/syntropia/profiles/hyprland/.config/* "$TARGET/etc/skel/.config/" 2>/dev/null || true
-      cp -r /etc/syntropia/profiles/hyprland/.config/* "$TARGET/home/$USERNAME/.config/" 2>/dev/null || true
+  # Suppress Noctalia first-boot welcome/setup wizard on installed system
+  mkdir -p "$TARGET/home/$USERNAME/.config/noctalia" "$TARGET/home/$USERNAME/.local/state/noctalia"
+  touch "$TARGET/home/$USERNAME/.config/noctalia/.setup-complete" "$TARGET/home/$USERNAME/.local/state/noctalia/.setup-complete"
+  mkdir -p "$TARGET/etc/skel/.config/noctalia" "$TARGET/etc/skel/.local/state/noctalia"
+  touch "$TARGET/etc/skel/.config/noctalia/.setup-complete" "$TARGET/etc/skel/.local/state/noctalia/.setup-complete"
+
+  # Ensure setup_wizard_enabled = false is explicit in both configs
+  for cfg in "$TARGET/home/$USERNAME/.config/noctalia/config.toml" "$TARGET/etc/skel/.config/noctalia/config.toml"; do
+    if [[ -f "$cfg" ]]; then
+      grep -q '^setup_wizard_enabled' "$cfg" || sed -i '/^\[shell\]/a setup_wizard_enabled = false' "$cfg"
     fi
+  done
 
-    # Copy helper scripts
-    if [[ -d /etc/syntropia/profiles/hyprland/bin ]]; then
-      mkdir -p "$TARGET/usr/local/bin"
-      cp -a /etc/syntropia/profiles/hyprland/bin/* "$TARGET/usr/local/bin/" 2>/dev/null || true
-      chmod +x "$TARGET/usr/local/bin"/syntropia-* 2>/dev/null || true
-    fi
-  fi
-
-  # Titlebar buttons (hyprbars) are compiled into the live ISO by build.sh
-  # phase 2. Carry the module into the target only when both sides run the same
-  # Hyprland release: the plugin bakes Hyprland's API hash in at compile time,
-  # so an online install that pulled a newer Hyprland must not get this copy.
-  live_hypr_ver=$(pacman -Q hyprland 2>/dev/null | awk '{print $2}') || true
-  target_hypr_ver=$(arch-chroot "$TARGET" pacman -Q hyprland 2>/dev/null | awk '{print $2}') || true
-  if [[ -f /usr/lib/hyprland/hyprbars.so && -n "$live_hypr_ver" && "$live_hypr_ver" == "$target_hypr_ver" ]]; then
-    install -Dm755 /usr/lib/hyprland/hyprbars.so "$TARGET/usr/lib/hyprland/hyprbars.so" 2>/dev/null || true
-  fi
-
-  # Fallback safety: verify that hyprland session actually exists on target (prefer hyprland-uwsm)
-  if [[ -f "$TARGET/usr/share/wayland-sessions/hyprland-uwsm.desktop" ]]; then
-    SESSION_NAME="hyprland-uwsm.desktop"
-  elif [[ -f "$TARGET/usr/share/wayland-sessions/hyprland.desktop" ]]; then
-    SESSION_NAME="hyprland.desktop"
-  elif [[ -f "$TARGET/usr/share/wayland-sessions/Hyprland.desktop" ]]; then
-    SESSION_NAME="Hyprland.desktop"
-  else
-    echo "Warning: hyprland session not found, falling back to plasma.desktop"
-    SESSION_NAME="plasma.desktop"
+  # Copy helper scripts
+  if [[ -d /etc/syntropia/profiles/hyprland/bin ]]; then
+    mkdir -p "$TARGET/usr/local/bin"
+    cp -a /etc/syntropia/profiles/hyprland/bin/* "$TARGET/usr/local/bin/" 2>/dev/null || true
+    chmod +x "$TARGET/usr/local/bin"/syntropia-* 2>/dev/null || true
   fi
 fi
 
-# Login manager configuration. Autologin is written only when KEYRING_AUTOLOGIN
+# Completely purge gnome-keyring from the target system (KWallet owns secrets)
+arch-chroot "$TARGET" pacman -Rdd --noconfirm gnome-keyring 2>/dev/null || true
+if [[ -e "$TARGET/usr/bin/gnome-keyring-daemon" ]]; then
+  mv -f "$TARGET/usr/bin/gnome-keyring-daemon" "$TARGET/usr/bin/gnome-keyring-daemon.syntropia-disabled" 2>/dev/null || chmod 000 "$TARGET/usr/bin/gnome-keyring-daemon" 2>/dev/null || true
+fi
+
+# Titlebar buttons (hyprbars) are compiled into the live ISO by build.sh
+# phase 2. Carry the module into the target only when both sides run the same
+# Hyprland release: the plugin bakes Hyprland's API hash in at compile time,
+# so an online install that pulled a newer Hyprland must not get this copy.
+live_hypr_ver=$(pacman -Q hyprland 2>/dev/null | awk '{print $2}') || true
+target_hypr_ver=$(arch-chroot "$TARGET" pacman -Q hyprland 2>/dev/null | awk '{print $2}') || true
+if [[ -f /usr/lib/hyprland/hyprbars.so && -n "$live_hypr_ver" && "$live_hypr_ver" == "$target_hypr_ver" ]]; then
+  install -Dm755 /usr/lib/hyprland/hyprbars.so "$TARGET/usr/lib/hyprland/hyprbars.so" 2>/dev/null || true
+fi
+
+# The autologin below writes Session=hyprland-uwsm.desktop, and the plain
+# hyprland.desktop entries are stripped from the image (NEXT_SESSION.md item 4).
+# A missing UWSM session means the build lost the suite — stop instead of
+# shipping a target that logs into something else.
+if [[ ! -f "$TARGET/usr/share/wayland-sessions/hyprland-uwsm.desktop" ]]; then
+  echo "hyprland-uwsm.desktop is missing from the installed system — the image lost the Hyprland/UWSM session (build bug)." >&2
+  echo "Rebuild the ISO (iso/build.sh ships cachyos-hypr-noctalia) and reinstall." >&2
+  exit 1
+fi
+SESSION_NAME="hyprland-uwsm.desktop"
+
+# Login manager: SDDM only. Autologin is written only when KEYRING_AUTOLOGIN
 # set it: on an encrypted disk PAM can recover the passphrase (same secret as
 # the account password), so the wallet still unlocks. Without that chain the
 # login screen has to run so pam_kwallet receives the typed password.
-PLASMA_AUTOLOGIN_BLOCK=""
 SDDM_AUTOLOGIN_BLOCK=""
 if [[ -n "$AUTOLOGIN_USER" ]]; then
-  PLASMA_AUTOLOGIN_BLOCK="[Autologin]
-User=$AUTOLOGIN_USER
-Session=$SESSION_NAME
-Relogin=false
-
-"
   SDDM_AUTOLOGIN_BLOCK="[Autologin]
 User=$AUTOLOGIN_USER
 Session=$SESSION_NAME
@@ -392,20 +399,6 @@ Relogin=false
 "
 fi
 
-mkdir -p "$TARGET/etc/plasmalogin.conf.d"
-cat > "$TARGET/etc/plasmalogin.conf" << PLASMACONF
-${PLASMA_AUTOLOGIN_BLOCK}[Users]
-MinimumUid=100
-MaximumUid=60000
-PLASMACONF
-
-cat > "$TARGET/etc/plasmalogin.conf.d/autologin.conf" << PLASMACONF
-${PLASMA_AUTOLOGIN_BLOCK}[Users]
-MinimumUid=100
-MaximumUid=60000
-PLASMACONF
-
-# Configure SDDM autologin configuration as well
 mkdir -p "$TARGET/etc/sddm.conf.d"
 printf '%s' "$SDDM_AUTOLOGIN_BLOCK" > "$TARGET/etc/sddm.conf"
 printf '%s' "$SDDM_AUTOLOGIN_BLOCK" > "$TARGET/etc/sddm.conf.d/autologin.conf"
@@ -413,27 +406,39 @@ printf '%s' "$SDDM_AUTOLOGIN_BLOCK" > "$TARGET/etc/sddm.conf.d/autologin.conf"
 # Explicitly unmask and wire display-manager and graphical.target for installed system
 mkdir -p "$TARGET/etc/systemd/system"
 rm -f "$TARGET/etc/systemd/system/display-manager.service"
-rm -f "$TARGET/etc/systemd/system/plasmalogin.service"
 rm -f "$TARGET/etc/systemd/system/sddm.service"
 
-if [[ -f "$TARGET/usr/lib/systemd/system/plasmalogin.service" ]]; then
-  ln -sf /usr/lib/systemd/system/plasmalogin.service "$TARGET/etc/systemd/system/display-manager.service"
-  arch-chroot "$TARGET" systemctl enable plasmalogin.service 2>/dev/null || true
-elif [[ -f "$TARGET/usr/lib/systemd/system/sddm.service" ]]; then
+if [[ -f "$TARGET/usr/lib/systemd/system/sddm.service" ]]; then
   ln -sf /usr/lib/systemd/system/sddm.service "$TARGET/etc/systemd/system/display-manager.service"
   arch-chroot "$TARGET" systemctl enable sddm.service 2>/dev/null || true
+else
+  echo "SDDM is missing from the installed system — the image lost the login manager (build bug)." >&2
+  echo "Rebuild the ISO (iso/build.sh ships sddm) and reinstall." >&2
+  exit 1
 fi
 ln -sf /usr/lib/systemd/system/graphical.target "$TARGET/etc/systemd/system/default.target"
 arch-chroot "$TARGET" systemctl set-default graphical.target 2>/dev/null || true
 arch-chroot "$TARGET" chown -R "$USERNAME:$USERNAME" "/home/$USERNAME" 2>/dev/null || true
 
 set_phase "Configuring keyring auto-unlock (KWallet)" 920
-# Ships the wallet that Plasma already unlocked to libsecret apps, so Chromium
-# and Electron do not create a second keyring with its own password prompt.
+# Ships the wallet that PAM unlocks at login to libsecret apps, so Chromium and
+# Electron do not create a second keyring with its own password prompt. Covers
+# sddm + sddm-autologin (SDDM is the login manager) and tty login in the target.
+FORCE_DISABLE_GNOME_KEYRING=1
 if keyring_configure_target "$TARGET" "$USERNAME" "$ONLINE" "$KEYRING_AUTOLOGIN"; then
   echo "Keyring: KWallet auto-unlock configured (autologin=$KEYRING_AUTOLOGIN)."
 else
-  echo "warning: keyring auto-unlock incomplete — the first login may ask to create a wallet." >&2
+  echo "warning: keyring auto-unlock incomplete — falling back to the login screen." >&2
+  # Autologin types no password, so pam_kwallet can only unlock the wallet via
+  # pam_systemd_loadkey. When that chain is not complete, autologin is exactly
+  # how the first login grows a "create a new keyring" prompt (2026-10-25
+  # laptop): make SDDM ask for the password instead, which PAM hands to
+  # pam_kwallet directly.
+  if [[ -n "$AUTOLOGIN_USER" ]]; then
+    : > "$TARGET/etc/sddm.conf"
+    : > "$TARGET/etc/sddm.conf.d/autologin.conf"
+    echo "Autologin disabled: without a PAM path to the wallet, the login password has to be typed." >&2
+  fi
 fi
 # The kwalletrc was written by root after the earlier chown.
 arch-chroot "$TARGET" chown -R "$USERNAME:$USERNAME" "/home/$USERNAME" 2>/dev/null || true
@@ -470,6 +475,13 @@ mkdir -p "$TARGET/etc/xdg/autostart"
 if [[ -f /etc/syntropia/syntropia-apps.desktop ]]; then
   cp /etc/syntropia/syntropia-apps.desktop "$TARGET/etc/xdg/autostart/"
 fi
+# The wizard must also be findable from the app launcher/search after the
+# one-shot autostart entry has fired: ship its .desktop into the target's
+# applications dir (live image only carries it in /usr/share/applications).
+if [[ -f /usr/share/applications/syntropia-apps.desktop ]]; then
+  mkdir -p "$TARGET/usr/share/applications"
+  cp /usr/share/applications/syntropia-apps.desktop "$TARGET/usr/share/applications/"
+fi
 
 # Clean up live-only installer scripts and conflicting services from target system
 rm -rf "$TARGET/etc/systemd/system/getty@tty1.service.d"
@@ -484,6 +496,7 @@ rm -f "$TARGET/etc/profile.d/syntropia-live-installer.sh"
 rm -f "$TARGET/root/.automated_script.sh"
 rm -f "$TARGET/home/$USERNAME/Desktop/install-syntropia.desktop" "$TARGET/etc/skel/Desktop/install-syntropia.desktop"
 rm -f "$TARGET/home/$USERNAME/Desktop/cachyos-hello.desktop" "$TARGET/etc/skel/Desktop/cachyos-hello.desktop"
+rm -f "$TARGET/home/$USERNAME/.config/autostart/cachyos-hello.desktop" "$TARGET/etc/skel/.config/autostart/cachyos-hello.desktop"
 rm -rf "$TARGET/etc/calamares"
 for f in "$TARGET/root/.bash_profile" "$TARGET/root/.bashrc" "$TARGET/etc/skel/.bash_profile" "$TARGET/etc/skel/.bashrc" "$TARGET/home/$USERNAME/.bash_profile" "$TARGET/home/$USERNAME/.bashrc"; do
   if [[ -f "$f" ]]; then

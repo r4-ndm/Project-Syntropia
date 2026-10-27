@@ -68,10 +68,13 @@ hl.window_rule({
 })
 
 -- Syntropia App Wizard & Floating Helpers
+-- `pin` keeps the wizard on every workspace, so it stays reachable (and
+-- grabbable) if the picker is left open while the user switches workspaces.
 hl.window_rule({
     match = { title = ".*app-wiz4rd.*" },
     float = true,
     center = true,
+    pin = true,
 })
 
 hl.window_rule({
@@ -79,7 +82,33 @@ hl.window_rule({
     float = true,
     center = true,
     size = { "840", "640" },
+    pin = true,
 })
+
+-- Suppress any Noctalia welcome / setup-wizard window (XDG toplevel fallback;
+-- note that Noctalia panels are Wayland layer surfaces which are suppressed at source
+-- via setup_wizard_enabled = false and .setup-complete markers)
+hl.window_rule({
+    match = { title = ".*[Ww]elcome to Noctalia.*" },
+    workspace = "special:minimized",
+})
+
+------------------------------------------
+---- MOVE & RESIZE WITH THE MOUSE --------
+------------------------------------------
+
+-- The stock cachyos-hypr-noctalia config/binds.lua registers these without the
+-- `mouse = true` flag: Hyprland then stores them as plain keyboard binds on a
+-- key literally named "mouse:272", nothing ever fires, and no window can be
+-- dragged or resized with the pointer (2026-10-25 laptop install — the wizard and
+-- a terminal both refused to move). The flag is what turns them into bindm
+-- (movewindow/resizewindow), per the Hyprland binds docs. Our overlay loads
+-- after config.binds, so these are the ones that take effect.
+-- Touchpad-friendly alternatives (no click-and-drag): SUPER + CTRL_L / ALT_L.
+hl.bind(mainMod .. " + mouse:272", hl.dsp.window.drag(),   { mouse = true })
+hl.bind(mainMod .. " + mouse:273", hl.dsp.window.resize(), { mouse = true })
+hl.bind(mainMod .. " + CONTROL + L", hl.dsp.window.drag(),   { mouse = true })
+hl.bind(mainMod .. " + ALT + L",     hl.dsp.window.resize(), { mouse = true })
 
 -----------------------------------------
 ---- WALLPAPER & THEME SELECTOR ---------

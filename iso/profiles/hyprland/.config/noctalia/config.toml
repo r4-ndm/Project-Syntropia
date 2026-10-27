@@ -41,8 +41,12 @@ card_borders = true
 popup_shadows = false
 launch_apps_as_systemd_services = true
 polkit_agent = true
+setup_wizard_enabled = false
 settings_show_advanced = true
 clipboard_image_action_command = "swash --stdin --name \"swash-$(date +'%Y-%m-%d_%H:%M:%S').png\""
+
+    [shell.launcher.panels]
+    ignored = [ "polkit", "setup-wizard", "test", "launcher" ]
 
     [shell.greeter_sync]
     auto_sync = false
