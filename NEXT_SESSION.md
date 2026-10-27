@@ -124,9 +124,14 @@ Syntropia"`); the long-term goal is a full fork, but **not yet**.
   "Sorry, try again" for CORRECT passwords (10-min window, 5 tries).
 - Whole batch COMMITTED 2026-10-27 (d4a5e8b fixes, 90c8d73+1fe1b5b docs/tests),
   416 phase-1 tests pass. Tree clean.
-- NEXT: rebuild the ISO (wizard fallback + guard now in tree), re-flash the
-  stick, and do one final fresh VM install to confirm end-to-end. The current
-  stick image is fine for the laptop as-is (already patched in place).
+- NEXT: ~~rebuild the ISO~~ DONE 2026-10-27: `syntropia-2026.10.27-x86_64.iso`
+  built (sha256 f3080cf609f2…aace0c3), guard passed at build, freshness check
+  clean, dd'd to stick, content check on the flashed stick confirms the FIXED
+  keyring.sh. **Final fresh-VM install verified end-to-end**: installer →
+  app-wiz4rd picker (esc = clean cancel with resume note) → Hyprland/Noctalia
+  desktop with NO keyring prompt and NO Noctalia welcome. VM disk was wiped
+  first (rm qcow2 + OVMF_VARS — the stale-disk lesson). ISO + stick + laptop
+  + fresh VM all consistent. Branch is ahead of origin — push when ready.
 
 ## ✅ Verification checklist
 
@@ -145,10 +150,12 @@ Syntropia"`); the long-term goal is a full fork, but **not yet**.
 - ✅ First-boot wizard `app-wiz4rd` fires and installs picks
 - ✅ PipeWire audio works (YouTube)
 
-**OPEN — re-test after the next rebuild**
-- ⬜ No wallet/keyring prompt at first login (SDDM + gnome-keyring fix)
-- ⬜ Windows move/resize with SUPER + drag
-- ⬜ Brave launches after the wizard installs it
+**OPEN — re-test after the next rebuild** (closed 2026-10-27: fresh-VM install
+from syntropia-2026.10.27 verified all of the below)
+- ✅ No wallet/keyring prompt at first login (SDDM + gnome-keyring fix)
+- ✅ No Noctalia welcome wizard on first boot
+- ⬜ Windows move/resize with SUPER + drag (needs interactive VM/laptop test)
+- ⬜ Brave launches after the wizard installs it (wizard esc'd in the smoke test)
 - ⬜ No limine-snapper name warning
 
 ## ▶️ Next steps (in order)
