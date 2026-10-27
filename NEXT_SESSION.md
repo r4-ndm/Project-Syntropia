@@ -154,7 +154,9 @@ Syntropia"`); the long-term goal is a full fork, but **not yet**.
 from syntropia-2026.10.27 verified all of the below)
 - ✅ No wallet/keyring prompt at first login (SDDM + gnome-keyring fix)
 - ✅ No Noctalia welcome wizard on first boot
-- ⬜ Windows move/resize with SUPER + drag (needs interactive VM/laptop test)
+- ✅ Windows move/resize with SUPER + drag (laptop + fresh VM, qemu
+  grab-on-hover; xdotool can't synthesize SUPER through QEMU GTK — use
+  View/keyboard grab or the monitor when testing binds in a VM)
 - ⬜ Brave launches after the wizard installs it (wizard esc'd in the smoke test)
 - ⬜ No limine-snapper name warning
 
