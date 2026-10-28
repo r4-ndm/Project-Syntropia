@@ -131,6 +131,17 @@ Done today (in order):
 
 ## ⏭️ NEXT SESSION — only small things left
 
+0. **NEW (2026-10-28, uncommitted→committed with this note): `syntropia-ssh-setup`.**
+   One-command SSH server setup for fresh installs: installs openssh, enables
+   sshd, generates an ed25519 keypair for the real user (SUDO_USER-aware),
+   prints LAN IPs + `ssh-copy-id` hint, then on a second run (after key copy)
+   writes `/etc/ssh/sshd_config.d/50-syntropia-ssh.conf` (password auth off,
+   AllowUsers) validated with `sshd -t`. Wizard catalog has
+   `Remote|SSH Setup|syntropia-ssh-setup`; the shipped app-wiz4rd now runs
+   `syntropia-*` local helpers instead of handing them to paru
+   (tarball regenerated via `scripts/release.sh`, sha pinned in build.sh).
+   **Needs a rebuild + a VM install test to prove it end-to-end.**
+
 1. **Push** — branch is ~16 commits ahead of origin, unpushed. `git push`.
 2. **Two open checklist items** (one casual laptop session):
    - Brave launches after the wizard installs it

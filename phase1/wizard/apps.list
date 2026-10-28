@@ -56,3 +56,5 @@ Privacy|qBittorrent|qbittorrent|BitTorrent client
 
 Wallet|Electrum|electrum|Bitcoin wallet
 Wallet|ZKX Wallet|https://app.zkxwallet.com/#/unlock|Web wallet (requires Brave browser)
+
+Remote|SSH Setup|syntropia-ssh-setup|One-command SSH server setup

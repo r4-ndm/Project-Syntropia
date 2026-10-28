@@ -359,6 +359,12 @@ if [[ -d /etc/syntropia/profiles/hyprland ]]; then
   fi
 fi
 
+if [[ -f "$INSTALLER_LIB/ssh-setup.sh" ]]; then
+  install -Dm755 "$INSTALLER_LIB/ssh-setup.sh" "$TARGET/usr/local/bin/syntropia-ssh-setup"
+elif [[ -f /usr/local/bin/syntropia-ssh-setup ]]; then
+  install -Dm755 /usr/local/bin/syntropia-ssh-setup "$TARGET/usr/local/bin/syntropia-ssh-setup"
+fi
+
 # Completely purge gnome-keyring from the target system (KWallet owns secrets)
 arch-chroot "$TARGET" pacman -Rdd --noconfirm gnome-keyring 2>/dev/null || true
 if [[ -e "$TARGET/usr/bin/gnome-keyring-daemon" ]]; then

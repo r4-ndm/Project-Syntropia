@@ -83,6 +83,16 @@ if [[ -d "$ROOT/etc/syntropia/profiles/hyprland/bin" ]]; then
     chmod +x "$ROOT/usr/local/bin"/syntropia-* 2>/dev/null || true
 fi
 
+if [[ -f "$syntropia_installer_lib/ssh-setup.sh" ]]; then
+    mkdir -p "$ROOT/usr/local/bin"
+    cp -a "$syntropia_installer_lib/ssh-setup.sh" "$ROOT/usr/local/bin/syntropia-ssh-setup" 2>/dev/null || true
+    chmod 755 "$ROOT/usr/local/bin/syntropia-ssh-setup" 2>/dev/null || true
+elif [[ -f /usr/local/bin/syntropia-ssh-setup ]]; then
+    mkdir -p "$ROOT/usr/local/bin"
+    cp -a /usr/local/bin/syntropia-ssh-setup "$ROOT/usr/local/bin/syntropia-ssh-setup" 2>/dev/null || true
+    chmod 755 "$ROOT/usr/local/bin/syntropia-ssh-setup" 2>/dev/null || true
+fi
+
 # --- Start-menu (Kickoff) icon ---
 # The stock CachyOS panel points the Kickoff applet at icon=org.cachyos.hello.
 # Install our menu-icon.png into the target's hicolor theme as syntropia-menu

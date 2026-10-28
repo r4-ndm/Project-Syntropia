@@ -42,7 +42,7 @@ BRANDING_SRC="$REPO_ROOT/Branding/syntropia/calamares/slides"
 #   the hash on every commit even when the files don't)
 # then copy it into iso/vendor/ and set APP_WIZ4RD_SHA256 (sha256sum).
 APP_WIZ4RD_VERSION="0.1.0"
-APP_WIZ4RD_SHA256="f277eb837ca272d82165b255ee705c528caa4c1b2c6b0292e298bd5e956e0bf9"
+APP_WIZ4RD_SHA256="443cb048f0689893658d06cf38bbaf8b104fee61487887629a8d757a3942ccb3"
 APP_WIZ4RD_TARBALL="$REPO_ROOT/iso/vendor/app-wiz4rd-$APP_WIZ4RD_VERSION.tar"
 
 # hyprbars: the upstream Hyprland plugin that draws titlebars with window
@@ -722,6 +722,12 @@ When = PostTransaction
 Exec = /usr/local/bin/syntropia-fix-chrome-sandbox
 HOOKEOF
     ok "chrome-sandbox fix hooked into pacman (carried into the installed target)"
+
+    # Step 3.6b3: SSH setup helper for fresh installs (opt-in via wizard or CLI).
+    info "Installing SSH setup helper (syntropia-ssh-setup)..."
+    install -Dm755 "$SCRIPT_DIR/installer/lib/ssh-setup.sh" \
+        "rootfs/usr/local/bin/syntropia-ssh-setup"
+    ok "syntropia-ssh-setup installed to /usr/local/bin/syntropia-ssh-setup"
 
     # Step 3.6c: Pre-install Hyprland Noctalia packages into the ISO rootfs
     info "Pre-installing Hyprland Noctalia packages into ISO rootfs..."
@@ -1469,6 +1475,7 @@ verify_installer_libs() {
     for lib in "$SCRIPT_DIR"/installer/lib/*.sh; do
         paths+=("usr/local/lib/syntropia-installer/$(basename "$lib")")
     done
+    paths+=("usr/local/bin/syntropia-ssh-setup")
     unsquashfs -n -f -d "$extract_dir/rootfs" \
         "$extract_dir/arch/x86_64/airootfs.sfs" "${paths[@]}" >/dev/null 2>&1
     for lib in "$SCRIPT_DIR"/installer/lib/*.sh; do
@@ -1478,8 +1485,13 @@ verify_installer_libs() {
         cmp -s "$lib" "$extract_dir/rootfs/$rel" \
             || err "stale installer lib in the built ISO: iso/installer/lib/$(basename "$lib") does not match what shipped — the image would install yesterday's installer. Rebuild from the current tree."
     done
+    rel="usr/local/bin/syntropia-ssh-setup"
+    [[ -f "$extract_dir/rootfs/$rel" ]] \
+        || err "ISO verification: $rel missing from the built image"
+    cmp -s "$SCRIPT_DIR/installer/lib/ssh-setup.sh" "$extract_dir/rootfs/$rel" \
+        || err "stale installer helper in the built ISO: $rel does not match iso/installer/lib/ssh-setup.sh — the image would install yesterday's helper. Rebuild from the current tree."
     rm -rf "$extract_dir"
-    ok "embedded installer libs match the repo ($(basename -a "$SCRIPT_DIR"/installer/lib/*.sh | tr '\n' ' '))"
+    ok "embedded installer libs match the repo ($(basename -a "$SCRIPT_DIR"/installer/lib/*.sh | tr '\n' ' ')usr/local/bin/syntropia-ssh-setup)"
 }
 
 # ── Main ───────────────────────────────────────────────────────
