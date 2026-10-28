@@ -2,8 +2,8 @@
 
 The ISO ships the wizard from the vendored release tarball in iso/vendor/, so
 that tarball is what the installed system actually runs — the tests extract it
-and drive it with stub `paru` / pacman / network / TUI binaries. What we pin:
-picks install visibly while online (paru is really called, and the output is
+and drive it with stub `yay` / pacman / network / TUI binaries. What we pin:
+picks install visibly while online (yay is really called, and the output is
 logged), the picker offers nmtui before the app list while offline, a pick made
 while offline is never lost, and the next run (or `--resume`) finishes the job
 once the network is back.
@@ -27,11 +27,11 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 TARBALL = REPO / "iso" / "vendor" / "app-wiz4rd-0.1.0.tar"
 
-PARU_STUB = """#!/bin/sh
-echo "paru $*" >> "$WIZ_PARU_LOG"
+YAY_STUB = """#!/bin/sh
+echo "yay $*" >> "$WIZ_YAY_LOG"
 [ -f "$WIZ_ONLINE" ] || exit 1
-echo "paru: installing $*"
-exit "${WIZ_PARU_RC:-0}"
+echo "yay: installing $*"
+exit "${WIZ_YAY_RC:-0}"
 """
 
 NETWORK_STUB = """#!/bin/sh
@@ -40,7 +40,7 @@ exit 1
 """
 
 # pacman -Q <pkg>: succeed only for packages listed in WIZ_INSTALLED_FILE — how
-# the tests model "paru failed, but some of the transaction landed".
+# the tests model "yay failed, but some of the transaction landed".
 PACMAN_STUB = """#!/bin/sh
 echo "$*" >> "$WIZ_PACMAN_LOG"
 [ "$1" = "-Q" ] || exit 0
@@ -101,7 +101,7 @@ def extract_wizard(tmp_path: Path) -> Path:
 
 
 # Everything the driver needs from a normal system, symlinked into an isolated
-# bin dir so PATH holds no paru/pacman of the host's own.
+# bin dir so PATH holds no yay/pacman of the host's own.
 CORE_TOOLS = (
     "awk", "bash", "cat", "date", "dirname", "env", "grep", "mkdir",
     "mktemp", "mv", "nohup", "rm", "sed", "sh", "sleep", "tee", "touch",
@@ -118,13 +118,13 @@ def wizard(tmp_path: Path) -> dict:
         real = shutil.which(tool)
         if real:
             (stub_bin / tool).symlink_to(real)
-    (stub_bin / "paru").write_text(PARU_STUB)
+    (stub_bin / "yay").write_text(YAY_STUB)
     (stub_bin / "ping").write_text(NETWORK_STUB)
     (stub_bin / "getent").write_text(NETWORK_STUB)
     (stub_bin / "pacman").write_text(PACMAN_STUB)
     (stub_bin / "nmtui-connect").write_text(NMTUI_STUB)
     (stub_bin / "fzf").write_text(FZF_STUB)
-    for name in ("paru", "ping", "getent", "pacman", "nmtui-connect", "fzf"):
+    for name in ("yay", "ping", "getent", "pacman", "nmtui-connect", "fzf"):
         (stub_bin / name).chmod(0o755)
 
     # Ensure synthetic package names used across the pending-queue tests exist
@@ -144,7 +144,7 @@ def wizard(tmp_path: Path) -> dict:
         "script": root / "app-wiz4rd",
         "home": home,
         "online": tmp_path / "online",
-        "paru_log": tmp_path / "paru.log",
+        "yay_log": tmp_path / "yay.log",
         "nmtui_log": tmp_path / "nmtui.log",
         "installed_file": tmp_path / "installed",
         "env": {
@@ -152,10 +152,13 @@ def wizard(tmp_path: Path) -> dict:
             "HOME": str(home),
             "LANG": "C.UTF-8",
             "WIZ_ONLINE": str(tmp_path / "online"),
-            "WIZ_PARU_LOG": str(tmp_path / "paru.log"),
+            "WIZ_YAY_LOG": str(tmp_path / "yay.log"),
             "WIZ_PACMAN_LOG": str(tmp_path / "pacman.log"),
             "WIZ_NMTUI_LOG": str(tmp_path / "nmtui.log"),
             "WIZ_INSTALLED_FILE": str(tmp_path / "installed"),
+            # The wizard asks "Proceed? [Y/n]" before installing; tests drive it
+            # non-interactively (or through a pty), so skip the prompt.
+            "SYNTROPIA_WIZARD_ASSUME_YES": "1",
         },
     }
 
@@ -243,7 +246,7 @@ def test_resume_installs_the_queue_and_marks_done(wizard: dict) -> None:
     assert result.returncode == 0, result.stderr
     assert queued(wizard) == []
     assert done_marker(wizard).exists()
-    log = wizard["paru_log"].read_text()
+    log = wizard["yay_log"].read_text()
     assert "-S --noconfirm --needed reaper bitwig" in log
 
 
@@ -260,7 +263,7 @@ def test_once_runs_again_while_pending(wizard: dict) -> None:
     assert result.returncode == 0, result.stderr
     assert "Already completed" not in result.stdout
     assert queued(wizard) == []
-    log = wizard["paru_log"].read_text()
+    log = wizard["yay_log"].read_text()
     assert "surge" in log and "vital" in log
 
 
@@ -279,7 +282,7 @@ def test_completed_wizard_stays_closed(wizard: dict) -> None:
 
     assert result.returncode == 0
     assert "Already completed" in result.stdout
-    assert not wizard["paru_log"].exists()
+    assert not wizard["yay_log"].exists()
 
 
 def test_web_apps_work_offline(wizard: dict) -> None:
@@ -293,14 +296,14 @@ def test_web_apps_work_offline(wizard: dict) -> None:
     assert "https://example.com/studio" in launchers[0].read_text()
 
 
-def test_missing_paru_offline_keeps_the_queue(wizard: dict) -> None:
-    (Path(wizard["env"]["PATH"].split(":")[0]) / "paru").unlink()
+def test_missing_yay_offline_keeps_the_queue(wizard: dict) -> None:
+    (Path(wizard["env"]["PATH"].split(":")[0]) / "yay").unlink()
 
     result = run_picker(wizard, "reaper", "--once")
 
     assert result.returncode == 0, result.stderr
     assert queued(wizard) == ["reaper"]
-    assert "paru is not installed and there is no internet" in result.stdout
+    assert "yay is not installed and there is no internet" in result.stdout
 
 
 def install_log(ctx: dict) -> Path:
@@ -316,7 +319,7 @@ def test_online_picks_install_immediately_and_are_logged(wizard: dict) -> None:
 
     assert result.returncode == 0, result.stderr
     assert "Installing packages: reaper bitwig" in result.stdout
-    log = wizard["paru_log"].read_text()
+    log = wizard["yay_log"].read_text()
     assert "-S --noconfirm --needed reaper bitwig" in log
     assert queued(wizard) == []
     assert done_marker(wizard).exists()
@@ -324,8 +327,8 @@ def test_online_picks_install_immediately_and_are_logged(wizard: dict) -> None:
     trace = install_log(wizard).read_text()
     assert "run mode=once" in trace
     assert "picked: reaper bitwig" in trace
-    assert "paru -S --noconfirm --needed reaper bitwig" in trace
-    assert "paru: installing" in trace
+    assert "yay -S --noconfirm --needed reaper bitwig" in trace
+    assert "yay: installing" in trace
 
 
 def test_offline_picker_offers_a_connection_before_app_selection(wizard: dict) -> None:
@@ -341,10 +344,10 @@ def test_offline_picker_offers_a_connection_before_app_selection(wizard: dict) -
     assert queued(wizard) == ["reaper"]
 
 
-def test_partial_paru_failure_unqueues_only_installed_picks(wizard: dict) -> None:
+def test_partial_yay_failure_unqueues_only_installed_picks(wizard: dict) -> None:
     wizard["online"].touch()
     wizard["installed_file"].write_text("reaper\n")
-    wizard["env"]["WIZ_PARU_RC"] = "1"
+    wizard["env"]["WIZ_YAY_RC"] = "1"
 
     result = run_picker(wizard, "reaper bitwig", "--once")
 
@@ -352,9 +355,9 @@ def test_partial_paru_failure_unqueues_only_installed_picks(wizard: dict) -> Non
     # Batch aborted (reaper landed in the transaction, bitwig did not); the
     # per-package fallback skips installed reaper, solo-installs... fails on
     # bitwig, which stays queued. Nothing installed is ever re-queued.
-    log = wizard["paru_log"].read_text()
-    assert "paru -S --noconfirm --needed reaper bitwig" in log
-    assert "paru -S --noconfirm --needed bitwig\n" in log  # solo retry call
+    log = wizard["yay_log"].read_text()
+    assert "yay -S --noconfirm --needed reaper bitwig" in log
+    assert "yay -S --noconfirm --needed bitwig\n" in log  # solo retry call
     trace = install_log(wizard).read_text()
     assert "bitwig (solo retry)" in trace
     assert "reaper (solo retry)" not in trace

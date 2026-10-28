@@ -42,7 +42,7 @@ BRANDING_SRC="$REPO_ROOT/Branding/syntropia/calamares/slides"
 #   the hash on every commit even when the files don't)
 # then copy it into iso/vendor/ and set APP_WIZ4RD_SHA256 (sha256sum).
 APP_WIZ4RD_VERSION="0.1.0"
-APP_WIZ4RD_SHA256="71b95b520cad7ae26d38c74603ef7c126d242c0f0f2524e4308fe99d546ff276"
+APP_WIZ4RD_SHA256="3735eaea3d838cceef679d0bc5828eee024ab436590c53f1b94098a87946e1a4"
 APP_WIZ4RD_TARBALL="$REPO_ROOT/iso/vendor/app-wiz4rd-$APP_WIZ4RD_VERSION.tar"
 
 # hyprbars: the upstream Hyprland plugin that draws titlebars with window
