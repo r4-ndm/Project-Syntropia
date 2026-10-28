@@ -55,9 +55,37 @@ echo "nmtui-connect $*" >> "$WIZ_NMTUI_LOG"
 exit 0
 """
 
-TUI_STUB = """#!/bin/sh
-# Stand-in for the Bubble Tea picker: prints the requested picks, one per line.
-for pick in $WIZ_SELECTION; do echo "$pick"; done > "$2"
+FZF_STUB = """#!/bin/sh
+# Stand-in for the fzf picker: reads catalog rows from stdin and echoes the
+# rows whose package field (field 2) or display line (field 1) matches the
+# requested picks in $WIZ_SELECTION, preserving all tab-separated fields.
+awk -F'\\t' -v picks="${WIZ_SELECTION:-}" '
+BEGIN {
+    n = split(picks, want, /[[:space:]]+/)
+}
+{
+    rows[NR] = $0
+    disp[NR] = $1
+    pkg[NR] = $2
+}
+END {
+    for (i = 1; i <= n; i++) {
+        p = want[i]
+        if (p == "") continue
+        matched = 0
+        for (r = 1; r <= NR; r++) {
+            if (pkg[r] == p || disp[r] == p) {
+                print rows[r]
+                matched = 1
+                break
+            }
+        }
+        if (!matched) {
+            printf "%s\\t%s\\t\\t\\t\\n", p, p
+        }
+    }
+}
+'
 """
 
 
@@ -95,12 +123,19 @@ def wizard(tmp_path: Path) -> dict:
     (stub_bin / "getent").write_text(NETWORK_STUB)
     (stub_bin / "pacman").write_text(PACMAN_STUB)
     (stub_bin / "nmtui-connect").write_text(NMTUI_STUB)
-    for name in ("paru", "ping", "getent", "pacman", "nmtui-connect"):
+    (stub_bin / "fzf").write_text(FZF_STUB)
+    for name in ("paru", "ping", "getent", "pacman", "nmtui-connect", "fzf"):
         (stub_bin / name).chmod(0o755)
 
-    tui = root / "dialog" / "syntropia-apps-tui"
-    tui.write_text(TUI_STUB)
-    tui.chmod(0o755)
+    # Ensure synthetic package names used across the pending-queue tests exist
+    # as real catalog rows so fzf matches them from stdin.
+    with (root / "apps.list").open("a") as cat:
+        cat.write(
+            "\n"
+            "DAW|Bitwig|bitwig|Digital audio workstation\n"
+            "Audio|Vital|vital|Spectral warping wavetable synth\n"
+            "Web|Studio|https://example.com/studio|Web studio launcher\n"
+        )
 
     home = tmp_path / "home"
     home.mkdir()

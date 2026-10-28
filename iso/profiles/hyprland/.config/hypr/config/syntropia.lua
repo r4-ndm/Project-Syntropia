@@ -70,18 +70,23 @@ hl.window_rule({
 -- Syntropia App Wizard & Floating Helpers
 -- `pin` keeps the wizard on every workspace, so it stays reachable (and
 -- grabbable) if the picker is left open while the user switches workspaces.
+-- Size 1100x700 ensures the wizard's three-column fzf list (category | package |
+-- description, ~92 columns) fits without truncation on first launch.
 hl.window_rule({
     match = { title = ".*app-wiz4rd.*" },
     float = true,
     center = true,
+    size = { "1100", "700" },
     pin = true,
 })
 
+-- Size 1100x700 so the three-column wizard list (category | package |
+-- description, ~92 columns) fits without truncation on first launch.
 hl.window_rule({
     match = { class = "^(floating_terminal)$" },
     float = true,
     center = true,
-    size = { "840", "640" },
+    size = { "1100", "700" },
     pin = true,
 })
 

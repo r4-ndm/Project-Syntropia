@@ -485,11 +485,6 @@ def test_shipped_wizard_runs_local_syntropia_helper_instead_of_paru(
     wiz_script = wiz_dir / "app-wiz4rd"
     assert wiz_script.is_file()
 
-    (wiz_dir / "dialog").mkdir(parents=True, exist_ok=True)
-    tui = wiz_dir / "dialog" / "syntropia-apps-tui"
-    tui.write_text('#!/bin/sh\nprintf "syntropia-ssh-setup\\n" > "$2"\n')
-    tui.chmod(0o755)
-
     helper_bin = tmp_path / "local-bin"
     helper_bin.mkdir()
     helper_log = tmp_path / "helper.log"
@@ -503,6 +498,12 @@ def test_shipped_wizard_runs_local_syntropia_helper_instead_of_paru(
     paru = stub_bin / "paru"
     paru.write_text(f'#!/bin/sh\necho "paru $*" >> "{paru_log}"\n')
     paru.chmod(0o755)
+    fzf = stub_bin / "fzf"
+    fzf.write_text(
+        "#!/bin/sh\n"
+        "awk -F'\\t' '$2 == \"syntropia-ssh-setup\" { print $0 }'\n"
+    )
+    fzf.chmod(0o755)
 
     home = tmp_path / "home"
     home.mkdir()
