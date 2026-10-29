@@ -313,9 +313,25 @@ still open with both ticks → ENTER, `y` → exactly those two packages install
 `fzf --version </dev/null` — the test stub reads stdin and ignores argv, so an
 inherited stdin blocks the wizard forever.
 
-**Still to do:** rebuild the ISO (neither the wallet helper nor the new wizard
-tarball is in the current image), then re-flash + reinstall so the shipped
-installer has no autologin. The laptop has the helper installed by hand.
+**VERIFIED 2026-10-29 evening on a FRESH install from the 16:26 ISO**
+(sha256 `fb7a4a8b2f66…`, stick `airootfs.sfs` `6fb101375222…`), user `r5`:
+
+- No autologin: `/etc/sddm.conf.d/10-syntropia.conf` only, no `[Autologin]` block;
+  SDDM greeter asks for the password (journal shows `pam_kwallet5(sddm:session)`).
+- The wallet unlocks BY ITSELF ~4 s after login — no manual helper run:
+  `syntropia-kwallet-unlock[1080]: wallet unlocked via PAM (kdewallet.kwl)`,
+  `kdewallet.kwl` + salt created at session start, `kwalletrc` `Enabled=true`
+  `Default Wallet=kdewallet`, `org.freedesktop.secrets` owned by ksecretd.
+- `secret-tool store` → `secret-tool lookup` round-trips (`probe`) with no prompt.
+- Wizard installed `brave-bin` + `kitty` in one batch, queue empty, and the
+  chrome-sandbox hook fired (`Syntropia: make chrome-sandbox a root-owned setuid
+  helper`); `/opt/brave-bin/chrome-sandbox` is root:root 4755 and
+  `brave --headless=new --dump-dom about:blank` renders.
+- `pacman -Qkk` reports only "backup file … (Modification time mismatch)" noise;
+  the only failed unit is `systemd-networkd-wait-online` (expected on this network).
+
+**Still to do:** nothing blocking. Optional: push both repos; re-test the wizard's
+in-picker confirm on the laptop (tick two, ENTER, `n` — ticks must stay).
 
 ### ⚠️ Superseded note (kept for the history) — the limitation as first found
 **KWallet never opens under SDDM autologin.** Evidence on the fresh laptop: only
