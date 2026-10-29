@@ -129,32 +129,96 @@ Done today (in order):
 7. New skill `syntropia-usb-stick` — flash/verify checklist (freshness check +
    content check; never trust byte-exact dd alone).
 
-## ⏭️ NEXT SESSION — only small things left
+## ⏭️ NEXT SESSION — resume here (written 2026-10-28, end of session)
 
-0. **NEW (2026-10-28, uncommitted→committed with this note): `syntropia-ssh-setup`.**
-   One-command SSH server setup for fresh installs: installs openssh, enables
-   sshd, generates an ed25519 keypair for the real user (SUDO_USER-aware),
-   prints LAN IPs + `ssh-copy-id` hint, then on a second run (after key copy)
-   writes `/etc/ssh/sshd_config.d/50-syntropia-ssh.conf` (password auth off,
-   AllowUsers) validated with `sshd -t`. Wizard catalog has
-   `Remote|SSH Setup|syntropia-ssh-setup`; the shipped app-wiz4rd now runs
-   `syntropia-*` local helpers instead of handing them to paru
-   (tarball regenerated via `scripts/release.sh`, sha pinned in build.sh).
-   **Needs a rebuild + a VM install test to prove it end-to-end.**
+**STATUS: wizard redesign done and pushed; tree clean; one ISO rebuild left to
+carry the last two fixes.**
 
-1. **Push** — branch is ~16 commits ahead of origin, unpushed. `git push`.
-2. **Two open checklist items** (one casual laptop session):
+### Done today (2026-10-28)
+1. **`syntropia-ssh-setup`** — one-command SSH server setup, shipped to
+   `/usr/local/bin` on the live image AND the installed target (build.sh,
+   install-runner, branding hook, and `verify_installer_libs()` byte-compares
+   it). Installs openssh, enables sshd, makes an ed25519 key for the real user
+   (SUDO_USER-aware, never /root), prints LAN IPs + `ssh-copy-id` hint; a
+   second run after the key copy writes
+   `/etc/ssh/sshd_config.d/50-syntropia-ssh.conf` (PasswordAuthentication no,
+   KbdInteractiveAuthentication no, PermitRootLogin prohibit-password,
+   AllowUsers <user>) validated by `sshd -t` and removed if invalid.
+   Wizard catalog entry: `Remote|SSH Setup|syntropia-ssh-setup`.
+2. **App wizard rebuilt around fzf** (the Go Bubble Tea TUI is no longer the
+   shipped path; sources left in the repo). Full-width three-column list:
+   coloured category · bold package name (`keet-bin`, not `keet`) · description
+   truncated to the terminal width; optional 5th catalog field = aliases shown
+   dimmed and searchable; centred slant SYNTROPIA banner; rounded border with
+   no label; `selected-bg` stripe on ticked rows.
+3. **Input model:** SPACE ticks (fzf's default is TAB only — this was a real
+   bug: SPACE typed a space and ENTER installed the row under the cursor),
+   ENTER installs only ticked rows, "nothing ticked" reopens the picker, and a
+   `Proceed? [Y/n]` confirmation precedes anything touching the system.
+   Answering **n returns to the picker** (a stray ENTER no longer ends the
+   session); ESC still exits.
+4. **yay replaces paru** as the AUR helper (both ship in the cachyos repo,
+   identical flags). Tests and stub binaries renamed accordingly.
+5. **Wizard terminal is chosen and sized**: preference order is
+   kitty → ghostty → foot → alacritty → wezterm → konsole (konsole-first was a
+   Plasma leftover), each launched at 110x34; the picker reads `tput cols` and
+   only falls back to `COLUMNS` — an inherited COLUMNS from the launching shell
+   was building rows wider than the window, which is what produced the wrapped,
+   misaligned columns on the VM.
+6. **Hyprland overlay** sizes wizard windows 1100x700.
+7. **VM harness**: `~/vm-test/run-install-vm.sh` now shares the host
+   `~/Desktop/app-wiz4rd` read-only as a 9p mount (`mount_tag=wizard`) so
+   wizard UI changes can be tested without an ISO rebuild:
+   `sudo mount -t 9p -o trans=virtio wizard /mnt/wizard`.
+8. Tests: 428 passing; both repos pushed (`Project-Syntropia fa27aed`,
+   `app-wiz4rd 8473cc3`).
+
+### ⚠️ The one thing to do first
+**The ISO in `iso/out/` is OLDER than the tree.** The last build (22:34)
+carried the width/terminal fixes but NOT the picker loop-on-"no" or the
+ticked-row stripe (they landed as `fa27aed` with tarball sha `5bff0d50…`).
+Rebuild before any VM/laptop test:
+
+```
+cd ~/Desktop/Project-Syntropia
+sudo -S -p '' env SOURCE_DATE_EPOCH=1786489200 ./iso/build.sh
+```
+
+Then verify the extracted `/etc/syntropia/app-wiz4rd` is byte-identical to
+`~/Desktop/app-wiz4rd/app-wiz4rd` (the installer-lib guard does not cover it).
+
+### Then (small)
+1. **VM test the wizard properly**: kitty at 110x34, SPACE shows a ✓ + stripe,
+   ENTER with nothing ticked reopens, `n` at the prompt returns to the picker,
+   and `Remote → SSH Setup` + one normal app install in one batch. If the guest
+   display is too small, turn off QEMU View → Zoom to Fit or raise the guest
+   resolution (`hyprctl monitors`, then `hyprctl keyword monitor <name>,1600x900@60,0x0,1`).
+2. **Two older checklist items** (one casual laptop session):
    - Brave launches after the wizard installs it
    - No limine-snapper name warning at boot
-3. **Optional laptop hygiene:** the in-place /tmp/fix scripts patched the
-   install, but it was installed from the older ISO. Reinstalling from the
-   2026.10.27 stick would make the laptop match the verified path exactly
-   (NOT urgent — current state is verified working).
-4. **After a fully clean laptop install:** AUR/package refresh + base-refresh
-   policy check (see .agents/skills/iso-builder/SKILL.md), then consider the
-   next phase of the mission.
+3. **Optional laptop hygiene:** reinstall the laptop from the current stick so
+   it matches the verified path (it was patched in place from an older ISO).
+4. **AUR packaging of the app wizard** — explicitly deferred today; revisit
+   after the laptop/VM passes. (app-wiz4rd already has an `aur/PKGBUILD` and a
+   `scripts/release.sh` that produces the source tarball + zero-install tarball.)
 
-VM helpers: `~/vm-test/run-install-vm.sh` (now points at the 2026.10.27 ISO),
+### Notes for whoever picks this up
+- The wizard ships from the **vendored tarball** `iso/vendor/app-wiz4rd-0.1.0.tar`
+  (built by `~/Desktop/app-wiz4rd/scripts/release.sh`, which archives
+  `HEAD^{tree}` with pinned mtime and excludes `aur/`, `scripts/`, `.github/`).
+  Always regenerate via that script — an ad-hoc `git archive` leaks those dirs
+  into the tarball and re-hashes differently.
+- **The standalone repo can drift behind the tarball.** Today the repo was
+  missing the per-package solo-retry fallback that the shipped tarball had;
+  rebuilding from repo HEAD silently dropped it and a test caught it. Diff the
+  old and new tarballs after every regeneration.
+- The confirm prompt is skipped when `SYNTROPIA_WIZARD_ASSUME_YES` is set or
+  there is no tty; the test harness sets that variable.
+- `iso/tests/test_ssh_setup.py` drives the shipped wizard through a pty with a
+  stub `fzf`; if real fzf gains a required flag, that stub is what to update.
+
+VM helpers: `~/vm-test/run-install-vm.sh` (points at the 2026.08.12 build, i.e.
+the current tree; now also shares the wizard repo over 9p),
 `~/vm-test/run-keytest-vm.sh` (adds `-monitor unix:` socket + `-k en-us` +
 grab-on-hover for input testing). Wipe qcow2+OVMF_VARS before install tests.
 
