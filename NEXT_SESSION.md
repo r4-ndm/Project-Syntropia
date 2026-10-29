@@ -330,7 +330,25 @@ inherited stdin blocks the wizard forever.
 - `pacman -Qkk` reports only "backup file … (Modification time mismatch)" noise;
   the only failed unit is `systemd-networkd-wait-online` (expected on this network).
 
-**Still to do:** nothing blocking. The wizard's in-picker confirm was also exercised
+### 🔴 OPEN BUG (found 2026-10-29, first item next session) — sshd hardening is a no-op on installed systems
+
+`syntropia-ssh-setup`'s second run wrote `/etc/ssh/sshd_config.d/50-syntropia-ssh.conf`
+with `PasswordAuthentication no` / `AllowUsers <user>` and reported success, but the
+settings never took effect: the image ships **`10-archiso.conf`** (archiso leftover)
+containing `PasswordAuthentication yes` + `PermitRootLogin yes`, and **sshd honours the
+FIRST value it reads**, so the lexically-earlier file wins. Net effect on a fresh
+install: password auth stayed enabled and **root password login was permitted** until
+it was patched by hand on the laptop (renamed to `00-syntropia-ssh.conf`, and the
+`10-archiso.conf` values rewritten to `no` / `prohibit-password`).
+
+Fix in the repo: `iso/installer/lib/ssh-setup.sh` must write `00-syntropia-ssh.conf`
+(never `50-`), and must verify the EFFECTIVE config — `sshd -T | grep -E
+'^(passwordauthentication|permitrootlogin|allowusers)'` — instead of trusting the file
+it just wrote, failing loudly (and reverting) when something outbids it. Add a test
+that a `10-archiso.conf` with `yes` cannot defeat the result. Same lesson class as the
+wallet's `Enabled=false`: a file that looks correct while the runtime disagrees.
+
+**Still to do:** that sshd fix. The wizard's in-picker confirm was also exercised
 on the laptop by the Final Boss (tick, ENTER, `n` — ticks kept). Only pushing the two
 repos is left.
 
