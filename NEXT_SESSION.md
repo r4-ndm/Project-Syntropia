@@ -129,6 +129,71 @@ Done today (in order):
 7. New skill `syntropia-usb-stick` — flash/verify checklist (freshness check +
    content check; never trust byte-exact dd alone).
 
+## ⏭️ NEXT SESSION — resume here (written 2026-10-29, end of session)
+
+**STATUS: Phase 1 works end to end on real hardware. Nothing is on fire. One known
+bug to fix (sshd hardening), then Phase 1 is closable.**
+
+### Read this first
+1. `NEXT_SESSION.md` (this file) → `AGENTS.md` → every file in `agent-rules/`.
+2. The 2026-10-29 sections below carry the full evidence trail for the wallet and
+   the wizard; you do not need to re-derive it.
+3. Both repos are clean and pushed:
+   - Project-Syntropia `79d6239`
+   - app-wiz4rd `eef2b37`
+
+### THE ONE THING TO DO
+**Fix the sshd hardening no-op.** `iso/installer/lib/ssh-setup.sh` writes
+`50-syntropia-ssh.conf`, but the image ships `10-archiso.conf` with
+`PasswordAuthentication yes` + `PermitRootLogin yes` and **sshd honours the first
+value it reads** — so on every fresh install the "hardened" box still accepted
+passwords and root password logins. Required change: write
+`00-syntropia-ssh.conf`, neutralise `10-archiso.conf` (rewrite its values — do not
+trust ordering alone), and verify the EFFECTIVE config with
+`sshd -T | grep -E '^(passwordauthentication|permitrootlogin|allowusers)'`, failing
+loudly and reverting when something outbids it. Test must include a `10-…=yes` file
+that must not win. Then: rebuild ISO → flash → reinstall → verify from the desktop
+that `ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password` fails with
+`Permission denied (publickey)`.
+
+### Then (small, optional)
+1. AUR/package refresh (`syntropia`, `syntropia-cli`, `syntropia-brews`) from the
+   current tree + the base-refresh policy check — this is the last item of the
+   Phase-1 close sequence.
+2. Declare Phase 1 done and open Phase 2 (Awakening) deliberately.
+
+### Machine facts you will need
+- Laptop: `r5@192.168.1.22`, key auth works; **every reinstall rotates the host key**
+  → `ssh-keygen -R 192.168.1.22` then `ssh-copy-id r5@<ip>`.
+  `ssh -o PubkeyAuthentication=no …` is now refused (after the manual hardening).
+- Host build: `cd ~/Desktop/Project-Syntropia && sudo env SOURCE_DATE_EPOCH=1786489200 ./iso/build.sh`
+  (FULL build — the wizard tarball, helper and profiles are baked into phase 1).
+  Pre-flight: `df -h /`, `free -g`, `grep remaster /proc/mounts` (0),
+  `ls /var/lib/pacman/db.lck` (absent).
+- Flash: `sudo dd if=/home/r4/Desktop/Project-Syntropia/iso/out/syntropia-2026.08.12-x86_64.iso of=/dev/sdd bs=4M conv=fsync status=progress`
+  — **never `/dev/sdX`**: dd happily creates `/dev/sdX` as a 3.3G file and flashes
+  nothing. Verify by hashing the stick's `arch/x86_64/airootfs.sfs` against the ISO's.
+- Current verified image: 2026-10-29 16:26, sha256 `fb7a4a8b2f66…`, stick sfs
+  `6fb101375222…`.
+- Wizard repo: edit `~/Desktop/app-wiz4rd/app-wiz4rd` → `./scripts/release.sh` →
+  copy the tarball into `iso/vendor/` → re-pin `APP_WIZ4RD_SHA256` in `iso/build.sh`
+  AND `aur/PKGBUILD` → run the suites. The tarball is built from `HEAD^{tree}`, so
+  **commit the wizard first**.
+- Tests: `~/.local/bin/pytest -q phase1/tests iso/tests` (434 passing).
+
+### Do-not-repeat (learned the hard way today)
+- `loginctl terminate-session` on the graphical session can leave sddm running with
+  **no greeter** — blank screen, ssh fine. Recover with `systemctl reboot` over ssh;
+  a clean logout is `uwsm stop` (Hyprland here is Lua-configured, `hyprctl dispatch
+  exit` is invalid).
+- Never test wallet/handshake changes mid-session: forcing the handshake kills the
+  PAM-started ksecretd (the hash lives only in that process) and costs a login cycle.
+- `pam_systemd_loadkey` was never the problem under autologin; the missing piece was
+  the session-environment handoff plus ksecretd needing a Qt platform. Full story in
+  the 2026-10-29 sections and in the `project-syntropia` skill.
+- The wizard's fzf version probe must run `</dev/null`, or the test stub blocks the
+  whole suite (cost a 10-minute timeout).
+
 ## ⏭️ NEXT SESSION — resume here (written 2026-10-28, end of session)
 
 **STATUS: wizard redesign done and pushed; tree clean; one ISO rebuild left to
