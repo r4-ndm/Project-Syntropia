@@ -223,6 +223,122 @@ the current tree; now also shares the wizard repo over 9p),
 grab-on-hover for input testing). Wipe qcow2+OVMF_VARS before install tests.
 
 
+## ⏭️ NEXT SESSION — resume here (written 2026-10-29)
+
+**STATUS: laptop reinstalled from a current ISO and verified over SSH; all open
+checklist items closed. Known limitation accepted: no KWallet under autologin.**
+
+### Done today (2026-10-29)
+1. **ISO rebuilt** (full build — the wizard tarball is baked into phase 1):
+   `iso/out/syntropia-2026.08.12-x86_64.iso`, 2026-10-29 12:29, 3,494,998,016 B,
+   sha256 `19c6554df248…92141a`. Verified: `}}` count 0 in grub.cfg, 3 nvidia
+   blacklist entries + the Turing+ entry, `iso-boot-config.py check` passes,
+   sessions = hyprland-uwsm + hyprland only, `verify_installer_libs()` passed,
+   `/etc/syntropia/app-wiz4rd` byte-identical to `~/Desktop/app-wiz4rd`
+   (28975c98…, carries `selected-bg` stripe + `space:toggle+down` + the
+   picker loop-on-"no"), 428 tests green.
+2. **Stick dd'd and content-verified**: the stick's `airootfs.sfs` sha256 equals
+   the ISO's exactly (`442d0f41d71b…`); wizard, keyring.sh and ssh-setup pulled
+   back off the stick match the repo.
+3. **Laptop fresh-installed from that stick and checked over SSH**
+   (`r@192.168.1.22`, key auth; the reinstall changed host keys — the stale
+   `known_hosts` entry made the first attempts fail, `ssh-keygen -R` fixed it):
+   - PRETTY_NAME="CachyOS Syntropia", ID=cachyos, VARIANT_ID=syntropia
+   - sddm active, autologin → hyprland-uwsm.desktop; only the two Hyprland sessions
+   - gnome-keyring absent; sddm + sddm-autologin carry the commented gnome lines
+     and `pam_kwallet5 … force_run kwalletd=/usr/bin/ksecretd`
+   - Noctalia: `.setup-complete` + `setup_wizard_enabled = false` → no welcome
+   - wizard installed `freebuff-bin` cleanly, pending queue empty
+   - PipeWire 1.6.10 with a real analog sink; all three units active
+   - **Brave (checklist item) CLOSED**: brave-bin 1.98.60, sandbox root:root 4755,
+     `brave --headless=new --dump-dom about:blank` renders
+   - **limine-snapper warning (checklist item) CLOSED**: none in the boot journal
+4. **chrome-sandbox hook path gap fixed**: brave-bin now installs its helper at
+   `/opt/brave-bin/chrome-sandbox`, which neither the hook script's path list nor
+   the pacman hook's Target list covered (it works today only because the package
+   ships 4755). Added to `iso/hook-scripts/hook-chrome-sandbox.sh`,
+   `iso/build.sh`'s `syntropia-chrome-sandbox.hook` and the test. Needs the next
+   rebuild to reach an ISO.
+
+### ✅ RESOLVED 2026-10-29 — KWallet now unlocks (no autologin, "security over convenience")
+
+Final Boss' decision: **drop autologin**; the account password typed at the SDDM
+greeter is the PAM path to the wallet. Root cause chain, proven on hardware:
+
+1. `pam_systemd_loadkey` was never the problem — the LUKS passphrase reached
+   `pam_kwallet5`, which hashed it and started `ksecretd --pam-login`.
+2. `ksecretd` then blocked in `accept()` on `/run/user/<uid>/kwallet5.socket`
+   waiting for `/usr/lib/pam_kwallet_init` to send the session environment.
+   Nothing runs that binary under Hyprland/UWSM: its XDG autostart entry carries
+   `X-systemd-skip=true` and `plasma-kwallet-pam.service` is static/Plasma-only.
+3. `kwalletrc` carried `Enabled=false`, which makes ksecretd/kwalletd6 exit 255
+   before `pamOpen()`; the installer only ADDED `Enabled=true` when the key was
+   missing, so a pre-existing false survived.
+4. Even with the handshake, `ksecretd` is a Qt app: with no display in the
+   forwarded environment it aborts with "no Qt platform plugin could be
+   initialized". Hyprland's own `/proc/<pid>/environ` has NO `WAYLAND_DISPLAY`
+   (it is the compositor — only its children get one), so the environment has to
+   be discovered, not copied.
+
+Fix in the tree: `keyring.sh` forces `Enabled=true` + `Default Wallet=kdewallet`;
+new `iso/installer/lib/syntropia-kwallet-unlock` discovers the `wayland-*` socket
+(offscreen as fallback) and runs `pam_kwallet_init`, retrying until a `*.kwl`
+appears; new user unit `syntropia-kwallet-unlock.service` enabled under
+`graphical-session.target.wants`; the runner no longer writes autologin (empty
+`sddm.conf`, `10-syntropia.conf` carries the default session) and installs the
+helper + unit; `build.sh` and `hook-branding-users.sh` ship the same three files.
+
+Proven on the laptop (2026-10-29, password login at the greeter, helper run by
+hand): `syntropia-kwallet-unlock: wallet unlocked via PAM (Default keyring.kwl)`,
+`org.freedesktop.secrets` owned by ksecretd, and `secret-tool store`/`lookup`
+round-trip with no prompt. Note the collection lands as **"Default keyring.kwl"**
+(KWallet 6 names it after the first libsecret consumer) — do not pin any check to
+`kdewallet.kwl`. Tests: 434 passing.
+
+### Wizard: the Proceed prompt no longer loses the ticks (2026-10-29)
+
+fzf keeps no state between runs, so answering `n` and looping back into the picker
+dropped every tick. The confirmation now runs INSIDE fzf: fzf >= 0.53 gets
+`enter:execute(confirm)+transform:…` and the picker never closes on "no", so ticks
+and cursor survive. The ticked set is tracked by the toggle bindings in a temp
+file, because fzf's `{+}` expands to the row under the cursor when the selection
+is empty — which is also why "nothing ticked" used to install the cursor row; it
+now stays in the picker with a hint. fzf < 0.53, the numbered fallback and the
+pty/stub-fzf tests keep the old bind and post-picker prompt.
+
+Proven in tmux with real fzf + stub yay: tick two, ENTER, answer `n` → picker
+still open with both ticks → ENTER, `y` → exactly those two packages installed.
+
+**Gotcha that cost a suite timeout:** the version probe must be
+`fzf --version </dev/null` — the test stub reads stdin and ignores argv, so an
+inherited stdin blocks the wizard forever.
+
+**Still to do:** rebuild the ISO (neither the wallet helper nor the new wizard
+tarball is in the current image), then re-flash + reinstall so the shipped
+installer has no autologin. The laptop has the helper installed by hand.
+
+### ⚠️ Superseded note (kept for the history) — the limitation as first found
+**KWallet never opens under SDDM autologin.** Evidence on the fresh laptop: only
+`kdewallet.salt` exists (no `.kwl`), `kwalletrc` reads `Enabled=false`,
+`org.kde.kwalletd6` will not activate ("unit failed") and
+`org.freedesktop.secrets` is "not activatable"; `ksecretd --pam-login` runs with
+`PAM_KWALLET5_LOGIN` set but has no password to unlock with. The Phase-1
+non-negotiable (no prompt at first login) still holds; secret persistence is
+simply unavailable. The choice is between (a) accept it — autologin stays, no
+gnome-keyring, no unencrypted wallet — and (b) give up autologin so KWallet can
+unlock with the login password. Nothing is decided yet; the Final Boss has not
+picked. Revisit only if an app starts visibly failing on a missing secrets
+service.
+
+### Then (small)
+1. Rebuild + re-flash so the chrome-sandbox hook path fix is in an image
+   (`sudo env SOURCE_DATE_EPOCH=1786489200 ./iso/build.sh`).
+2. Not yet exercised on hardware: the wizard's **`n` at the Proceed prompt returns
+   to the picker** and **ENTER with nothing ticked reopens it** (the laptop run
+   installed in one pass). Cheap check next time the wizard runs.
+3. `syntropia-ssh-setup` second run on the laptop to apply the hardening drop-in
+   (PasswordAuthentication no, AllowUsers r) — key auth is proven working.
+
 ## ✅ Verification checklist
 
 **DONE**
@@ -247,8 +363,9 @@ from syntropia-2026.10.27 verified all of the below)
 - ✅ Windows move/resize with SUPER + drag (laptop + fresh VM, qemu
   grab-on-hover; xdotool can't synthesize SUPER through QEMU GTK — use
   View/keyboard grab or the monitor when testing binds in a VM)
-- ⬜ Brave launches after the wizard installs it (wizard esc'd in the smoke test)
-- ⬜ No limine-snapper name warning
+- ✅ Brave launches after the wizard installs it — 2026-10-29 laptop, brave-bin
+  1.98.60, sandbox 4755, headless dump-dom renders
+- ✅ No limine-snapper name warning — 2026-10-29 laptop boot journal clean
 
 ## ▶️ Next steps (in order)
 
