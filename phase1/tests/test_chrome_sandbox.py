@@ -86,6 +86,9 @@ def test_build_ships_the_fixer_and_a_pacman_hook_for_every_brave_path() -> None:
     assert "etc/pacman.d/hooks/syntropia-chrome-sandbox.hook" in build
     # AUR brave-bin (opt/brave.com) and the repo package (usr/lib/brave) both
     # need the trigger, or whichever one the wizard installs stays broken.
+    # Current brave-bin PKGBUILD installs under opt/brave-bin (2026-10-29
+    # laptop), older revisions under opt/brave.com — both need the trigger.
+    assert "Target = opt/brave-bin/chrome-sandbox" in build
     assert "Target = opt/brave.com/brave/chrome-sandbox" in build
     assert "Target = usr/lib/brave/chrome-sandbox" in build
     assert "When = PostTransaction" in build

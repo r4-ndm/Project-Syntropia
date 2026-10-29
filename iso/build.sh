@@ -710,6 +710,7 @@ EOF
 Operation = Install
 Operation = Upgrade
 Type = Path
+Target = opt/brave-bin/chrome-sandbox
 Target = opt/brave.com/brave/chrome-sandbox
 Target = usr/lib/brave/chrome-sandbox
 Target = usr/lib/brave-bin/chrome-sandbox

@@ -15,12 +15,15 @@
 # as `syntropia-fix-chrome-sandbox [path...]`. Idempotent: an already-correct
 # helper is left untouched.
 #
-# AUR brave-bin installs under /opt/brave.com, the repo brave package under
-# /usr/lib/brave; both paths (plus chromium's and Chrome's) are checked.
+# AUR brave-bin installs under /opt/brave-bin (the wizard's pick) or
+# /opt/brave.com depending on the PKGBUILD revision, the repo brave package
+# under /usr/lib/brave; every known path (plus chromium's and Chrome's) is
+# checked, so a repack that drops the setuid bit cannot escape the hook.
 
 set -euo pipefail
 
 SANDBOX_PATHS=(
+    /opt/brave-bin/chrome-sandbox
     /opt/brave.com/brave/chrome-sandbox
     /usr/lib/brave/chrome-sandbox
     /usr/lib/brave-bin/chrome-sandbox
