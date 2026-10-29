@@ -1,0 +1,127 @@
+#!/bin/bash
+# syntropia-kwallet-unlock — hand PAM wallet credentials to ksecretd inside a
+# non-Plasma graphical session (Hyprland/UWSM).
+#
+# Why this exists:
+#   * `pam_kwallet5.so` hashes the login password and starts
+#     `ksecretd --pam-login` listening on $XDG_RUNTIME_DIR/kwallet5.socket.
+#   * `ksecretd` blocks in a single `accept()` on that socket waiting for
+#     `/usr/lib/pam_kwallet_init` to send the graphical session environment
+#     (WAYLAND_DISPLAY, DISPLAY, DBUS_SESSION_BUS_ADDRESS).
+#   * Under Hyprland/UWSM nothing runs `pam_kwallet_init`: its XDG autostart
+#     entry carries `X-systemd-skip=true` and `plasma-kwallet-pam.service` is
+#     only pulled in by Plasma.
+#
+# A wallet failure must never break a login: every active path logs one line to
+# stderr (visible in `journalctl --user -u syntropia-kwallet-unlock.service`)
+# and exits 0.
+set -euo pipefail
+
+if [[ -z "${HOME:-}" ]]; then
+    HOME="$(getent passwd "$(id -un)" | cut -d: -f6)"
+    export HOME
+fi
+
+runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+socket_path="${PAM_KWALLET5_LOGIN:-$runtime_dir/kwallet5.socket}"
+
+# If the socket does not exist, the session was not started through pam_kwallet.
+if [[ ! -S "$socket_path" && ! -e "$socket_path" ]]; then
+    exit 0
+fi
+
+export PAM_KWALLET5_LOGIN="$socket_path"
+
+# ksecretd is a Qt application: with no usable platform plugin in its
+# environment it aborts with "no Qt platform plugin could be initialized"
+# (measured 2026-10-29) and the wallet is never created. pam_kwallet_init
+# forwards OUR environment to it, so the platform has to be set here.
+# Hyprland's own /proc/<pid>/environ carries no WAYLAND_DISPLAY (it is the
+# compositor; only its children get one), so never copy the compositor env —
+# discover the socket instead, and fall back to the offscreen platform, which
+# keeps the daemon running headless.
+if [[ -z "${WAYLAND_DISPLAY:-}" && -z "${DISPLAY:-}" ]]; then
+    for candidate in "$runtime_dir"/wayland-*; do
+        [[ -S "$candidate" ]] || continue
+        export WAYLAND_DISPLAY="${candidate##*/}"
+        break
+    done
+fi
+if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+    export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland;xcb}"
+elif [[ -z "${DISPLAY:-}" ]]; then
+    export QT_QPA_PLATFORM=offscreen
+fi
+
+pam_init="${SYNTROPIA_PAM_KWALLET_INIT:-/usr/lib/pam_kwallet_init}"
+if [[ ! -x "$pam_init" ]]; then
+    echo "syntropia-kwallet-unlock: $pam_init not found or not executable; skipping wallet unlock" >&2
+    exit 0
+fi
+
+poll_iterations="${SYNTROPIA_KWALLET_POLL_ITERATIONS:-50}"
+poll_sleep="${SYNTROPIA_KWALLET_POLL_SLEEP:-0.2}"
+retry_sleep="${SYNTROPIA_KWALLET_RETRY_SLEEP:-0.5}"
+
+daemon_running() {
+    pgrep -u "$(id -u)" -x ksecretd >/dev/null 2>&1 \
+        || pgrep -x ksecretd >/dev/null 2>&1 \
+        || pgrep -x kwalletd6 >/dev/null 2>&1
+}
+
+socket_ready() {
+    [[ ( -S "$socket_path" || -e "$socket_path" ) && -w "$socket_path" ]]
+}
+
+# Poll up to ~10 s (50 * 0.2 s) until ksecretd is running and the socket is
+# connectable. Do not open a dummy connection to probe the socket: ksecretd
+# calls accept() once and closes the listening socket on EOF, so an empty
+# probe would consume the only accept() without sending the environment.
+ready=0
+for ((i = 0; i < poll_iterations; i++)); do
+    if daemon_running && socket_ready; then
+        ready=1
+        break
+    fi
+    sleep "$poll_sleep"
+done
+
+if (( ! ready )); then
+    echo "syntropia-kwallet-unlock: timed out waiting for ksecretd and $socket_path" >&2
+    exit 0
+fi
+
+# WAYLAND_DISPLAY / DISPLAY / DBUS_SESSION_BUS_ADDRESS are inherited from the
+# systemd user manager; do not clobber them.
+# Success signal: a wallet file appeared in the wallet directory. Do NOT pin
+# this to `kdewallet.kwl` — KWallet 6 creates the PAM-unlocked collection under
+# the libsecret name (measured 2026-10-29: "Default keyring.kwl", with
+# `secret-tool store`/`lookup` round-tripping afterwards), and the file name
+# depends on which collection asked for the secrets first.
+wallet_dir="$HOME/.local/share/kwalletd"
+have_wallet() {
+    compgen -G "$wallet_dir/*.kwl" >/dev/null 2>&1
+}
+
+unlocked=0
+
+for attempt in 1 2 3 4 5; do
+    "$pam_init" >/dev/null 2>&1 || true
+    if have_wallet; then
+        unlocked=1
+        break
+    fi
+    sleep "$retry_sleep"
+    if have_wallet; then
+        unlocked=1
+        break
+    fi
+done
+
+if (( unlocked )); then
+    echo "syntropia-kwallet-unlock: wallet unlocked via PAM ($(basename "$(compgen -G "$wallet_dir/*.kwl" | head -1)"))" >&2
+else
+    echo "syntropia-kwallet-unlock: pam_kwallet_init completed 5 attempts without producing a wallet in $wallet_dir" >&2
+fi
+
+exit 0

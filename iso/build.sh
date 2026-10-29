@@ -730,6 +730,24 @@ HOOKEOF
         "rootfs/usr/local/bin/syntropia-ssh-setup"
     ok "syntropia-ssh-setup installed to /usr/local/bin/syntropia-ssh-setup"
 
+    # Step 3.6b4: KWallet PAM unlock helper + systemd user unit.
+    # Hyprland/UWSM does not run /usr/lib/pam_kwallet_init (its XDG autostart
+    # entry has X-systemd-skip=true and plasma-kwallet-pam.service is Plasma-only),
+    # so ksecretd --pam-login blocks on kwallet5.socket until this user unit runs.
+    info "Installing KWallet PAM unlock helper and user unit..."
+    install -Dm755 "$SCRIPT_DIR/installer/lib/syntropia-kwallet-unlock" \
+        "rootfs/usr/local/bin/syntropia-kwallet-unlock"
+    install -Dm755 "$SCRIPT_DIR/installer/lib/syntropia-kwallet-unlock" \
+        "rootfs/usr/local/lib/syntropia-installer/syntropia-kwallet-unlock"
+    install -Dm644 "$SCRIPT_DIR/installer/lib/syntropia-kwallet-unlock.service" \
+        "rootfs/etc/systemd/user/syntropia-kwallet-unlock.service"
+    install -Dm644 "$SCRIPT_DIR/installer/lib/syntropia-kwallet-unlock.service" \
+        "rootfs/usr/local/lib/syntropia-installer/syntropia-kwallet-unlock.service"
+    mkdir -p "rootfs/etc/systemd/user/graphical-session.target.wants"
+    ln -sf ../syntropia-kwallet-unlock.service \
+        "rootfs/etc/systemd/user/graphical-session.target.wants/syntropia-kwallet-unlock.service"
+    ok "syntropia-kwallet-unlock helper + user unit installed"
+
     # Step 3.6c: Pre-install Hyprland Noctalia packages into the ISO rootfs
     info "Pre-installing Hyprland Noctalia packages into ISO rootfs..."
     local hypr_pkgs=(

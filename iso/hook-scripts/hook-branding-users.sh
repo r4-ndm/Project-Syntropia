@@ -93,6 +93,27 @@ elif [[ -f /usr/local/bin/syntropia-ssh-setup ]]; then
     chmod 755 "$ROOT/usr/local/bin/syntropia-ssh-setup" 2>/dev/null || true
 fi
 
+# Fallback wiring for KWallet PAM unlock helper + systemd user unit (warning-only)
+if [[ -f "$syntropia_installer_lib/syntropia-kwallet-unlock" ]]; then
+    install -Dm755 "$syntropia_installer_lib/syntropia-kwallet-unlock" "$ROOT/usr/local/bin/syntropia-kwallet-unlock" 2>/dev/null || true
+elif [[ -f /usr/local/bin/syntropia-kwallet-unlock ]]; then
+    install -Dm755 /usr/local/bin/syntropia-kwallet-unlock "$ROOT/usr/local/bin/syntropia-kwallet-unlock" 2>/dev/null || true
+else
+    echo "warning: syntropia-kwallet-unlock helper missing — KWallet PAM unlock helper not installed" >&2
+fi
+
+if [[ -f "$syntropia_installer_lib/syntropia-kwallet-unlock.service" ]]; then
+    install -Dm644 "$syntropia_installer_lib/syntropia-kwallet-unlock.service" "$ROOT/etc/systemd/user/syntropia-kwallet-unlock.service" 2>/dev/null || true
+    mkdir -p "$ROOT/etc/systemd/user/graphical-session.target.wants" 2>/dev/null || true
+    ln -sf ../syntropia-kwallet-unlock.service "$ROOT/etc/systemd/user/graphical-session.target.wants/syntropia-kwallet-unlock.service" 2>/dev/null || true
+elif [[ -f /etc/systemd/user/syntropia-kwallet-unlock.service ]]; then
+    install -Dm644 /etc/systemd/user/syntropia-kwallet-unlock.service "$ROOT/etc/systemd/user/syntropia-kwallet-unlock.service" 2>/dev/null || true
+    mkdir -p "$ROOT/etc/systemd/user/graphical-session.target.wants" 2>/dev/null || true
+    ln -sf ../syntropia-kwallet-unlock.service "$ROOT/etc/systemd/user/graphical-session.target.wants/syntropia-kwallet-unlock.service" 2>/dev/null || true
+else
+    echo "warning: syntropia-kwallet-unlock.service missing — KWallet user unit not installed" >&2
+fi
+
 # --- Start-menu (Kickoff) icon ---
 # The stock CachyOS panel points the Kickoff applet at icon=org.cachyos.hello.
 # Install our menu-icon.png into the target's hicolor theme as syntropia-menu

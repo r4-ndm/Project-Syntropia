@@ -195,19 +195,10 @@ mkdir -p "$TARGET/etc/sudoers.d"
 echo "%wheel ALL=(ALL:ALL) ALL" > "$TARGET/etc/sudoers.d/wheel"
 chmod 440 "$TARGET/etc/sudoers.d/wheel"
 
-# The keyring chain has to exist before the login configuration is written:
-# autologin is only safe when PAM can feed the wallet the LUKS passphrase.
+# Ensure the keyring packages are in the target before login/PAM setup.
+# Security over convenience: no autologin. The SDDM greeter is the PAM path,
+# handing the typed account password directly to pam_kwallet.
 keyring_install_packages "$TARGET" "$ONLINE" || true
-KEYRING_AUTOLOGIN=0
-if [[ "$ENCRYPT_DISK" == "true" ]] && keyring_can_feed_autologin "$TARGET"; then
-  KEYRING_AUTOLOGIN=1
-fi
-if ((KEYRING_AUTOLOGIN)); then
-  AUTOLOGIN_USER="$USERNAME"
-else
-  AUTOLOGIN_USER=""
-  echo "Autologin disabled: the login password unlocks the wallet (no keyring prompt)."
-fi
 
 set_phase "Configuring kernel & initramfs" 820
 mkdir -p "$TARGET/boot"
@@ -316,7 +307,7 @@ set_phase "Configuring Hyprland (UWSM) & Noctalia shell" 890
 echo "Installing CachyOS Hyprland Noctalia suite..."
 # hyprbars is AUR-only: build.sh compiles it into the ISO and the copy below
 # carries it into the target — see install_hyprbars_plugin(). sddm is the
-# login manager the autologin path below wires up.
+# login manager (the greeter is the PAM path that feeds KWallet the password).
 HYPR_PKGS="cachyos-hypr-noctalia noctalia sddm alacritty kitty"
 
 # The suite is baked into the live image, so this fallback only exists for an
@@ -381,8 +372,7 @@ if [[ -f /usr/lib/hyprland/hyprbars.so && -n "$live_hypr_ver" && "$live_hypr_ver
   install -Dm755 /usr/lib/hyprland/hyprbars.so "$TARGET/usr/lib/hyprland/hyprbars.so" 2>/dev/null || true
 fi
 
-# The autologin below writes Session=hyprland-uwsm.desktop, and the plain
-# hyprland.desktop entries are stripped from the image (NEXT_SESSION.md item 4).
+# The SDDM greeter preselects hyprland-uwsm.desktop (NEXT_SESSION.md item 4).
 # A missing UWSM session means the build lost the suite — stop instead of
 # shipping a target that logs into something else.
 if [[ ! -f "$TARGET/usr/share/wayland-sessions/hyprland-uwsm.desktop" ]]; then
@@ -392,22 +382,28 @@ if [[ ! -f "$TARGET/usr/share/wayland-sessions/hyprland-uwsm.desktop" ]]; then
 fi
 SESSION_NAME="hyprland-uwsm.desktop"
 
-# Login manager: SDDM only. Autologin is written only when KEYRING_AUTOLOGIN
-# set it: on an encrypted disk PAM can recover the passphrase (same secret as
-# the account password), so the wallet still unlocks. Without that chain the
-# login screen has to run so pam_kwallet receives the typed password.
-SDDM_AUTOLOGIN_BLOCK=""
-if [[ -n "$AUTOLOGIN_USER" ]]; then
-  SDDM_AUTOLOGIN_BLOCK="[Autologin]
-User=$AUTOLOGIN_USER
-Session=$SESSION_NAME
-Relogin=false
-"
-fi
-
+# Login manager: SDDM only, no autologin. The SDDM greeter is the PAM path:
+# the user types the account password at login so pam_kwallet receives a real
+# authtok and unlocks kdewallet (with syntropia-kwallet-unlock handing the
+# session environment to ksecretd once Hyprland/UWSM starts). Always empty
+# sddm.conf and autologin.conf so no autologin block can survive from the live
+# image, and write the default session so the greeter preselects Hyprland/UWSM.
 mkdir -p "$TARGET/etc/sddm.conf.d"
-printf '%s' "$SDDM_AUTOLOGIN_BLOCK" > "$TARGET/etc/sddm.conf"
-printf '%s' "$SDDM_AUTOLOGIN_BLOCK" > "$TARGET/etc/sddm.conf.d/autologin.conf"
+: > "$TARGET/etc/sddm.conf"
+: > "$TARGET/etc/sddm.conf.d/autologin.conf"
+cat > "$TARGET/etc/sddm.conf.d/10-syntropia.conf" << EOF
+[Users]
+DefaultSession=$SESSION_NAME
+RememberLastUser=true
+RememberLastSession=true
+EOF
+mkdir -p "$TARGET/var/lib/sddm"
+cat > "$TARGET/var/lib/sddm/state.conf" << EOF
+[Last]
+User=$USERNAME
+Session=/usr/share/wayland-sessions/$SESSION_NAME
+EOF
+arch-chroot "$TARGET" chown -R sddm:sddm /var/lib/sddm 2>/dev/null || true
 
 # Explicitly unmask and wire display-manager and graphical.target for installed system
 mkdir -p "$TARGET/etc/systemd/system"
@@ -427,25 +423,39 @@ arch-chroot "$TARGET" systemctl set-default graphical.target 2>/dev/null || true
 arch-chroot "$TARGET" chown -R "$USERNAME:$USERNAME" "/home/$USERNAME" 2>/dev/null || true
 
 set_phase "Configuring keyring auto-unlock (KWallet)" 920
-# Ships the wallet that PAM unlocks at login to libsecret apps, so Chromium and
-# Electron do not create a second keyring with its own password prompt. Covers
-# sddm + sddm-autologin (SDDM is the login manager) and tty login in the target.
+# The SDDM greeter is the PAM path: typing the account password feeds
+# pam_kwallet5.so, which starts `ksecretd --pam-login`, and the user unit
+# below runs syntropia-kwallet-unlock inside Hyprland/UWSM to hand the session
+# environment over the PAM socket so kdewallet unlocks and serves
+# org.freedesktop.secrets (no second keyring or password prompt in Chromium /
+# Electron).
 FORCE_DISABLE_GNOME_KEYRING=1
-if keyring_configure_target "$TARGET" "$USERNAME" "$ONLINE" "$KEYRING_AUTOLOGIN"; then
-  echo "Keyring: KWallet auto-unlock configured (autologin=$KEYRING_AUTOLOGIN)."
+if keyring_configure_target "$TARGET" "$USERNAME" "$ONLINE" 0; then
+  echo "Keyring: KWallet auto-unlock configured (SDDM password login)."
 else
-  echo "warning: keyring auto-unlock incomplete — falling back to the login screen." >&2
-  # Autologin types no password, so pam_kwallet can only unlock the wallet via
-  # pam_systemd_loadkey. When that chain is not complete, autologin is exactly
-  # how the first login grows a "create a new keyring" prompt (2026-10-25
-  # laptop): make SDDM ask for the password instead, which PAM hands to
-  # pam_kwallet directly.
-  if [[ -n "$AUTOLOGIN_USER" ]]; then
-    : > "$TARGET/etc/sddm.conf"
-    : > "$TARGET/etc/sddm.conf.d/autologin.conf"
-    echo "Autologin disabled: without a PAM path to the wallet, the login password has to be typed." >&2
-  fi
+  echo "warning: keyring auto-unlock configuration incomplete." >&2
 fi
+
+if [[ -f "$INSTALLER_LIB/syntropia-kwallet-unlock" ]]; then
+  install -Dm755 "$INSTALLER_LIB/syntropia-kwallet-unlock" "$TARGET/usr/local/bin/syntropia-kwallet-unlock"
+elif [[ -f /usr/local/bin/syntropia-kwallet-unlock ]]; then
+  install -Dm755 /usr/local/bin/syntropia-kwallet-unlock "$TARGET/usr/local/bin/syntropia-kwallet-unlock"
+else
+  echo "warning: syntropia-kwallet-unlock helper missing — KWallet PAM socket handoff will not run" >&2
+fi
+
+if [[ -f "$INSTALLER_LIB/syntropia-kwallet-unlock.service" ]]; then
+  install -Dm644 "$INSTALLER_LIB/syntropia-kwallet-unlock.service" "$TARGET/etc/systemd/user/syntropia-kwallet-unlock.service"
+  mkdir -p "$TARGET/etc/systemd/user/graphical-session.target.wants"
+  ln -sf ../syntropia-kwallet-unlock.service "$TARGET/etc/systemd/user/graphical-session.target.wants/syntropia-kwallet-unlock.service"
+elif [[ -f /etc/systemd/user/syntropia-kwallet-unlock.service ]]; then
+  install -Dm644 /etc/systemd/user/syntropia-kwallet-unlock.service "$TARGET/etc/systemd/user/syntropia-kwallet-unlock.service"
+  mkdir -p "$TARGET/etc/systemd/user/graphical-session.target.wants"
+  ln -sf ../syntropia-kwallet-unlock.service "$TARGET/etc/systemd/user/graphical-session.target.wants/syntropia-kwallet-unlock.service"
+else
+  echo "warning: syntropia-kwallet-unlock.service missing — KWallet PAM user unit not installed" >&2
+fi
+
 # The kwalletrc was written by root after the earlier chown.
 arch-chroot "$TARGET" chown -R "$USERNAME:$USERNAME" "/home/$USERNAME" 2>/dev/null || true
 

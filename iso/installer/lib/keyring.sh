@@ -365,6 +365,11 @@ keyring_configure_pam() {
 # Enable KWallet's Secret Service bridge and configure default wallet in the
 # user's config so libsecret apps use the wallet that PAM already unlocked
 # instead of prompting for a new one.
+# Force `Enabled=true` and `Default Wallet=kdewallet` rather than only adding
+# them when missing: a shipped `Enabled=false` self-disable survived the old
+# add-if-missing check (causing ksecretd/kwalletd6 to exit 255 before reaching
+# pamOpen()), and pam_kwallet only ever unlocks the wallet literally named
+# `kdewallet`.
 keyring_write_user_config() {
     local home="$1"
     local rc="$home/.config/kwalletrc"
@@ -385,9 +390,17 @@ EOF
         if ! grep -q '^\[Wallet\]' "$rc"; then
             printf '\n[Wallet]\nDefault Wallet=kdewallet\nFirst Use=false\nEnabled=true\n' >>"$rc"
         else
-            grep -q '^Default Wallet=' "$rc" || sed -i '/^\[Wallet\]/a Default Wallet=kdewallet' "$rc"
+            if grep -q '^Default Wallet=' "$rc"; then
+                sed -i 's/^Default Wallet=.*/Default Wallet=kdewallet/' "$rc"
+            else
+                sed -i '/^\[Wallet\]/a Default Wallet=kdewallet' "$rc"
+            fi
             grep -q '^First Use=' "$rc" || sed -i '/^\[Wallet\]/a First Use=false' "$rc"
-            grep -q '^Enabled=' "$rc" || sed -i '/^\[Wallet\]/a Enabled=true' "$rc"
+            if grep -q '^Enabled=' "$rc"; then
+                sed -i 's/^Enabled=.*/Enabled=true/' "$rc"
+            else
+                sed -i '/^\[Wallet\]/a Enabled=true' "$rc"
+            fi
         fi
         # Ensure [org.freedesktop.secrets] section with apiEnabled=true
         if ! grep -q '^\[org.freedesktop.secrets\]' "$rc"; then

@@ -1,0 +1,12 @@
+[Unit]
+Description=Syntropia: hand PAM wallet credentials to ksecretd
+Documentation=man:pam_kwallet5(8) man:kwalletd6(8)
+After=graphical-session.target
+PartOf=graphical-session.target
+ConditionPathExists=%t/kwallet5.socket
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/syntropia-kwallet-unlock
+RemainAfterExit=yes
+TimeoutStartSec=30

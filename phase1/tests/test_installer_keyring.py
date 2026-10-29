@@ -12,8 +12,11 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 LIB = REPO / "iso" / "installer" / "lib" / "keyring.sh"
+UNLOCK_HELPER = REPO / "iso" / "installer" / "lib" / "syntropia-kwallet-unlock"
+UNLOCK_SERVICE = REPO / "iso" / "installer" / "lib" / "syntropia-kwallet-unlock.service"
 RUNNER = REPO / "iso" / "installer" / "syntropia-install-runner"
 BUILD = REPO / "iso" / "build.sh"
+BRANDING_HOOK = REPO / "iso" / "hook-scripts" / "hook-branding-users.sh"
 
 BASE_ENV = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}
 
@@ -272,7 +275,34 @@ def test_existing_kwalletrc_is_extended_not_replaced(tmp_path: Path) -> None:
     call("keyring_write_user_config", str(home))
     text = rc.read_text()
     assert "Enabled=true" in text
+    assert "Default Wallet=kdewallet" in text
     assert "apiEnabled=true" in text
+
+
+def test_existing_disabled_kwalletrc_is_forced_enabled(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    (home / ".config").mkdir(parents=True)
+    rc = home / ".config" / "kwalletrc"
+    rc.write_text("[Wallet]\nEnabled=false\nFirst Use=true\n")
+    assert call("keyring_write_user_config", str(home)).returncode == 0
+    text = rc.read_text()
+    assert "Enabled=true" in text
+    assert "Enabled=false" not in text
+    assert "Default Wallet=kdewallet" in text
+    # First Use= remains add-if-missing, so a pre-existing value is preserved.
+    assert "First Use=true" in text
+
+
+def test_existing_default_wallet_is_forced_to_kdewallet(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    (home / ".config").mkdir(parents=True)
+    rc = home / ".config" / "kwalletrc"
+    rc.write_text("[Wallet]\nEnabled=false\nDefault Wallet=customwallet\n")
+    assert call("keyring_write_user_config", str(home)).returncode == 0
+    text = rc.read_text()
+    assert "Enabled=true" in text
+    assert "Default Wallet=kdewallet" in text
+    assert "customwallet" not in text
 
 
 # --- offline / package bootstrap ------------------------------------------
@@ -300,36 +330,34 @@ def test_configure_target_writes_pam_and_user_config(tmp_path: Path) -> None:
 def test_runner_configures_the_keyring_before_branding() -> None:
     src = RUNNER.read_text()
     assert 'source "$INSTALLER_LIB/keyring.sh"' in src
-    keyring_call = src.index('keyring_configure_target "$TARGET" "$USERNAME"')
+    keyring_call = src.index('keyring_configure_target "$TARGET" "$USERNAME" "$ONLINE" 0')
     assert keyring_call < src.index('set_phase "Applying Syntropia branding')
 
 
-def test_runner_keeps_autologin_only_when_the_keyring_can_be_fed() -> None:
+def test_runner_never_writes_autologin_or_references_autologin_user() -> None:
     src = RUNNER.read_text()
-    assert 'if [[ "$ENCRYPT_DISK" == "true" ]] && keyring_can_feed_autologin "$TARGET"; then' in src
-    # The login-manager files must not hard-code the user any more.
-    assert "User=$USERNAME\nSession=$SESSION_NAME" not in src
-    assert "User=$AUTOLOGIN_USER" in src
+    assert "[Autologin]" not in src
+    assert "AUTOLOGIN_USER" not in src
+    assert "KEYRING_AUTOLOGIN" not in src
+    assert "SDDM_AUTOLOGIN_BLOCK" not in src
+    assert 'keyring_configure_target "$TARGET" "$USERNAME" "$ONLINE" 0' in src
 
 
 def login_block() -> str:
     """The runner's real login-manager config block (SDDM)."""
     src = RUNNER.read_text()
-    start = src.index('SDDM_AUTOLOGIN_BLOCK=""')
-    end_marker = (
-        'printf \'%s\' "$SDDM_AUTOLOGIN_BLOCK" '
-        '> "$TARGET/etc/sddm.conf.d/autologin.conf"'
-    )
-    end = src.index(end_marker) + len(end_marker)
+    start = src.index('mkdir -p "$TARGET/etc/sddm.conf.d"')
+    end_marker = 'Session=/usr/share/wayland-sessions/$SESSION_NAME\nEOF'
+    end = src.index(end_marker, start) + len(end_marker)
     return src[start:end]
 
 
-def run_login_block(target: Path, autologin_user: str) -> subprocess.CompletedProcess:
+def run_login_block(target: Path, username: str = "producer") -> subprocess.CompletedProcess:
     script = (
         "set -e\n"
         f'TARGET="{target}"\n'
         'SESSION_NAME="hyprland-uwsm.desktop"\n'
-        f'AUTOLOGIN_USER="{autologin_user}"\n' + login_block()
+        f'USERNAME="{username}"\n' + login_block()
     )
     return subprocess.run(
         ["bash", "-c", script], capture_output=True, text=True, env=BASE_ENV, timeout=60
@@ -337,29 +365,32 @@ def run_login_block(target: Path, autologin_user: str) -> subprocess.CompletedPr
 
 
 def test_login_config_without_autologin_keeps_the_login_screen(tmp_path: Path) -> None:
-    (tmp_path / "etc").mkdir()
-    result = run_login_block(tmp_path, "")
+    (tmp_path / "etc" / "sddm.conf.d").mkdir(parents=True)
+    # Even if the live image left an [Autologin] block behind, the runner wipes it.
+    (tmp_path / "etc" / "sddm.conf").write_text("[Autologin]\nUser=liveuser\n")
+    (tmp_path / "etc" / "sddm.conf.d" / "autologin.conf").write_text("[Autologin]\nUser=liveuser\n")
+    result = run_login_block(tmp_path, "producer")
     assert result.returncode == 0, result.stderr
 
     assert (tmp_path / "etc" / "sddm.conf").read_text() == ""
     assert (tmp_path / "etc" / "sddm.conf.d" / "autologin.conf").read_text() == ""
-    # Plasma's login manager left the image with the desktop (NEXT_SESSION.md
-    # item 4): the runner must not keep writing a config nothing reads.
     assert not (tmp_path / "etc" / "plasmalogin.conf").exists()
 
 
-def test_login_config_with_autologin_names_the_user(tmp_path: Path) -> None:
+def test_login_config_preselects_hyprland_uwsm_without_autologin(tmp_path: Path) -> None:
     (tmp_path / "etc").mkdir()
     result = run_login_block(tmp_path, "producer")
     assert result.returncode == 0, result.stderr
 
-    for name in ("sddm.conf", "sddm.conf.d/autologin.conf"):
-        text = (tmp_path / "etc" / name).read_text()
-        assert "[Autologin]" in text, name
-        assert "User=producer" in text, name
-        assert "Session=hyprland-uwsm.desktop" in text, name
-        assert "Relogin=false" in text, name
-    assert not (tmp_path / "etc" / "plasmalogin.conf").exists()
+    syntropia_conf = (tmp_path / "etc" / "sddm.conf.d" / "10-syntropia.conf").read_text()
+    assert "[Autologin]" not in syntropia_conf
+    assert "[Users]" in syntropia_conf
+    assert "DefaultSession=hyprland-uwsm.desktop" in syntropia_conf
+
+    state_conf = (tmp_path / "var" / "lib" / "sddm" / "state.conf").read_text()
+    assert "[Last]" in state_conf
+    assert "User=producer" in state_conf
+    assert "Session=/usr/share/wayland-sessions/hyprland-uwsm.desktop" in state_conf
 
 
 """The PAM stack Arch's sddm package actually ships (/etc/pam.d/sddm).
@@ -526,13 +557,15 @@ def test_autologin_needs_a_wallet_daemon(tmp_path: Path) -> None:
     assert call("keyring_can_feed_autologin", str(root)).returncode != 0
 
 
-def test_runner_falls_back_to_the_login_screen_when_the_keyring_fails() -> None:
+def test_runner_configures_keyring_for_password_login_without_autologin_fallback() -> None:
     src = RUNNER.read_text()
-    # Autologin + a wallet PAM cannot unlock = the prompt is back. The runner
-    # must drop autologin instead of shipping it.
-    assert "Autologin disabled: without a PAM path to the wallet" in src
-    failure = src.index('echo "warning: keyring auto-unlock incomplete')
-    assert failure < src.index(': > "$TARGET/etc/sddm.conf"')
+    # With autologin removed, the SDDM greeter is always the PAM path: the
+    # runner empties sddm.conf and autologin.conf up front and configures
+    # keyring_configure_target with autologin=0.
+    assert src.index(': > "$TARGET/etc/sddm.conf"') < src.index(
+        'keyring_configure_target "$TARGET" "$USERNAME" "$ONLINE" 0'
+    )
+    assert "Autologin disabled" not in src
 
 
 def test_build_ships_the_keyring_packages() -> None:
@@ -545,3 +578,147 @@ def test_build_ships_the_keyring_packages() -> None:
     # Phase 2 cannot install packages, so a stale stock image is called out
     # before it is remastered rather than producing a prompting install.
     assert "Stock image lacks kwallet-pam/kwallet/socat" in build
+
+
+def test_kwallet_unlock_helper_and_service_are_valid_and_shipped_everywhere() -> None:
+    assert UNLOCK_HELPER.is_file()
+    syntax = subprocess.run(
+        ["bash", "-n", str(UNLOCK_HELPER)],
+        capture_output=True,
+        text=True,
+        env=BASE_ENV,
+        timeout=30,
+    )
+    assert syntax.returncode == 0, syntax.stderr
+
+    assert UNLOCK_SERVICE.is_file()
+    unit_text = UNLOCK_SERVICE.read_text()
+    assert "ExecStart=/usr/local/bin/syntropia-kwallet-unlock" in unit_text
+    assert "After=graphical-session.target" in unit_text
+    assert "PartOf=graphical-session.target" in unit_text
+    assert "ConditionPathExists=%t/kwallet5.socket" in unit_text
+
+    build = BUILD.read_text()
+    runner = RUNNER.read_text()
+    hook = BRANDING_HOOK.read_text()
+
+    # 1) build.sh rootfs installs
+    assert "rootfs/usr/local/bin/syntropia-kwallet-unlock" in build
+    assert "rootfs/etc/systemd/user/syntropia-kwallet-unlock.service" in build
+    assert (
+        "rootfs/etc/systemd/user/graphical-session.target.wants/syntropia-kwallet-unlock.service"
+        in build
+    )
+
+    # 2) syntropia-install-runner target installs
+    assert "$TARGET/usr/local/bin/syntropia-kwallet-unlock" in runner
+    assert "$TARGET/etc/systemd/user/syntropia-kwallet-unlock.service" in runner
+    assert (
+        "$TARGET/etc/systemd/user/graphical-session.target.wants/syntropia-kwallet-unlock.service"
+        in runner
+    )
+
+    # 3) hook-branding-users.sh fallback installs
+    assert "$ROOT/usr/local/bin/syntropia-kwallet-unlock" in hook
+    assert "$ROOT/etc/systemd/user/syntropia-kwallet-unlock.service" in hook
+    assert (
+        "$ROOT/etc/systemd/user/graphical-session.target.wants/syntropia-kwallet-unlock.service"
+        in hook
+    )
+
+
+def test_kwallet_unlock_helper_gives_ksecretd_a_qt_platform_and_any_wallet_counts() -> None:
+    """Two hardware findings that the helper must keep (2026-10-29).
+
+    ksecretd is a Qt app: with no WAYLAND_DISPLAY/DISPLAY in the environment that
+    pam_kwallet_init forwards, it dies with "no Qt platform plugin could be
+    initialized" and no wallet is ever created. And KWallet 6 names the
+    PAM-unlocked collection after the first libsecret consumer ("Default
+    keyring.kwl"), so pinning the success check to kdewallet.kwl reports failure
+    even when secret-tool round-trips.
+    """
+    text = UNLOCK_HELPER.read_text()
+    assert "wayland-*" in text
+    assert "QT_QPA_PLATFORM" in text
+    assert "offscreen" in text
+    assert '*.kwl' in text
+    # The success check must be a glob over the wallet dir, not a hard-coded name.
+    assert 'wallet_file=' not in text
+
+
+def test_kwallet_unlock_helper_exits_silently_when_no_socket(tmp_path: Path) -> None:
+    env = {
+        **BASE_ENV,
+        "HOME": str(tmp_path / "home"),
+        "XDG_RUNTIME_DIR": str(tmp_path / "run"),
+    }
+    (tmp_path / "home").mkdir()
+    (tmp_path / "run").mkdir()
+    res = subprocess.run(
+        ["bash", str(UNLOCK_HELPER)],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=15,
+    )
+    assert res.returncode == 0
+    assert res.stderr == ""
+
+
+def test_kwallet_unlock_helper_stops_early_once_kdewallet_kwl_exists(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    run_dir = tmp_path / "run"
+    bin_dir = tmp_path / "bin"
+    home.mkdir()
+    run_dir.mkdir()
+    bin_dir.mkdir()
+
+    sock = run_dir / "kwallet5.socket"
+    sock.write_text("")
+    sock.chmod(0o600)
+
+    # Stub pgrep so ksecretd appears running.
+    pgrep = bin_dir / "pgrep"
+    pgrep.write_text("#!/bin/sh\nexit 0\n")
+    pgrep.chmod(0o755)
+
+    calls_file = tmp_path / "calls.txt"
+    env_dump = tmp_path / "env.txt"
+    fake_init = tmp_path / "pam_kwallet_init"
+    fake_init.write_text(
+        "#!/bin/sh\n"
+        f'echo "call" >> "{calls_file}"\n'
+        f'printf "%s|%s|%s\\n" "$WAYLAND_DISPLAY" "$DBUS_SESSION_BUS_ADDRESS" "$PAM_KWALLET5_LOGIN" > "{env_dump}"\n'
+        'count=$(wc -l < "' + str(calls_file) + '")\n'
+        'if [ "$count" -ge 2 ]; then\n'
+        '  mkdir -p "$HOME/.local/share/kwalletd"\n'
+        '  : > "$HOME/.local/share/kwalletd/kdewallet.kwl"\n'
+        "fi\n"
+        "exit 0\n"
+    )
+    fake_init.chmod(0o755)
+
+    env = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "LANG": "C.UTF-8",
+        "HOME": str(home),
+        "XDG_RUNTIME_DIR": str(run_dir),
+        "WAYLAND_DISPLAY": "wayland-1",
+        "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
+        "SYNTROPIA_PAM_KWALLET_INIT": str(fake_init),
+    }
+    res = subprocess.run(
+        ["bash", str(UNLOCK_HELPER)],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=15,
+    )
+    assert res.returncode == 0
+    assert (home / ".local" / "share" / "kwalletd" / "kdewallet.kwl").is_file()
+    # Stopped on attempt 2 out of 5 once kdewallet.kwl appeared.
+    assert len(calls_file.read_text().splitlines()) == 2
+    assert env_dump.read_text().strip() == f"wayland-1|unix:path=/run/user/1000/bus|{sock}"
+    assert len(res.stderr.strip().splitlines()) == 1
+    assert "wallet unlocked" in res.stderr
+    assert "kdewallet.kwl" in res.stderr
