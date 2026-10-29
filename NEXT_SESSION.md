@@ -330,8 +330,9 @@ inherited stdin blocks the wizard forever.
 - `pacman -Qkk` reports only "backup file … (Modification time mismatch)" noise;
   the only failed unit is `systemd-networkd-wait-online` (expected on this network).
 
-**Still to do:** nothing blocking. Optional: push both repos; re-test the wizard's
-in-picker confirm on the laptop (tick two, ENTER, `n` — ticks must stay).
+**Still to do:** nothing blocking. The wizard's in-picker confirm was also exercised
+on the laptop by the Final Boss (tick, ENTER, `n` — ticks kept). Only pushing the two
+repos is left.
 
 ### ⚠️ Superseded note (kept for the history) — the limitation as first found
 **KWallet never opens under SDDM autologin.** Evidence on the fresh laptop: only
