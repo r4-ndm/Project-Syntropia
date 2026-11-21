@@ -68,8 +68,15 @@ Noctalia → wizard → audio → wallet unlocks with the login password.
 - **Committed 2026-11-21**: `d97ec65` sshd drop-in ordering + effective-config
   check, `2a97e73` CachyOS-Live-ISO reset before pulling, `50e39d5`
   docs/cleanup, `893e5a0` installer target cleanup, `ad32eea` AUR rehash,
-  `9e4e15a` status. Pushed through `50e39d5`; `893e5a0`→`9e4e15a` are **local
-  only**. The tree is clean.
+  `9e4e15a` status, `b5a2624` session write-up. **All pushed** through
+  `b5a2624`. The tree is clean.
+- **AUR source tarball published 2026-11-21.** The `v0.1.0` release asset was
+  replaced with the regenerated `release/syntropia-0.1.0.tar`; downloaded back
+  from GitHub it hashes `b0b48cb4b8c0…adfb1a` (14,213,120 bytes), matching the
+  `sha256sums` in all three `pkgrel=2` PKGBUILDs. AUR builds validate again.
+- **The ISO in `iso/out/` predates the installer cleanup patch** — it was built
+  2026-11-19 21:21, `893e5a0` landed 2026-11-21 17:37. Flashing the current
+  stick re-tests the *old* behaviour; rebuild before the next reinstall.
 
 - **Findings from the 2026-11-21 laptop install** (cleanup, none block Phase 1):
   - The installed target inherits the build chroot's package set:
@@ -85,18 +92,16 @@ Noctalia → wizard → audio → wallet unlocks with the login password.
 
 ## ⏭️ Next, in order
 
-1. **Verify the installer cleanup patch on the next reinstall** — the runner now
+1. **Rebuild the ISO** so the installer cleanup patch is actually on the media:
+   `sudo env SOURCE_DATE_EPOCH=1786489200 ./iso/build.sh`. Then flash and
+   reinstall (hash the stick's `airootfs.sfs` against the ISO's first).
+2. **Verify the installer cleanup patch on that reinstall** — the runner now
    strips `cachyos-calamares-staging`/`mkinitcpio-archiso` and deletes
    `/etc/modules-load.d/zfs.conf` when no ZFS modules ship. Unit-tested, not yet
    on hardware. After installing: `pacman -Q cachyos-calamares-staging
    mkinitcpio-archiso` must say "not found", and `journalctl -b -p 3 | grep -i
    spl` must be empty.
-2. **Publish the refreshed AUR source tarball.** `release/syntropia-0.1.0.tar`
-   (sha256 `b0b48cb4b8c0…adfb1a`, all three packages at `pkgrel=2`) is
-   regenerated and hash-validated locally, but the PKGBUILDs fetch the GitHub
-   *release asset*, which still holds the old bytes — builds from the AUR fail
-   validation until that asset is replaced.
-3. **Declare Phase 1 done** once step 1 passes, then open Phase 2 deliberately.
+3. **Declare Phase 1 done** once step 2 passes, then open Phase 2 deliberately.
 
 ## 🧰 Commands
 
