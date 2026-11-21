@@ -140,24 +140,38 @@ cleanup patch on hardware — passed on the 2026-11-21 reinstall.
 
 ## ⏭️ Next, in order
 
-**Phase 1 is done** — it was verified end to end on the 18:31 image. What
-follows is re-proving the 20:41 rebuild, which ships the ssh-setup fixes on a
-freshly pulled CachyOS base, then Phase 2.
+**Start here: the laptop install is a hands-on task, planned for 2026-11-22.**
+Nothing needs doing on this desktop first — the stick is flashed and verified,
+the tree is clean, everything is pushed. Phase 1 is already done (proven on the
+18:31 image); what follows re-proves the 20:41 rebuild, which ships the
+ssh-setup fixes on a freshly pulled CachyOS base.
 
-1. **Reinstall the laptop from the stick** — the stick already holds the 20:41
-   image, byte-verified. Then re-run the two cleanup checks, since this image
-   has a freshly pulled CachyOS base and inherits no hardware verification:
-   `pacman -Q cachyos-calamares-staging mkinitcpio-archiso` → "not found", and
-   `journalctl -b -p 3 | grep -i spl` → empty.
-2. **Then exercise the SSH helper on hardware** — it has never run outside the
-   test stubs. `sudo syntropia-ssh-setup --key "<pubkey>"` should authorize,
-   harden and start sshd in one pass, and the wizard's "SSH Setup" pick should
-   now actually install openssh rather than printing instructions.
-3. **Open Phase 2 deliberately** — scope it with the Final Boss before writing
+1. **Boot the laptop from the stick and install.** Keyboard → network → one
+   password → dashboard. Reboot, remove the stick, log in. The stick holds the
+   20:41 image (`d7a5a4978dc0…f56e16`), byte-verified — no need to re-flash.
+2. **Re-run the two cleanup checks on the installed system.** This image pulled
+   a fresh CachyOS base, so it inherits no hardware verification:
+   - `pacman -Q cachyos-calamares-staging mkinitcpio-archiso` → both "not found"
+   - `journalctl -b -p 3 | grep -i spl` → empty
+3. **Exercise the SSH helper on hardware — it has never run outside test
+   stubs.** On the client: `cat ~/.ssh/id_ed25519.pub`. On the laptop:
+   `sudo syntropia-ssh-setup --key "<that line>"`. Expect
+   `sshd hardening: applied … (effective config verified)` and sshd started
+   *after* hardening. Then from the client, prove passwords are refused:
+   `ssh -vv -o PreferredAuthentications=none <user>@<laptop-ip>` →
+   `Authentications that can continue:` must list `publickey` only.
+   Also try the wizard's **"SSH Setup"** pick: it should prompt `public key>`
+   and actually install openssh. That path was a silent no-op until today, so
+   it is the one most worth watching.
+4. **If the install misbehaves**, re-flash the known-good
+   `iso/out/syntropia-2026.08.12-x86_64.iso.verified-2026-11-21`
+   (`55e1cf2944b7…cdd352`) rather than debugging blind — then compare.
+5. **Open Phase 2 deliberately** — scope it with the Final Boss before writing
    code. `phase2/` exists but Phase 2 has never been scoped; do not drift into
    it by accident.
-4. **Optional, not blocking:** the stick's real capacity is unverified
-   (`f3probe` would settle it).
+6. **Optional, not blocking:** the stick's real capacity is unverified
+   (`f3probe` would settle it). Its identifiers are placeholder strings, so
+   29 GiB is the controller's claim, not a fact.
 
 ## 🧰 Commands
 
@@ -180,6 +194,15 @@ syntropia transform --check
 
 ## 🔻 Traps (learned the hard way)
 
+- **The guarded flasher lived at `/tmp/flash-syntropia.sh` and is gone after a
+  reboot.** It was worth having, so recreate it rather than running bare `dd`:
+  resolve the stick through `/dev/disk/by-id/usb-*_FC00460E56632818-0:0` so no
+  `/dev/sdX` letter is ever typed, then refuse to write unless the resolved
+  target passes all of `lsblk -ndo TYPE` = `disk`, `lsblk -ndo TRAN` = `usb`,
+  `/sys/block/<dev>/removable` = 1, size < 128 GB, and size > the ISO. None of
+  this box's SATA/NVMe disks pass those, so a typo cannot reach them. Unmount
+  the stick's partitions, `dd … bs=4M oflag=direct conv=fsync`, then read back
+  exactly the ISO's byte count with `iflag=count_bytes` and compare sha256.
 - **Flash to a real device**: `dd of=/dev/sdd …`. `dd` will happily create
   `/dev/sdX` as a 3 GB *file* and flash nothing. Verify by hashing the stick's
   `arch/x86_64/airootfs.sfs` against the ISO's.

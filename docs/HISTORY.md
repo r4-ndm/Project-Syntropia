@@ -22,6 +22,7 @@
 | 2026-10-29 wallet resolution (drop autologin), wizard tick fix, laptop verification | *resume here (written 2026-10-29)*, both entries |
 | 2026-11-19 sshd hardening no-op fixed, CachyOS base refresh | *resume here (written 2026-11-19)*, plus the `✅ RESOLVED (2026-11-19)` section |
 | 2026-11-21 repo cleanup, sshd proof on hardware, installer residue fix, AUR refresh | *resume here (written 2026-11-21)* |
+| 2026-11-21 (late) Phase 1 closed on hardware; ssh-setup made one-command; wizard SSH pick found to be a no-op | *resume here (written 2026-11-21 late)* |
 | Recurring traps and lessons | *Session lessons*, *Do-not-repeat* |
 
 ---
@@ -712,3 +713,86 @@ publish action — ask first) or don't ship the new hash.
 - **A stale status doc is worse than none.** Every claim in `NEXT_SESSION.md`
   that stopped being true ("uncommitted: 4 files", "not hardware-verified") had
   to be hunted down today. Update it in the same commit as the change.
+
+## ⏭️ NEXT SESSION — resume here (written 2026-11-21 late, end of session)
+
+Picked up after a machine crash mid-session. Nothing was lost: the tree was
+clean and everything through `647eef2` was already pushed. The crash had
+interrupted step 1 of the then-current plan — the ISO rebuild — which had in
+fact completed at 18:31 without anyone seeing the result.
+
+### What was proven on hardware (the 18:31 image)
+`cachyos-calamares-staging` and `mkinitcpio-archiso` both reported "was not
+found" on the installed laptop, and `journalctl -b -p 3 | grep -i spl` came back
+empty. That closed the last open Phase 1 item — the installer cleanup patch
+(`893e5a0`) had only ever been unit-tested. **Phase 1 is done.**
+
+The full chain was verified rather than assumed: rebuild → extract the squashfs
+and byte-compare every installer file against the tree → flash → hash the bytes
+back off `/dev/sdd` → install → run the checks.
+
+### The SSH helper was not what it claimed
+`syntropia-ssh-setup` was described as "one-command SSH server setup" and could
+not be one command. Hardening was gated on `~/.ssh/authorized_keys`, and the
+only route it offered to populate that file was `ssh-copy-id` — which must log
+in to deposit a key, so password authentication had to be enabled first. The
+real flow was: start sshd with passwords on, `ssh-copy-id`, re-run to harden.
+On a fresh install that window is worse than it sounds, because archiso's
+`10-archiso.conf` survives into the target with `PasswordAuthentication yes`
+*and* `PermitRootLogin yes`, and sshd honours the first value it reads.
+
+Three defects came out of reading it properly:
+
+1. **The window was structural, not incidental.** Fixed by taking the client's
+   key up front (`--key` / `--key-file` / `--github`), which reorders the run to
+   authorize → harden → start. sshd is never reachable while passwords are
+   accepted. Keys are validated against the types sshd honours, so a pasted
+   fragment or a private key is refused *and sshd is not started* — it fails
+   closed. Duplicates match on the key body, ignoring the comment.
+2. **Hardening was gated on `~/.ssh/id_ed25519` and returned silently without
+   it.** That keypair is for this host connecting *outward* and has nothing to
+   do with who may log in here. The silent return meant sshd could be left
+   running unhardened with nothing in the output saying so. `authorized_keys` is
+   now the only condition.
+3. **The wizard's "SSH Setup" pick did nothing at all.** app-wiz4rd runs helpers
+   as `helper 2>&1 | tee -a "$INSTALL_LOG"`, so our stdout is a pipe, and the
+   sudo re-exec required `[[ -t 0 && -t 1 ]]`. sudo prompts on `/dev/tty`, not
+   stdout, so `-t 1` was never the right test — the wizard route skipped
+   escalation, ran unprivileged, printed `sudo pacman -S …` instructions,
+   generated a passphrase-less keypair nobody asked for, and **exited 0 looking
+   like success**. No openssh, no sshd. Gating on stdin alone fixes it.
+
+With (3) fixed the wizard would still have landed on the legacy flow, since it
+cannot pass `--key`, so the helper now **prompts** for a key when given none and
+stdin is a TTY (Enter skips, junk re-prompts twice, `SYNTROPIA_SSH_NO_PROMPT=1`
+disables). Both entry points get one-pass hardening and **app-wiz4rd needed no
+release** — the bug and the fix both live in `ssh-setup.sh`, which this repo
+owns, even though the wizard is a separate sha-pinned repo.
+
+Tests went 437 → 449. One pins the harden-before-start ordering; one drives the
+exact `… | tee` invocation over a pty, because that is the shape that was broken.
+
+### State at end of session
+- Latest ISO `d7a5a4978dc0…f56e16` (20:41), rebuilt for the ssh fixes,
+  byte-compared against the tree, boot-config checked, and **flashed to the
+  stick with the write hashed back**. Not installed — no hardware verification.
+- `iso/out/*.iso.verified-2026-11-21` (`55e1cf2944b7…cdd352`) is the best
+  known-good fallback: the image that installed cleanly and passed both checks.
+- Everything committed and pushed; tree clean.
+
+### Lessons (2026-11-21 late)
+- **"Verified" must name the artifact, not the feature.** `build.sh` re-pulls
+  the CachyOS base on every run, so a rebuild is a genuinely new image, not the
+  proven one plus a patch. The 20:41 ISO inherits nothing from the 18:31 one.
+- **Preserve the proven image before rebuilding.** The build overwrites
+  `iso/out/syntropia-2026.08.12-x86_64.iso` in place; today's hardware-verified
+  image would have been destroyed. `cp --reflink=auto` is free on btrfs.
+- **A helper that exits 0 can still have done nothing.** The wizard's SSH pick
+  printed instructions and succeeded for weeks. Assert on the *effects*
+  (openssh installed, sshd enabled), never on the exit status.
+- **`-t 1` is almost always the wrong gate.** Terminal-detection on *stdout*
+  breaks every caller that pipes or logs you. Gate on stdin, or on `/dev/tty`.
+- **Tests can pass for the wrong reason.** The first key prompt read `/dev/tty`,
+  so under pytest it hit a different terminal, returned EOF and skipped — green
+  without exercising anything. Reading stdin made it deterministic and
+  immediately exposed an existing pty test hanging on the new prompt.
