@@ -22,6 +22,9 @@
 # Behavior:
 #   0. --key/--key-file/--github install authorized_keys for the target user,
 #      validating each line is a real SSH public key; duplicates are skipped.
+#      With no key flag and a TTY on stdin it PROMPTS for one (Enter skips;
+#      SYNTROPIA_SSH_NO_PROMPT=1 disables), so the first-boot wizard route gets
+#      the same one-pass hardening.
 #   1. Re-exec via `sudo -E` when invoked interactively (TTY stdin+stdout) as a
 #      non-root user and `sudo` is available (unless SYNTROPIA_SSH_NO_SUDO is
 #      set); fall back to printing instructions when unprivileged.
@@ -277,6 +280,37 @@ ssh_setup_install_authorized_keys() {
     return 0
 }
 
+# Ask for the client's public key when none was passed. The prompt goes to
+# stderr, not stdout: callers pipe our stdout (the first-boot wizard runs us
+# through `tee`), and stdout here carries the accepted key back to the caller.
+# Reads stdin, which the caller has already confirmed is a TTY.
+# Returns 1 when the user skips, so the caller falls back to the legacy flow.
+ssh_setup_prompt_for_key() {
+    local attempt line
+    for attempt in 1 2 3; do
+        {
+            echo ""
+            echo "Set up access from another machine now?"
+            echo "On the machine you want to connect FROM, run:"
+            echo "    cat ~/.ssh/id_ed25519.pub"
+            echo "(nothing there? run 'ssh-keygen -t ed25519' there first)"
+            echo "Paste that line below, or press Enter to skip."
+            printf 'public key> '
+        } >&2
+        read -r line || return 1
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        [[ -n "$line" ]] || return 1
+        if ssh_setup_valid_pubkey "$line"; then
+            printf '%s\n' "$line"
+            return 0
+        fi
+        echo "Not an SSH public key — expected something like 'ssh-ed25519 AAAA... you@host'." >&2
+    done
+    echo "Giving up on the key prompt; continuing without it." >&2
+    return 1
+}
+
 ssh_setup_host_fingerprint() {
     local dir="${SYNTROPIA_SSH_HOST_KEY_DIR:-${SYNTROPIA_ROOT:-}/etc/ssh}"
     local pub="$dir/ssh_host_ed25519_key.pub"
@@ -412,7 +446,11 @@ ssh_setup_main() {
         esac
     done
 
-    if ! ssh_setup_is_root && [[ -z "${SYNTROPIA_SSH_NO_SUDO:-}" ]] && [[ -t 0 && -t 1 ]]; then
+    # Gate on stdin only. sudo prompts on /dev/tty, not stdout, so demanding
+    # `-t 1` here meant any caller that piped our output got no escalation at
+    # all: the first-boot wizard runs us through `tee`, so picking "SSH Setup"
+    # silently did nothing but print instructions and exit 0.
+    if ! ssh_setup_is_root && [[ -z "${SYNTROPIA_SSH_NO_SUDO:-}" ]] && [[ -t 0 ]]; then
         if command -v sudo >/dev/null 2>&1; then
             echo "syntropia-ssh-setup: root privileges are needed to install openssh and enable sshd."
             echo "Re-running via sudo (enter your account password if prompted)..."
@@ -467,6 +505,16 @@ ssh_setup_main() {
     target_home="$(ssh_setup_target_home)"
 
     ssh_setup_ensure_openssh
+
+    # No key on the command line, but someone is sitting at a terminal: ask,
+    # so the interactive and wizard routes get the same one-pass hardening the
+    # --key flag gives instead of a sshd left open to passwords.
+    local prompted=""
+    if ((${#keys[@]} == 0)) && [[ -z "${SYNTROPIA_SSH_NO_PROMPT:-}" ]] && [[ -t 0 ]]; then
+        if prompted="$(ssh_setup_prompt_for_key)" && [[ -n "$prompted" ]]; then
+            keys+=("$prompted")
+        fi
+    fi
 
     if ((${#keys[@]} > 0)); then
         # Authorize, harden, THEN start: sshd must never be reachable while

@@ -52,7 +52,7 @@ rebuild): TUI install → Limine → Hyprland + Noctalia → wizard → audio �
 unlocks with the login password. The last open item — proving the installer
 cleanup patch on hardware — passed on the 2026-11-21 reinstall.
 
-- **Tests: 445 passing** (`phase1/tests` + `iso/tests`).
+- **Tests: 449 passing** (`phase1/tests` + `iso/tests`).
 - **Latest ISO**: `iso/out/syntropia-2026.08.12-x86_64.iso` (2026-11-21 18:31,
   sha256 `55e1cf2944b7…cdd352`) — rebuilt 2026-11-21 after the installer cleanup
   patch, boot-config checked (9 files), and content-verified against the tree:
@@ -81,6 +81,20 @@ cleanup patch on hardware — passed on the 2026-11-21 reinstall.
   saying so. The legacy no-flag path still works but now states plainly that
   password login is open until you re-run. 8 new tests, one of which pins the
   harden-before-start ordering.
+- **The wizard's "SSH Setup" pick used to do nothing** — fixed 2026-11-21.
+  app-wiz4rd runs helpers as `helper 2>&1 | tee -a "$INSTALL_LOG"`, so the
+  helper's stdout is a pipe; escalation was gated on `[[ -t 0 && -t 1 ]]`, and
+  the `-t 1` half meant it never re-exec'd under sudo. It ran unprivileged,
+  printed `sudo pacman -S …` instructions, generated a passphrase-less keypair
+  nobody asked for and exited 0 — openssh not installed, sshd not enabled.
+  sudo prompts on `/dev/tty`, not stdout, so the gate is now `-t 0` only.
+  **No app-wiz4rd release was needed**: the bug and the fix are both in
+  `ssh-setup.sh`, which this repo owns.
+- **The helper now prompts for a key** when given none and stdin is a TTY
+  (Enter skips, `SYNTROPIA_SSH_NO_PROMPT=1` disables, junk re-prompts twice).
+  So the wizard route and a bare terminal both get one-pass hardening without
+  the wizard knowing anything about `--key`. The prompt writes to stderr, since
+  stdout carries the accepted key back and callers pipe it.
 - **CachyOS base refresh fixed** — `build.sh` resets the vendored
   `iso/work/CachyOS-Live-ISO` clone before pulling, so upstream changes to
   `packages_desktop.x86_64` no longer abort the update silently.
@@ -131,12 +145,7 @@ are all done and verified on hardware.
    use `--key` on the laptop either rebuild the ISO or copy
    `iso/installer/lib/ssh-setup.sh` to `/usr/local/bin/syntropia-ssh-setup`
    there. `build.sh`'s `verify_installer_libs` will refuse a stale image anyway.
-3. **The wizard still invokes the helper with no arguments**, so picking "SSH
-   Setup" in the first-boot wizard gets the legacy two-pass flow and its
-   password-auth window, not the one-command path. Making the wizard pick good
-   needs an interactive "paste your public key" prompt for the TTY/no-args case.
-   Decide whether to add it.
-4. **Optional, not blocking:** the stick's real capacity is unverified
+3. **Optional, not blocking:** the stick's real capacity is unverified
    (`f3probe` would settle it).
 
 ## 🧰 Commands

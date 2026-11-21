@@ -543,6 +543,9 @@ def test_tty_non_root_reexecs_via_sudo_before_running(tmp_path: Path) -> None:
         "SYNTROPIA_EUID": "1000",
         "SYNTROPIA_SSHD_CONFIG_D": str(tmp_path / "sshd_config.d"),
         "SSH_TEST_LOG": str(log),
+        # This test is about the sudo re-exec, not the key prompt; without this
+        # the run would sit waiting for a pasted key.
+        "SYNTROPIA_SSH_NO_PROMPT": "1",
     }
 
     master, slave = pty.openpty()
@@ -760,6 +763,140 @@ def test_unknown_option_exits_nonzero_with_usage(tmp_path: Path) -> None:
     assert "unknown option: --kyes" in result.stderr
     # Bails during argument parsing, before running anything at all.
     assert not log.exists() or "enable --now sshd" not in log.read_text()
+
+
+def drive_pty(
+    argv: list[str], env: dict[str, str], feed: bytes, timeout: float = 15.0
+) -> tuple[int, str]:
+    """Run a command with a pty on stdin/stdout/stderr, feed it bytes, collect output."""
+    master, slave = pty.openpty()
+    proc = subprocess.Popen(
+        argv, stdin=slave, stdout=slave, stderr=slave, env=env, close_fds=True,
+        shell=isinstance(argv, str),
+    )
+    os.close(slave)
+    if feed:
+        os.write(master, feed)
+    chunks: list[bytes] = []
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        r, _, _ = select.select([master], [], [], 0.1)
+        if r:
+            try:
+                data = os.read(master, 4096)
+            except OSError:
+                break
+            if not data:
+                break
+            chunks.append(data)
+        elif proc.poll() is not None:
+            break
+    os.close(master)
+    proc.wait(timeout=10)
+    return proc.returncode, b"".join(chunks).decode("utf-8", errors="replace")
+
+
+def test_prompts_for_a_key_when_none_given_and_hardens_in_one_pass(tmp_path: Path) -> None:
+    bindir, log = make_stubs(tmp_path, openssh_installed=True)
+    home = tmp_path / "home"
+    home.mkdir()
+    dropin = tmp_path / "sshd_config.d" / "00-syntropia-ssh.conf"
+
+    rc, out = drive_pty(
+        ["bash", str(SSH_SETUP)],
+        root_env(tmp_path, bindir, log, home),
+        PUBKEY.encode() + b"\n",
+    )
+
+    assert rc == 0, out
+    assert "public key>" in out
+    assert (home / ".ssh" / "authorized_keys").read_text().strip() == PUBKEY
+    assert dropin.is_file()
+    calls = log.read_text().splitlines()
+    harden_at = next(i for i, c in enumerate(calls) if c.startswith("sshd -t"))
+    start_at = next(i for i, c in enumerate(calls) if "enable --now sshd" in c)
+    assert harden_at < start_at, calls
+
+
+def test_prompt_can_be_skipped_and_retries_on_junk(tmp_path: Path) -> None:
+    bindir, log = make_stubs(tmp_path, openssh_installed=True)
+    home = tmp_path / "home"
+    home.mkdir()
+
+    # Bare Enter skips -> legacy flow, and it must say passwords are open.
+    rc, out = drive_pty(
+        ["bash", str(SSH_SETUP)], root_env(tmp_path, bindir, log, home), b"\n"
+    )
+    assert rc == 0, out
+    assert "password login is OPEN" in out
+    assert not (tmp_path / "sshd_config.d" / "00-syntropia-ssh.conf").exists()
+
+    # Junk re-prompts rather than giving up or accepting it.
+    home2 = tmp_path / "home2"
+    home2.mkdir()
+    (tmp_path / "b2").mkdir()
+    bindir2, log2 = make_stubs(tmp_path / "b2", openssh_installed=True)
+    env2 = root_env(tmp_path / "b2", bindir2, log2, home2)
+    rc, out = drive_pty(
+        ["bash", str(SSH_SETUP)], env2, b"not a key\n" + PUBKEY.encode() + b"\n"
+    )
+    assert rc == 0, out
+    assert out.count("public key>") >= 2
+    assert "Not an SSH public key" in out
+    assert (home2 / ".ssh" / "authorized_keys").read_text().strip() == PUBKEY
+
+
+def test_no_prompt_env_disables_the_prompt(tmp_path: Path) -> None:
+    bindir, log = make_stubs(tmp_path, openssh_installed=True)
+    home = tmp_path / "home"
+    home.mkdir()
+    env = {**root_env(tmp_path, bindir, log, home), "SYNTROPIA_SSH_NO_PROMPT": "1"}
+
+    rc, out = drive_pty(["bash", str(SSH_SETUP)], env, b"\n")
+
+    assert rc == 0, out
+    assert "public key>" not in out
+
+
+def test_wizard_invocation_escalates_even_though_stdout_is_piped(tmp_path: Path) -> None:
+    """Regression: the wizard runs helpers as `helper 2>&1 | tee -a log`, so our
+    stdout is a pipe. Escalation used to require `-t 0 && -t 1`; the `-t 1` half
+    meant the wizard's "SSH Setup" pick never escalated, printed instructions,
+    and exited 0 having installed nothing and started no sshd. sudo prompts on
+    /dev/tty, so stdin is the only thing worth gating on."""
+    bindir, log = make_stubs(tmp_path, openssh_installed=False)
+    home = tmp_path / "home"
+    home.mkdir()
+    (bindir / "sudo").write_text(
+        "#!/bin/sh\n"
+        'echo "sudo $*" >> "$SSH_TEST_LOG"\n'
+        '[ "$1" = "-E" ] && shift\n'
+        'SYNTROPIA_EUID=0 SUDO_USER="$USER" exec "$@"\n'
+    )
+    (bindir / "sudo").chmod(0o755)
+    (bindir / "getent").write_text(
+        "#!/bin/sh\n"
+        f'[ "$1" = passwd ] && echo "producer:x:1000:1000::{home}:/bin/bash" && exit 0\n'
+        "exit 2\n"
+    )
+    (bindir / "getent").chmod(0o755)
+
+    env = root_env(tmp_path, bindir, log, home)
+    env["SYNTROPIA_EUID"] = "1000"
+
+    rc, out = drive_pty(
+        f"bash {SSH_SETUP} 2>&1 | tee -a {tmp_path}/install.log",
+        env,
+        PUBKEY.encode() + b"\n",
+    )
+
+    assert rc == 0, out
+    calls = log.read_text()
+    assert "sudo -E" in calls, "piped stdout must not block escalation"
+    assert "pacman -S --noconfirm --needed openssh" in calls
+    assert "enable --now sshd" in calls
+    assert (tmp_path / "sshd_config.d" / "00-syntropia-ssh.conf").is_file()
+    assert (home / ".ssh" / "authorized_keys").read_text().strip() == PUBKEY
 
 
 def test_branding_hook_installs_syntropia_ssh_setup_into_target(tmp_path: Path) -> None:
