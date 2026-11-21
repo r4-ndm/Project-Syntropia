@@ -581,6 +581,187 @@ def test_tty_non_root_reexecs_via_sudo_before_running(tmp_path: Path) -> None:
     assert "systemctl enable --now sshd" in calls
 
 
+PUBKEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHxyzAbCdEf newmachine@box"
+
+
+def root_env(tmp_path: Path, bindir: Path, log: Path, home: Path) -> dict[str, str]:
+    return {
+        **BASE_ENV,
+        "PATH": f"{bindir}:{BASE_ENV['PATH']}",
+        "HOME": str(home),
+        "USER": "producer",
+        "SYNTROPIA_EUID": "0",
+        "SYNTROPIA_SSHD_CONFIG_D": str(tmp_path / "sshd_config.d"),
+        "SSH_TEST_LOG": str(log),
+    }
+
+
+def test_key_flag_authorizes_and_hardens_BEFORE_sshd_is_ever_started(tmp_path: Path) -> None:
+    """The whole point of --key: sshd must not be reachable while password
+    authentication is still permitted. Authorize -> harden -> start, in that
+    order, with no server-side keypair generated (that key is for outbound
+    connections and is irrelevant to who may log in here)."""
+    bindir, log = make_stubs(tmp_path, openssh_installed=True)
+    home = tmp_path / "home"
+    home.mkdir()
+    dropin = tmp_path / "sshd_config.d" / "00-syntropia-ssh.conf"
+
+    result = subprocess.run(
+        ["bash", str(SSH_SETUP), "--key", PUBKEY],
+        capture_output=True, text=True,
+        env=root_env(tmp_path, bindir, log, home), timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
+    auth_keys = home / ".ssh" / "authorized_keys"
+    assert auth_keys.read_text().strip() == PUBKEY
+    assert (auth_keys.stat().st_mode & 0o777) == 0o600
+    assert not (home / ".ssh" / "id_ed25519").exists()
+    assert dropin.is_file()
+    assert "PasswordAuthentication no" in dropin.read_text()
+
+    calls = log.read_text().splitlines()
+    harden_at = next(i for i, c in enumerate(calls) if c.startswith("sshd -t"))
+    start_at = next(i for i, c in enumerate(calls) if "enable --now sshd" in c)
+    assert harden_at < start_at, f"sshd started before hardening: {calls}"
+    assert "ssh-keygen -t ed25519" not in log.read_text()
+    assert f"ssh producer@192.168.1.42" in result.stdout
+
+
+def test_key_flag_refuses_junk_and_never_starts_sshd(tmp_path: Path) -> None:
+    """Fail closed: a pasted fragment or a private key must not be written to
+    authorized_keys, and sshd must not be enabled on the back of it."""
+    bindir, log = make_stubs(tmp_path, openssh_installed=True)
+    home = tmp_path / "home"
+    home.mkdir()
+
+    for junk in ("hello i am not a key", "-----BEGIN OPENSSH PRIVATE KEY-----"):
+        result = subprocess.run(
+            ["bash", str(SSH_SETUP), "--key", junk],
+            capture_output=True, text=True,
+            env=root_env(tmp_path, bindir, log, home), timeout=30,
+        )
+        assert result.returncode != 0, junk
+        assert "not an SSH public key" in result.stderr
+        assert not (tmp_path / "sshd_config.d" / "00-syntropia-ssh.conf").exists()
+        assert "enable --now sshd" not in log.read_text()
+
+
+def test_key_flag_is_idempotent_and_deduplicates(tmp_path: Path) -> None:
+    bindir, log = make_stubs(tmp_path, openssh_installed=True)
+    home = tmp_path / "home"
+    ssh_dir = home / ".ssh"
+    ssh_dir.mkdir(parents=True)
+    # Same key, different trailing comment -> still a duplicate.
+    (ssh_dir / "authorized_keys").write_text(PUBKEY.rsplit(" ", 1)[0] + " older@comment\n")
+
+    result = subprocess.run(
+        ["bash", str(SSH_SETUP), "--key", PUBKEY],
+        capture_output=True, text=True,
+        env=root_env(tmp_path, bindir, log, home), timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "already present" in result.stdout
+    assert len((ssh_dir / "authorized_keys").read_text().strip().splitlines()) == 1
+    # A duplicate still means the key is authorized, so hardening must proceed.
+    assert (tmp_path / "sshd_config.d" / "00-syntropia-ssh.conf").is_file()
+
+
+def test_key_file_flag_installs_many_and_ignores_comments_and_blanks(tmp_path: Path) -> None:
+    bindir, log = make_stubs(tmp_path, openssh_installed=True)
+    home = tmp_path / "home"
+    home.mkdir()
+    keyfile = tmp_path / "keys.pub"
+    keyfile.write_text(f"# my keys\n\n{PUBKEY}\nssh-rsa AAAAB3NzaC1yc2EAAAA other@host\n")
+
+    result = subprocess.run(
+        ["bash", str(SSH_SETUP), "--key-file", str(keyfile)],
+        capture_output=True, text=True,
+        env=root_env(tmp_path, bindir, log, home), timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
+    lines = (home / ".ssh" / "authorized_keys").read_text().strip().splitlines()
+    assert lines == [PUBKEY, "ssh-rsa AAAAB3NzaC1yc2EAAAA other@host"]
+    assert "installed 2 key(s)" in result.stdout
+
+    missing = subprocess.run(
+        ["bash", str(SSH_SETUP), "--key-file", str(tmp_path / "nope.pub")],
+        capture_output=True, text=True,
+        env=root_env(tmp_path, bindir, log, home), timeout=30,
+    )
+    assert missing.returncode != 0
+    assert "cannot read key file" in missing.stderr
+
+
+def test_hardening_is_not_gated_on_a_local_outbound_keypair(tmp_path: Path) -> None:
+    """Regression: hardening used to require ~/.ssh/id_ed25519 and returned
+    silently without it, so sshd could be left running unhardened with nothing
+    in the output saying so. authorized_keys is the only thing that matters."""
+    bindir, log = make_stubs(tmp_path, openssh_installed=True)
+    home = tmp_path / "home"
+    ssh_dir = home / ".ssh"
+    ssh_dir.mkdir(parents=True)
+    (ssh_dir / "authorized_keys").write_text(PUBKEY + "\n")
+    assert not (ssh_dir / "id_ed25519").exists()
+
+    result = subprocess.run(
+        ["bash", str(SSH_SETUP), "--key", PUBKEY],
+        capture_output=True, text=True,
+        env=root_env(tmp_path, bindir, log, home), timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "sshd_config.d" / "00-syntropia-ssh.conf").is_file()
+    assert "effective config verified" in result.stdout
+
+
+def test_legacy_no_flag_path_states_that_password_login_is_open(tmp_path: Path) -> None:
+    bindir, log = make_stubs(tmp_path, openssh_installed=True)
+    home = tmp_path / "home"
+    home.mkdir()
+
+    result = subprocess.run(
+        ["bash", str(SSH_SETUP)],
+        capture_output=True, text=True,
+        env=root_env(tmp_path, bindir, log, home), timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "password login is OPEN" in result.stdout
+    assert "--key" in result.stdout, "must point at the one-command alternative"
+
+
+def test_help_prints_usage_without_root_or_sudo(tmp_path: Path) -> None:
+    for flag in ("-h", "--help"):
+        result = subprocess.run(
+            ["bash", str(SSH_SETUP), flag],
+            capture_output=True, text=True,
+            env={**BASE_ENV, "SYNTROPIA_EUID": "1000"}, timeout=30,
+        )
+        assert result.returncode == 0, result.stderr
+        assert "--key" in result.stdout
+        assert "cat ~/.ssh/id_ed25519.pub" in result.stdout
+
+
+def test_unknown_option_exits_nonzero_with_usage(tmp_path: Path) -> None:
+    bindir, log = make_stubs(tmp_path, openssh_installed=True)
+    home = tmp_path / "home"
+    home.mkdir()
+
+    result = subprocess.run(
+        ["bash", str(SSH_SETUP), "--kyes", "x"],
+        capture_output=True, text=True,
+        env=root_env(tmp_path, bindir, log, home), timeout=30,
+    )
+
+    assert result.returncode == 2
+    assert "unknown option: --kyes" in result.stderr
+    # Bails during argument parsing, before running anything at all.
+    assert not log.exists() or "enable --now sshd" not in log.read_text()
+
+
 def test_branding_hook_installs_syntropia_ssh_setup_into_target(tmp_path: Path) -> None:
     root = tmp_path / "target"
     (root / "etc").mkdir(parents=True)
