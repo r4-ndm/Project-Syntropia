@@ -50,7 +50,7 @@ The long-term goal is a full fork, but **not yet**.
 2026-10-29 and again on the 2026-11-19 image): TUI install → Limine → Hyprland +
 Noctalia → wizard → audio → wallet unlocks with the login password.
 
-- **Tests: 436 passing** (`phase1/tests` + `iso/tests`).
+- **Tests: 437 passing** (`phase1/tests` + `iso/tests`).
 - **Latest ISO**: `iso/out/syntropia-2026.08.12-x86_64.iso` (2026-11-19 21:21,
   sha256 `e802b85e38c7…7813163`) — built, boot-config checked, dd'd to the stick,
   content-verified, and installed on the laptop 2026-11-21.
@@ -65,9 +65,11 @@ Noctalia → wizard → audio → wallet unlocks with the login password.
 - **CachyOS base refresh fixed** — `build.sh` resets the vendored
   `iso/work/CachyOS-Live-ISO` clone before pulling, so upstream changes to
   `packages_desktop.x86_64` no longer abort the update silently.
-- **Committed and pushed 2026-11-21**: `d97ec65` sshd drop-in ordering +
-  effective-config check, `2a97e73` CachyOS-Live-ISO reset before pulling,
-  `50e39d5` docs/cleanup, `893e5a0` installer target cleanup. The tree is clean.
+- **Committed 2026-11-21**: `d97ec65` sshd drop-in ordering + effective-config
+  check, `2a97e73` CachyOS-Live-ISO reset before pulling, `50e39d5`
+  docs/cleanup, `893e5a0` installer target cleanup, `ad32eea` AUR rehash,
+  `9e4e15a` status. Pushed through `50e39d5`; `893e5a0`→`9e4e15a` are **local
+  only**. The tree is clean.
 
 - **Findings from the 2026-11-21 laptop install** (cleanup, none block Phase 1):
   - The installed target inherits the build chroot's package set:

@@ -21,6 +21,7 @@
 | 2026-10-28 SSH setup helper + wizard rebuilt around fzf | *resume here (written 2026-10-28)* |
 | 2026-10-29 wallet resolution (drop autologin), wizard tick fix, laptop verification | *resume here (written 2026-10-29)*, both entries |
 | 2026-11-19 sshd hardening no-op fixed, CachyOS base refresh | *resume here (written 2026-11-19)*, plus the `✅ RESOLVED (2026-11-19)` section |
+| 2026-11-21 repo cleanup, sshd proof on hardware, installer residue fix, AUR refresh | *resume here (written 2026-11-21)* |
 | Recurring traps and lessons | *Session lessons*, *Do-not-repeat* |
 
 ---
@@ -621,3 +622,93 @@ fix on real hardware.** Steps:
 - Reading an ISO's contents (`xorriso -osirrox on -indev ... -extract`) needs
   no sudo — useful for `iso-boot-config.py check` and hashing
   `arch/x86_64/airootfs.sfs` without touching the build's root-owned work dir.
+
+---
+
+## ⏭️ NEXT SESSION — resume here (written 2026-11-21, end of session)
+
+**Where this left off:** everything is committed, the tree is clean, 437 tests
+pass. Three commits (`893e5a0`, `ad32eea`, `9e4e15a`) were **not pushed** —
+origin stopped at `50e39d5`.
+
+### Done today (2026-11-21)
+
+**1. Repo made legible to the next agent** (`50e39d5`, +952/−2186)
+- The 601-line append-only `NEXT_SESSION.md` was archived verbatim into this
+  file and rewritten as *status + next steps*. It had become a log where the
+  newest truth sat beside three superseded sections, so an agent could read a
+  fixed bug as still-broken (or the reverse) depending on which section it hit
+  first. History now answers "why", `NEXT_SESSION.md` answers "what now".
+- Deleted `STRUCTURE.md` and `Syntropia-Apps-List.md`: both were repo maps that
+  had drifted from `README.md` and from each other. One map, or none.
+- Deleted the deprecated `phase1/wizard/` (701-line Go TUI, old shell driver,
+  desktop entry) — but only after `git grep` proved the one thing still consumed
+  is `phase1/wizard/apps.list`, read by `iso/build.sh:637` and
+  `iso/tests/test_ssh_setup.py`. Prove the reference before deleting the file.
+- Added `docs/GLOSSARY.md` and `iso/BASE-REFRESH.md`.
+
+**2. sshd hardening proved on real hardware** (`d97ec65`, `2a97e73`)
+Installed the 2026-11-19 image on the laptop and verified from the outside, not
+from the config file. `/etc/ssh/sshd_config.d/` contains both
+`00-syntropia-ssh.conf` and archiso's `10-archiso.conf`; the server offered
+`publickey` only and refused password auth outright. The 2026-10-29 no-op is
+therefore genuinely dead. `build.sh` also now resets the vendored
+`iso/work/CachyOS-Live-ISO` clone before `git pull --ff-only`.
+Then `2488ac3..50e39d5` was pushed to `origin/main`.
+
+**3. Installed target no longer inherits the build chroot** (`893e5a0`)
+Root cause: `syntropia-install-runner:144` copies the live root with
+`rsync -aAX` instead of pacstrapping, so every package in the build chroot
+arrives on the target recorded as *explicitly installed*. Hardware evidence
+from the same install: `cachyos-calamares-staging` 3.4.2-6 (18.22 MiB,
+`Required By: None`) and `mkinitcpio-archiso` present on a finished system, and
+`/etc/modules-load.d/zfs.conf` asking for `extramodules/spl.ko.zst` the image
+never ships — one failed unit on every boot.
+The fix went into the *existing* "purge live-only leftovers" block next to the
+`gnome-keyring` purge (runner ~line 358), not into a new function: that block is
+already the answer to "what must the target not inherit".
+```bash
+for pkg in cachyos-calamares-staging mkinitcpio-archiso; do
+  arch-chroot "$TARGET" pacman -Rdd --noconfirm "$pkg" 2>/dev/null || true
+done
+compgen -G "$TARGET/usr/lib/modules/*/extramodules/spl.ko*" >/dev/null \
+  || rm -f "$TARGET/etc/modules-load.d/zfs.conf"
+```
+`compgen -G` is the trick worth remembering: it globs *in the target* and
+returns non-zero when nothing matches, so ZFS stays configured for anyone who
+actually installs ZFS modules instead of being deleted unconditionally. The
+`build.sh` comment claiming the target is pacstrapped was true only of the
+Calamares path and was corrected.
+Covered by `test_installer_strips_installer_only_packages_from_the_target`
+(436 → 437 tests). **Not yet on hardware** — needs the next reinstall.
+
+**4. AUR refreshed** (`ad32eea`)
+`release/syntropia-0.1.0.tar` regenerated from `HEAD^{tree}` with the pinned
+`--mtime="2026-08-14 12:00:00 UTC"`, plain `.tar`, `phase1/aur` excluded:
+14 MB, sha256 `b0b48cb4b8c0909d30b1916a34a0275582c4fd99df37f5aaf3ad908d84adfb1a`
+(was `5bb16239…`). All three PKGBUILDs and `.SRCINFO`s updated, `pkgrel=2`.
+All three then validated in scratch copies: `syntropia-0.1.0.tar ... Passed`.
+
+### The one thing that blocks AUR users
+
+A PKGBUILD fetches the **release asset**, not the repo. The new hash is
+committed, but `github.com/r4-ndm/Project-Syntropia/releases/download/v0.1.0/
+syntropia-0.1.0.tar` still serves the *old* bytes, so every AUR build now fails
+checksum validation. Upload `release/syntropia-0.1.0.tar` over that asset (a
+publish action — ask first) or don't ship the new hash.
+
+### Lessons (2026-11-21)
+- **`makepkg -o` failing with `Missing dependencies: -> syntropia-cli` is not a
+  hash failure.** It checks runtime deps before extracting, so a clean box
+  reports the same error for a perfectly good package. Re-run with
+  `makepkg -o --nodeps` to isolate the checksum step, and read the line *above*
+  the error before believing it.
+- **Bump `pkgrel`, not `pkgver`,** when the source changes but `__version__`
+  doesn't: `pkgver` is pinned in lockstep with
+  `phase1/cli/syntropia/__init__.py` by the tests, so bumping it silently means
+  a broken release.
+- **Verify packaging in a scratch copy** (`/tmp/...`), never in `phase1/aur/`:
+  `makepkg` drops `src/` and `pkg/` next to the PKGBUILD.
+- **A stale status doc is worse than none.** Every claim in `NEXT_SESSION.md`
+  that stopped being true ("uncommitted: 4 files", "not hardware-verified") had
+  to be hunted down today. Update it in the same commit as the change.
