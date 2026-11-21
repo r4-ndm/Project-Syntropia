@@ -358,6 +358,22 @@ fi
 
 # Completely purge gnome-keyring from the target system (KWallet owns secrets)
 arch-chroot "$TARGET" pacman -Rdd --noconfirm gnome-keyring 2>/dev/null || true
+
+# Installer-only packages must not survive into the target. The copy above is an
+# rsync of the live root, not a pacstrap, so everything the live medium needs in
+# order to install — Calamares and archiso's initcpio hooks — comes with it, and
+# both land in the target's pacman database as explicitly installed. Neither has
+# any use on a finished laptop.
+for pkg in cachyos-calamares-staging mkinitcpio-archiso; do
+  arch-chroot "$TARGET" pacman -Rdd --noconfirm "$pkg" 2>/dev/null || true
+done
+
+# zfs.conf asks systemd to load spl/zfs at boot, but the live image ships
+# zfs-utils without the corresponding extramodules, so the installed system logs
+# a modules-load failure on every boot. Keep the file only when modules are
+# actually present; someone who installs ZFS later brings its config with it.
+compgen -G "$TARGET/usr/lib/modules/*/extramodules/spl.ko*" >/dev/null \
+  || rm -f "$TARGET/etc/modules-load.d/zfs.conf"
 if [[ -e "$TARGET/usr/bin/gnome-keyring-daemon" ]]; then
   mv -f "$TARGET/usr/bin/gnome-keyring-daemon" "$TARGET/usr/bin/gnome-keyring-daemon.syntropia-disabled" 2>/dev/null || chmod 000 "$TARGET/usr/bin/gnome-keyring-daemon" 2>/dev/null || true
 fi

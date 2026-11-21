@@ -146,6 +146,19 @@ def test_build_and_install_paths_ship_and_verify_syntropia_ssh_setup() -> None:
     assert "$ROOT/usr/local/bin/syntropia-ssh-setup" in hook
 
 
+def test_installer_strips_installer_only_packages_from_the_target() -> None:
+    # The runner rsyncs the live root rather than pacstrapping, so everything the
+    # live medium needs in order to install (Calamares, archiso's initcpio hooks)
+    # reaches the target unless it is removed explicitly. Regression: the
+    # 2026-11-21 laptop install carried both packages, plus a zfs module-load
+    # config whose modules did not exist, logging a failure on every boot.
+    runner = RUNNER.read_text()
+    assert "for pkg in cachyos-calamares-staging mkinitcpio-archiso; do" in runner
+    assert 'arch-chroot "$TARGET" pacman -Rdd --noconfirm "$pkg"' in runner
+    assert 'compgen -G "$TARGET/usr/lib/modules/*/extramodules/spl.ko*"' in runner
+    assert 'rm -f "$TARGET/etc/modules-load.d/zfs.conf"' in runner
+
+
 def test_apps_list_contains_ssh_setup_entry() -> None:
     entries = [
         line.strip()

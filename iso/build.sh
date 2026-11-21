@@ -924,10 +924,12 @@ PYEOF
     # Step 3.7b: Ship paru and limine with EVERY install. The Calamares
     # bootloader step and a future `limine bios-install` need the package on
     # the target, and the first-boot wizard must never show the "paru is not
-    # installed" bootstrap. The installed system is NOT a copy of the live
-    # rootfs — Calamares pacstraps a fresh base from pacstrap.conf's
-    # basePackages (paru/limine live only in the live packages list, so they
-    # never reach the target). Add both to basePackages here;
+    # installed" bootstrap. Calamares pacstraps a fresh base from
+    # pacstrap.conf's basePackages, so paru/limine (which live only in the live
+    # packages list) never reach the target that way — add both here. Note that
+    # the TUI installer does NOT pacstrap: syntropia-install-runner rsyncs the
+    # live root, so its target inherits this package set wholesale and strips
+    # the installer-only packages itself;
     # NoUpgrade-protected above so the live-boot cachyos-calamares-next
     # update can't revert it (same pattern as the settings files).
     info "Adding paru + limine to pacstrap basePackages..."
