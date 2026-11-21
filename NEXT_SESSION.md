@@ -88,8 +88,10 @@ cleanup patch on hardware — passed on the 2026-11-21 reinstall.
   check, `2a97e73` CachyOS-Live-ISO reset before pulling, `50e39d5`
   docs/cleanup, `893e5a0` installer target cleanup, `ad32eea` AUR rehash,
   `9e4e15a` status, `b5a2624` session write-up, `647eef2` status, `4b53592`
-  ssh-setup `--key`, `d8aec3c` Phase 1 closure. **Pushed through `647eef2`** —
-  `4b53592` and `d8aec3c` are committed locally but NOT yet pushed.
+  ssh-setup `--key`, `9580f7c` Phase 1 closure. **Everything described in this
+  file is committed and pushed to `origin/main`; the tree is clean.** Verify
+  rather than trust: `git status --short` and
+  `git log --oneline origin/main..HEAD` should both be empty.
 - **AUR source tarball published 2026-11-21.** The `v0.1.0` release asset was
   replaced with the regenerated `release/syntropia-0.1.0.tar`; downloaded back
   from GitHub it hashes `b0b48cb4b8c0…adfb1a` (14,213,120 bytes), matching the
