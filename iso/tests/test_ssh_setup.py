@@ -625,7 +625,7 @@ def test_key_flag_authorizes_and_hardens_BEFORE_sshd_is_ever_started(tmp_path: P
     start_at = next(i for i, c in enumerate(calls) if "enable --now sshd" in c)
     assert harden_at < start_at, f"sshd started before hardening: {calls}"
     assert "ssh-keygen -t ed25519" not in log.read_text()
-    assert f"ssh producer@192.168.1.42" in result.stdout
+    assert "ssh producer@192.168.1.42" in result.stdout
 
 
 def test_key_flag_refuses_junk_and_never_starts_sshd(tmp_path: Path) -> None:
