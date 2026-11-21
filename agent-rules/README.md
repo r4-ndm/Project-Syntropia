@@ -47,9 +47,11 @@ workflow — the iso-builder one exists precisely because agents didn't know it 
 | `arch-linux-triage` | vendored (`github/awesome-copilot`) | no — read-only |
 | `cli-developer` | vendored (`jeffallan/claude-skills`) | no — read-only |
 
-Vendored skills are pinned by hash in `skills-lock.json` — treat them as third-party
-material. `iso-builder` is ours, lives under `.agents/skills/`, and is mirrored into
-`.claude/skills/` via symlink; keep it in sync with reality.
+Vendored skills are pinned by hash in `skills-lock.json` (tracked, so a fresh clone
+knows what to install) and their bodies are checkout-local, not committed — treat them
+as third-party material. `iso-builder` and `aur-audit` are ours, live under
+`.agents/skills/`, and are mirrored into `.claude/skills/` via symlink; keep them in
+sync with reality in the same commit as the code they describe.
 
 ## Note to agents
 
@@ -60,5 +62,7 @@ remember the constitution: *"Trust the mutation. Never trust the boundary."*
 
 | Doc | When to read |
 |-----|--------------|
+| [`docs/HISTORY.md`](../docs/HISTORY.md) | **Need the "why" behind a past fix.** Session evidence, superseded approaches, hardware proof. History only — never instructions. |
+| [`docs/GLOSSARY.md`](../docs/GLOSSARY.md) | **Unsure what a project word means.** "brew", "transform", "stock ISO", "overlay", "hook" all mean something specific here. |
 | [`iso/README.md`](../iso/README.md) | **ISO build or VM test work.** Contains testing gotchas learned the hard way: Calamares must run as **root** (non-root launch → "Boost.Python error in job mount"), VM disk ≥ 8 GiB, slideshow only plays during the Install step, and how to verify the amended slides are in the ISO. Update it whenever the ISO build/test pipeline surfaces a new bug. |
 | [`phase1/brews/README.md`](../phase1/brews/README.md) | **Any brew work** — adding, editing, testing, or submitting a `.brew` manifest. The 6-step add-a-brew flow, the registry/save/install/submit/update system map, and the pitfalls (jammed commands, stale registry copies, bundle layout, isolated prefixes). |

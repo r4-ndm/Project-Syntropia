@@ -1,5 +1,10 @@
 # 😈 Phase 1: Syntropia Core Master Plan
 
+> **Historical planning doc.** Written before the install ISO became the ship
+> target. For what is true now and what to do next, read
+> [`NEXT_SESSION.md`](../NEXT_SESSION.md); where this document and the code
+> disagree, trust the code.
+
 **Goal**: Ship `syntropia` as **three AUR packages** that transform a stock CachyOS install into Syntropia OS — rebranded, audio-optimised, and ready to install Windows VST3 plugins with one command (`syntropia install <brew>`).
 
 **Delivery model (package-first, three packages)**: User installs stock CachyOS → `paru -S syntropia` (pulls `syntropia-cli`; add `syntropia-brews` for the app helper, or `curl | bash`) → `syntropia transform --yes` → done. The three AUR packages are the install mechanism; the Seed ISO is a future polish item (built and tested, but deferred past Phase 1).

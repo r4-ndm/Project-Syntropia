@@ -151,10 +151,16 @@ The two-phase approach: build a clean ISO with mkarchiso (guarantees correct own
 ## Branding slides source
 
 ```
-Branding/syntropia/calamares/usr/share/calamares/branding/cachyos/slide{1-6}.jxl
+Branding/syntropia/calamares/slides/slide{1-6}.jxl
 ```
 
-To update slides: edit the PNGs in `Branding/syntropia/calamares/slides/`, export JXLs (see `Branding/NEXT.md`), then rebuild.
+`slides/` is the single source of truth (PNGs + exported JXLs); `build.sh` reads
+it directly. The packaged dir
+`Branding/syntropia/calamares/usr/share/calamares/branding/cachyos/` holds only
+branding config (desc, QML, icons) — never put slide copies back there.
+
+To update slides: edit the PNGs in `Branding/syntropia/calamares/slides/`,
+export the JXLs, then rebuild.
 
 ## Requirements
 

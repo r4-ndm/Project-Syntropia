@@ -8,33 +8,14 @@ Thumbs.db
 *.swo
 *~
 
-# Locally installed AI agent skills (keep local for now — not part of the repo)
-.agents/*
-# Ignore all community-installed skills by default...
-.agents/skills/*
-# ...but re-include the skills dir so Project Syntropia's own skills ARE tracked
-!.agents/skills/
-!.agents/skills/iso-builder/
-!.agents/skills/iso-builder/**
-!.agents/skills/aur-audit/
-!.agents/skills/aur-audit/**
-skills-lock.json
-
-# Local agent tooling config (machine-specific)
-.claude/
-
 # Python
 .venv/
 __pycache__/
 *.pyc
 .pytest_cache/
-
-# Python build artifacts
 *.egg-info/
-build/
-__pycache__/
 
-# ISO build artifacts (never commit the built ISOs — huge binaries)
+# ISO build artifacts (never commit built images; ~3 GB each)
 *.iso
 iso/work/
 iso/out/
@@ -42,8 +23,17 @@ iso/out/
 # Release source tarballs (regenerated via git archive before each release)
 release/
 
-# Go TUI dialog binary (built on demand from phase1/wizard/dialog)
-phase1/wizard/dialog/syntropia-apps-tui
+# Agent tooling: checkout-local config, and community skills installed from
+# elsewhere. Syntropia's OWN skills are tracked — re-included below.
+# skills-lock.json IS tracked: it records the vendored skill pins.
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/iso-builder/
+!.agents/skills/iso-builder/**
+!.agents/skills/aur-audit/
+!.agents/skills/aur-audit/**
+.claude/
 
 # Future-phase planning docs (not ready for public eyes yet)
 phase1/raw/

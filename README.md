@@ -1,95 +1,78 @@
-# 😈 Syntropia: The Living Computer
+# 😈 Syntropia
 
-> *"From chaos, order. From order, life. From life, infinity .From infinity...... Gods of Syntropia 🐸."*
+*"From chaos, order. From order, life."*
 
-## 🧬 Identity
+Syntropia is a **laptop-friendly everyday Linux for the Final Boss and music
+producers**: a CachyOS re-skin (the same relationship Linux Mint has to Ubuntu)
+with Syntropia branding, a first-boot apps wizard, and an audio-production layer
+(Wine + yabridge VST3 workflow) on top.
 
-Syntropia is a **CachyOS re-skin** today — the same relationship Linux Mint has
-to Ubuntu. It keeps CachyOS as the base system (`ID=cachyos`,
-`VARIANT_ID=syntropia`, `PRETTY_NAME="CachyOS Syntropia"`), pulls packages from
-the cachyos repos, and layers Syntropia branding, the apps wizard, and the audio
-stack on top. The `VARIANT_ID` pattern follows the freedesktop standard for
-derivative distros (same as Fedora Silverblue). The long-term goal is a full
-fork with our own repos; until then, updates and the package base stay CachyOS.
+- Base and packages: CachyOS repos. Long-term goal is a full fork; **not yet**.
+- Identity (freedesktop derivative pattern):
+  `ID=cachyos`, `VARIANT_ID=syntropia`, `PRETTY_NAME="CachyOS Syntropia"`.
+- Desktop: **Hyprland (UWSM) + Noctalia only** — Plasma is not supported.
+- Bootloader: **Limine**, both UEFI and BIOS.
 
-Syntropia targets CachyOS's **KDE Plasma** edition: the desktop branding
-(start-menu icon, KSplash, SDDM autologin) is Plasma-only, while the boot
-splash (Plymouth), GRUB, and OS identity are desktop-agnostic.
+## 🚀 Two ways to get Syntropia
 
-## ⚡ Install on an existing CachyOS
+**1. Install the ISO** (the shipped product, `iso/`): TUI installer on tty1,
+keyboard → network → one password → LUKS2 + Btrfs → Limine → Hyprland.
 
-Turn any running CachyOS system into Syntropia OS in one line:
+**2. Transform an existing CachyOS** in place:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/r4-ndm/Project-Syntropia/main/install-syntropia.sh | bash
 ```
 
-What it does: verifies CachyOS, clones this repo (and the shared brew registry,
-best-effort), builds a Python venv, shows the full `syntropia transform --check`
-plan, snapshots (when a snapper root config is available), and applies branding
-+ audio stack with your confirmation.
+It verifies CachyOS, builds a Python venv, shows the full
+`syntropia transform --check` plan, snapshots (when snapper is available), and
+applies branding + audio stack after confirmation. Dry run: `./install-syntropia.sh --check`.
+Read `agent-rules/transform-safety.md` before running it anywhere.
 
-> The curl one-liner installs from the public repo. For a dry run first:
-> `./install-syntropia.sh --check` (or `SYNTROPIA_YES=1` to skip the
-> confirmation).
+## 🧭 Repo map
 
-## 🧭 Navigation Guide for Agents
-
-### **Quick Start**
-- **Start Here**: `requirements.md` - Project vision and philosophy
-- **Binding rules**: `agent-rules/` - READ EVERY FILE at session start (git hygiene, transform safety, software inclusion)
-- **How-to skills**: `.agents/skills/` - iso-builder, cachyos-linux-assistant, arch-linux-triage, cli-developer
-- **Current Focus**: `phase1/` - Foundation being built by humans
-- **Future Work**: `phase2/`, `phase3/` - AI integration and swarm evolution
-- **Brainstorming**: `big-picture/` and `*/raw/` folders for ideas
-
-### **Project Structure**
 ```
-📁 Project-Syntropia/
-├── 📄 requirements.md          # Core vision & philosophy
-├── 📁 big-picture/            # Zoomed-out concepts & diagrams
-├── 📁 phase1/                 # Human-built foundation (current)
-│   ├── phase1-requirements.md # Technical specs
-│   ├── plan.md               # Implementation strategy  
-│   ├── tasks.md              # Concrete steps
-│   ├── raw/                  # Brainstormed nuggets → requirements
-│   └── [cli/, brews/, ...]   # Implementation directories
-├── 📁 phase2/                 # AI integration (next)
-│   ├── raw/                  # Ideas for AI protocols
-│   └── README.md
-├── 📁 phase3/                 # Swarm evolution (future)
-│   ├── raw/                  # Future concepts
-│   └── README.md
-├── 📁 phase4/                 # Divine machine (vision)
-│   └── raw/                  # Pure brainstorming
-│       ├── bulletin-chain.md # Immutable ledger concept
-│       └── ephemeral-storage.md # Distributed storage
+AGENTS.md               agent entry point — read this first
+NEXT_SESSION.md         mission + what is true + what is next (single source of truth)
+agent-rules/            binding rules for every agent
+.agents/skills/         how-to skills (iso-builder, aur-audit — Syntropia's own)
+docs/                   HISTORY.md (past session evidence), GLOSSARY.md (project language)
+phase1/                 the product
+  cli/                    three Python packages: core CLI, brews (Wine engine), transform
+  brews/                  bundled .brew manifests (Ableton, FL Studio, Serum, Vital, Surge)
+  aur/                    the three AUR PKGBUILDs
+  wizard/apps.list        first-boot app catalog (consumed by iso/build.sh)
+  services/  tools/  tests/
+iso/                    ISO pipeline
+  build.sh                mkarchiso (phase 1) + squashfs remaster (phase 2)
+  installer/              TUI installer source (syntropia-install, -runner, -dashboard, lib/)
+  profiles/hyprland/      Syntropia overlay on stock CachyOS Hyprland/Noctalia
+  hook-scripts/  lib/  vendor/  tests/
+Branding/               logo, wallpaper, Calamares slides, Plymouth frames
+install-syntropia.sh    one-line in-place installer
 ```
 
-### **Workflow for Agents**
-1. **Check `requirements.md`** - Understand the Syntropia philosophy
-2. **Review `big-picture/`** - See overall vision and connections  
-3. **Work in current phase** (`phase1/` for now) - Follow plan.md and tasks.md
-4. **Add ideas to `raw/`** - Brainstorm nuggets for future requirements
-5. **When ready** - Compile `raw/` ideas into formal requirements
+Future-phase planning (`phase2/`–`phase4/`, `phase1/raw/`) is gitignored and
+local-only; it is not part of the repo.
 
-### **Core Principles**
-- **"Trust the mutation. Never trust the boundary."** - Security model
-- **Phase-based evolution** - Each phase builds on the last
-- **Self-referential** - Syntropia will eventually build itself
-- **OS-agnostic** - Starts with CachyOS, evolves to run anywhere
+## 🛠️ Common commands
 
-### **Current Status**
-- **Phase 1**: ❌ Not started (human implementation)
-- **Phase 2**: ✅ Prep done (awaiting Phase 1)
-- **Phase 3**: ❌ Not started (brainstorming phase)
-- **Phase 4**: 🌌 Vision phase (Bulletin Chain concepts in raw/)
+```bash
+python -m pytest -q phase1/tests iso/tests     # whole suite (~436 tests, ~10s)
+./iso/installer/syntropia-install --dry-run    # preview the installer, touch nothing
+sudo ./iso/build.sh                            # build the ISO (~15 min, see iso/README.md)
+syntropia transform --check                    # branding diff, no changes
+```
 
-### **Need Help?**
-- Check `requirements.md` for philosophical questions
-- Check `phase1/plan.md` for implementation strategy
-- Add ideas to relevant `raw/` folder for future consideration
+## 📚 Where to read next
 
----
+| Need | Read |
+|------|------|
+| Session start, always | `AGENTS.md` → `agent-rules/` → `NEXT_SESSION.md` |
+| ISO build, remaster, VM testing, boot pitfalls | `iso/README.md` + `.agents/skills/iso-builder/SKILL.md` |
+| Adding or editing a `.brew` manifest | `phase1/brews/README.md` |
+| Why a past decision was made | `docs/HISTORY.md` |
+| What a project word means | `docs/GLOSSARY.md` |
+| Why Syntropia exists at all | `big-picture/requirements.md` |
 
-**Remember**: We're building a computer that grows, not just software that runs. 513😈
+*Trust the mutation. Never trust the boundary.* 😈

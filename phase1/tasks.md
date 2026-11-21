@@ -211,10 +211,10 @@ This board tracks concrete implementation tasks for **Phase 1: Syntropia Core** 
 
 A first-boot **popup GUI with checkboxes** for popular apps (Telegram, Wezterm, Bitwig, Kiro, Freebuff…). Checking an app runs `paru -S` for it — paru handles both official-repo and AUR packages in one list, with live output in a terminal window. It's a thin wrapper around `paru`, deliberately **not** a Calamares module, baked repo, or CachyOS-packageinstaller fork (each was investigated and rejected — see `phase1/wizard/README.md`). The app list is a plain text file, so adding an app = one line.
 
-### Implementation (phase1/wizard/)
+### Implementation (app-wiz4rd repo; catalog in `phase1/wizard/apps.list`)
 - [x] **Write `apps.list` catalog** - Pipe-delimited `category|name|package|description`; user override at `~/.config/syntropia/apps.list`; 9 categories / 26 apps, all repo-verified: Chat (Telegram, Discord), Browser (Brave), DAW (Bitwig, Reaper), AI (Kiro, Freebuff, Ollama), Terminal (Wezterm), CLI (ripgrep, fzf, zoxide, eza, bat, yazi, btop, tmux), Video (mpv, OBS), Wallet (Electrum), Web (WhatsApp, YouTube Music, Spotify, Notion, Figma, Gmail — URL launchers); LibreWolf dropped (left AUR)
 - [x] **Web app support** - URL in the package field = PWA-style launcher (Brave/Chromium `--app=URL`, else Firefox); mixed native+web installs split cleanly
-- [x] **Write `syntropia-apps-wizard.sh`** - TUI-only driver (~220 lines): resolve catalog → run the Bubble Tea TUI in a terminal → one `paru -S` for all picks; `--once`/`--config`/`--install-autostart`/`--remove-autostart` modes
+- [x] **Wizard driver** — now `app-wiz4rd` in its own repo (fzf picker, offline queue + resume); shipped as a sha-pinned tarball. The old in-repo copy was removed as dead code; git history keeps it.
 - [x] ~~**Write `syntropia-apps-server.py` + `syntropia-apps-dialog.html`**~~ - REMOVED (superseded by the TUI): the stdlib-only local server + Win98 browser grid was deleted when the Bubble Tea TUI became the tier-1 dialog and the ISO went vanilla
 - [x] ~~**Write `syntropia-apps-dialog.py`**~~ - REMOVED (superseded by the TUI): the PySide6/qt grid, kdialog and zenity fallbacks were deleted when the TUI became the only frontend — the wizard is a thin TUI-only driver now
 - [x] **Autostart-once desktop entry** - `syntropia-apps.desktop` template; `--once` self-disables via done-marker
@@ -268,7 +268,7 @@ Every Syntropia install ships **intelligence alongside the app**: a `SKILL.md` d
 - [ ] Phase 1.8: Real Ableton skill written from the war diary
 
 ### New (First-Boot Apps Wizard)
-- [x] Phase 1.9: Wizard built (apps.list catalog + zenity/paru script + autostart-once) in `phase1/wizard/`
+- [x] Phase 1.9: Wizard built (apps.list catalog + driver + autostart-once); driver now lives in the `app-wiz4rd` repo, catalog stays in `phase1/wizard/apps.list`
 - [x] Phase 1.9: Wizard shipped via ISO `/etc/syntropia/` (build.sh phase 2); transform path still open
 
 ### Remaining (Week 4 equiv.)
