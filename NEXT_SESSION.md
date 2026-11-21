@@ -65,10 +65,9 @@ Noctalia → wizard → audio → wallet unlocks with the login password.
 - **CachyOS base refresh fixed** — `build.sh` resets the vendored
   `iso/work/CachyOS-Live-ISO` clone before pulling, so upstream changes to
   `packages_desktop.x86_64` no longer abort the update silently.
-- ⚠️ **Uncommitted in the tree (4 files)**: `iso/build.sh`,
-  `iso/installer/lib/ssh-setup.sh`, `iso/tests/test_ssh_setup.py`,
-  `NEXT_SESSION.md`. This is the sshd fix + base-refresh fix, verified but not
-  committed. Do not discard it — it is hardware-verified and ready to commit.
+- **Committed and pushed 2026-11-21**: `d97ec65` sshd drop-in ordering +
+  effective-config check, `2a97e73` CachyOS-Live-ISO reset before pulling,
+  `50e39d5` docs/cleanup, `893e5a0` installer target cleanup. The tree is clean.
 
 - **Findings from the 2026-11-21 laptop install** (cleanup, none block Phase 1):
   - The installed target inherits the build chroot's package set:
@@ -84,16 +83,18 @@ Noctalia → wizard → audio → wallet unlocks with the login password.
 
 ## ⏭️ Next, in order
 
-1. **Commit + push** the sshd and base-refresh fixes (hardware-verified
-   2026-11-21; nothing blocks them any more).
-2. **Drop installer-only packages from the installed target**
-   (`cachyos-calamares-staging`, `mkinitcpio-archiso`) and put that removal in
-   the installer/transform path, so installs stop carrying the build chroot.
-3. **Settle the ZFS `spl` module-load failure**: ship the ZFS modules, or drop
-   `/etc/modules-load.d/zfs.conf` when `zfs-utils` has no extramodules.
-4. **AUR refresh** — rebuild `syntropia`, `syntropia-cli`, `syntropia-brews`
-   from the current tree (deterministic-hash rules are in the iso-builder skill).
-5. **Declare Phase 1 done**, then open Phase 2 deliberately.
+1. **Verify the installer cleanup patch on the next reinstall** — the runner now
+   strips `cachyos-calamares-staging`/`mkinitcpio-archiso` and deletes
+   `/etc/modules-load.d/zfs.conf` when no ZFS modules ship. Unit-tested, not yet
+   on hardware. After installing: `pacman -Q cachyos-calamares-staging
+   mkinitcpio-archiso` must say "not found", and `journalctl -b -p 3 | grep -i
+   spl` must be empty.
+2. **Publish the refreshed AUR source tarball.** `release/syntropia-0.1.0.tar`
+   (sha256 `b0b48cb4b8c0…adfb1a`, all three packages at `pkgrel=2`) is
+   regenerated and hash-validated locally, but the PKGBUILDs fetch the GitHub
+   *release asset*, which still holds the old bytes — builds from the AUR fail
+   validation until that asset is replaced.
+3. **Declare Phase 1 done** once step 1 passes, then open Phase 2 deliberately.
 
 ## 🧰 Commands
 
