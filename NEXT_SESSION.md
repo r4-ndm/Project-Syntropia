@@ -59,8 +59,10 @@ cleanup patch on hardware — passed on the 2026-11-21 reinstall.
   against the tree: the three `usr/local/bin/syntropia-install*` binaries, all
   seven `installer/lib/*.sh`, and `usr/local/bin/syntropia-ssh-setup` are
   byte-identical to `iso/installer/`; the shipped helper carries `--key`, the
-  `public key>` prompt and the `-t 0`-only escalation gate. **NOT yet flashed or
-  installed — no hardware verification for this image.**
+  `public key>` prompt and the `-t 0`-only escalation gate. **Flashed to the
+  stick 2026-11-21 20:5x** — read back from `/dev/sdd`, the first 3,538,399,232
+  bytes hash `d7a5a4978dc0…f56e16`, identical to the ISO. **Not yet installed,
+  so this image has no hardware verification of its own.**
 - **Known-good fallbacks in `iso/out/`** (both bootable, both hardware-proven):
   - `…iso.verified-2026-11-21` — sha256 `55e1cf2944b7…cdd352`, the image that
     installed cleanly and passed both cleanup checks on 2026-11-21. Use this if
@@ -142,12 +144,9 @@ cleanup patch on hardware — passed on the 2026-11-21 reinstall.
 follows is re-proving the 20:41 rebuild, which ships the ssh-setup fixes on a
 freshly pulled CachyOS base, then Phase 2.
 
-1. **Flash the 20:41 ISO and reinstall.** The stick still holds the 18:31 image
-   (good, but with the old ssh helper). `/tmp/flash-syntropia.sh` from the
-   2026-11-21 session targets the stick by serial, refuses any non-USB or
-   non-removable device, and hashes the write back — rewrite it if that file is
-   gone. Then re-run the two cleanup checks, since this image has a freshly
-   pulled CachyOS base and inherits no hardware verification:
+1. **Reinstall the laptop from the stick** — the stick already holds the 20:41
+   image, byte-verified. Then re-run the two cleanup checks, since this image
+   has a freshly pulled CachyOS base and inherits no hardware verification:
    `pacman -Q cachyos-calamares-staging mkinitcpio-archiso` → "not found", and
    `journalctl -b -p 3 | grep -i spl` → empty.
 2. **Then exercise the SSH helper on hardware** — it has never run outside the
