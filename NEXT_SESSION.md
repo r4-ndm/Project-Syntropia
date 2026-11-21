@@ -53,15 +53,20 @@ unlocks with the login password. The last open item — proving the installer
 cleanup patch on hardware — passed on the 2026-11-21 reinstall.
 
 - **Tests: 449 passing** (`phase1/tests` + `iso/tests`).
-- **Latest ISO**: `iso/out/syntropia-2026.08.12-x86_64.iso` (2026-11-21 18:31,
-  sha256 `55e1cf2944b7…cdd352`) — rebuilt 2026-11-21 after the installer cleanup
-  patch, boot-config checked (9 files), and content-verified against the tree:
-  the three `usr/local/bin/syntropia-install*` binaries, all seven
-  `installer/lib/*.sh`, and `usr/local/bin/syntropia-ssh-setup` are byte-identical
-  to `iso/installer/`. The runner in the image strips the installer-only packages
-  and removes `/etc/modules-load.d/zfs.conf`. **Flashed and installed on the
-  laptop 2026-11-21.** The previous 2026-11-19 image is kept as a known-good
-  fallback at `syntropia-2026.08.12-x86_64.iso.verified`.
+- **Latest ISO**: `iso/out/syntropia-2026.08.12-x86_64.iso` (2026-11-21 20:41,
+  sha256 `d7a5a4978dc0…f56e16`) — rebuilt to pick up the `ssh-setup.sh` `--key`
+  and piped-stdout fixes. Boot-config checked (9 files) and content-verified
+  against the tree: the three `usr/local/bin/syntropia-install*` binaries, all
+  seven `installer/lib/*.sh`, and `usr/local/bin/syntropia-ssh-setup` are
+  byte-identical to `iso/installer/`; the shipped helper carries `--key`, the
+  `public key>` prompt and the `-t 0`-only escalation gate. **NOT yet flashed or
+  installed — no hardware verification for this image.**
+- **Known-good fallbacks in `iso/out/`** (both bootable, both hardware-proven):
+  - `…iso.verified-2026-11-21` — sha256 `55e1cf2944b7…cdd352`, the image that
+    installed cleanly and passed both cleanup checks on 2026-11-21. Use this if
+    the new build misbehaves; it is the best fallback.
+  - `…iso.verified` — the older 2026-11-19 image, which predates the installer
+    cleanup patch.
 - **sshd hardening fixed in the tree** (`iso/installer/lib/ssh-setup.sh` writes
   `00-syntropia-ssh.conf`, neutralises `10-archiso.conf`, re-derives the
   effective config with `sshd -T` and reverts+fails if something outbids it;
@@ -133,19 +138,26 @@ cleanup patch on hardware — passed on the 2026-11-21 reinstall.
 
 ## ⏭️ Next, in order
 
-**Phase 1 has no open items.** Rebuild, flash, reinstall and both cleanup checks
-are all done and verified on hardware.
+**Phase 1 is done** — it was verified end to end on the 18:31 image. What
+follows is re-proving the 20:41 rebuild, which ships the ssh-setup fixes on a
+freshly pulled CachyOS base, then Phase 2.
 
-1. **Open Phase 2 deliberately** — scope it with the Final Boss before writing
-   code. `phase2/` exists but Phase 2 has never been scoped; do not drift into it
-   by accident.
-2. **The ISO and the installed laptop carry the OLD ssh helper.** The
-   `--key` work landed after the 2026-11-21 build, so `iso/out/`, the stick and
-   the laptop all have the two-pass version. Nothing is broken by this — but to
-   use `--key` on the laptop either rebuild the ISO or copy
-   `iso/installer/lib/ssh-setup.sh` to `/usr/local/bin/syntropia-ssh-setup`
-   there. `build.sh`'s `verify_installer_libs` will refuse a stale image anyway.
-3. **Optional, not blocking:** the stick's real capacity is unverified
+1. **Flash the 20:41 ISO and reinstall.** The stick still holds the 18:31 image
+   (good, but with the old ssh helper). `/tmp/flash-syntropia.sh` from the
+   2026-11-21 session targets the stick by serial, refuses any non-USB or
+   non-removable device, and hashes the write back — rewrite it if that file is
+   gone. Then re-run the two cleanup checks, since this image has a freshly
+   pulled CachyOS base and inherits no hardware verification:
+   `pacman -Q cachyos-calamares-staging mkinitcpio-archiso` → "not found", and
+   `journalctl -b -p 3 | grep -i spl` → empty.
+2. **Then exercise the SSH helper on hardware** — it has never run outside the
+   test stubs. `sudo syntropia-ssh-setup --key "<pubkey>"` should authorize,
+   harden and start sshd in one pass, and the wizard's "SSH Setup" pick should
+   now actually install openssh rather than printing instructions.
+3. **Open Phase 2 deliberately** — scope it with the Final Boss before writing
+   code. `phase2/` exists but Phase 2 has never been scoped; do not drift into
+   it by accident.
+4. **Optional, not blocking:** the stick's real capacity is unverified
    (`f3probe` would settle it).
 
 ## 🧰 Commands
