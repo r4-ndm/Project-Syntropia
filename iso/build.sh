@@ -122,6 +122,12 @@ phase1_build_iso() {
     # Clone or update the CachyOS ISO profile
     if [[ -d "$WORK_DIR/CachyOS-Live-ISO" ]]; then
         info "Updating CachyOS-Live-ISO..."
+        # The patches below (KDE/gnome-keyring removal, packages.x86_64 symlink, ...)
+        # edit tracked files in this clone in place and are never committed, so a
+        # prior run always leaves it dirty. Discard that before pulling — every
+        # patch is deterministically re-applied below, so nothing is lost — or
+        # upstream touching the same file (as it does routinely) aborts the pull.
+        git -C "$WORK_DIR/CachyOS-Live-ISO" reset --hard HEAD
         git -C "$WORK_DIR/CachyOS-Live-ISO" pull --ff-only
     else
         info "Cloning CachyOS-Live-ISO..."
