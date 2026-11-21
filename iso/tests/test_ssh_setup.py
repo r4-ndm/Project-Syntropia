@@ -81,8 +81,27 @@ def make_stubs(
         "exit 0\n"
     )
     (bindir / "sshd").write_text(
-        "#!/bin/sh\n"
+        "#!/bin/bash\n"
         'echo "sshd $*" >> "$SSH_TEST_LOG"\n'
+        'if [ "$1" = "-T" ]; then\n'
+        '    passwordauth="yes"\n'
+        '    rootlogin="prohibit-password"\n'
+        '    allowusers=""\n'
+        '    for f in "$SYNTROPIA_SSHD_CONFIG_D"/*.conf; do\n'
+        '        [ -f "$f" ] || continue\n'
+        '        while read -r key val; do\n'
+        '            case "$key" in\n'
+        '                PasswordAuthentication) [ -z "${seen_pw:-}" ] && passwordauth="$val" && seen_pw=1 ;;\n'
+        '                PermitRootLogin) [ -z "${seen_root:-}" ] && rootlogin="$val" && seen_root=1 ;;\n'
+        '                AllowUsers) [ -z "${seen_allow:-}" ] && allowusers="$val" && seen_allow=1 ;;\n'
+        '            esac\n'
+        '        done < "$f"\n'
+        '    done\n'
+        '    echo "passwordauthentication $passwordauth"\n'
+        '    echo "permitrootlogin $rootlogin"\n'
+        '    [ -n "$allowusers" ] && echo "allowusers $allowusers"\n'
+        "    exit 0\n"
+        "fi\n"
         f"exit {sshd_check_rc}\n"
     )
     (bindir / "chown").write_text(
@@ -293,7 +312,7 @@ def test_root_installs_openssh_and_enables_sshd_and_keeps_existing_key(tmp_path:
     assert "ssh-keygen" not in calls
     assert key.read_text() == "existing-private-key\n"
     # No authorized_keys yet -> hardening drop-in is skipped with prominent message
-    assert not (dropin_dir / "50-syntropia-ssh.conf").exists()
+    assert not (dropin_dir / "00-syntropia-ssh.conf").exists()
     assert "key-copy not done yet" in result.stdout
     assert "hardening skipped" in result.stdout
     assert "ssh-copy-id" in result.stdout
@@ -307,7 +326,7 @@ def test_sshd_hardening_dropin_written_when_authorized_keys_exists_and_skipped_w
     ssh_dir = home / ".ssh"
     ssh_dir.mkdir(parents=True)
     dropin_dir = tmp_path / "sshd_config.d"
-    dropin = dropin_dir / "50-syntropia-ssh.conf"
+    dropin = dropin_dir / "00-syntropia-ssh.conf"
 
     env = {
         **BASE_ENV,
@@ -352,8 +371,106 @@ def test_sshd_hardening_dropin_written_when_authorized_keys_exists_and_skipped_w
 
     calls = log.read_text()
     assert "sshd -t" in calls
+    assert "sshd -T" in calls
     assert f"chown root:root {dropin}" in calls
-    assert "systemctl restart sshd" in calls
+    assert calls.count("systemctl restart sshd") == 1
+    assert "applied" in res_harden.stdout and "effective config verified" in res_harden.stdout
+
+
+def test_sshd_hardening_neutralizes_archiso_dropin_so_it_cannot_win(tmp_path: Path) -> None:
+    """Regression for the sshd first-value-wins bug: a pre-existing
+    10-archiso.conf shipping PasswordAuthentication/PermitRootLogin "yes"
+    (the archiso live-ISO default, carried into the installed target) must
+    not survive hardening — neither by losing the read-order race nor by
+    being left with its original "yes" values."""
+    bindir, log = make_stubs(tmp_path, openssh_installed=True)
+    home = tmp_path / "home"
+    ssh_dir = home / ".ssh"
+    ssh_dir.mkdir(parents=True)
+    (ssh_dir / "id_ed25519").write_text("key\n")
+    (ssh_dir / "authorized_keys").write_text("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITest producer@host\n")
+    dropin_dir = tmp_path / "sshd_config.d"
+    dropin_dir.mkdir(parents=True)
+    archiso_dropin = dropin_dir / "10-archiso.conf"
+    archiso_dropin.write_text(
+        "# Allow root login using password authentication\n"
+        "PasswordAuthentication yes\n"
+        "PermitRootLogin yes\n"
+    )
+    dropin = dropin_dir / "00-syntropia-ssh.conf"
+
+    env = {
+        **BASE_ENV,
+        "PATH": f"{bindir}:{BASE_ENV['PATH']}",
+        "HOME": str(home),
+        "USER": "producer",
+        "SYNTROPIA_EUID": "0",
+        "SYNTROPIA_SSHD_CONFIG_D": str(dropin_dir),
+        "SSH_TEST_LOG": str(log),
+    }
+
+    result = subprocess.run(
+        ["bash", str(SSH_SETUP)],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert dropin.is_file()
+    assert "effective config verified" in result.stdout
+    # The archiso leftover must be rewritten in place, not just outranked by read order.
+    archiso_content = archiso_dropin.read_text()
+    assert "PasswordAuthentication no" in archiso_content
+    assert "PermitRootLogin prohibit-password" in archiso_content
+    assert "yes" not in archiso_content.lower()
+
+
+def test_sshd_hardening_fails_loudly_and_reverts_when_something_still_outbids_it(
+    tmp_path: Path,
+) -> None:
+    """If a file sorts before 00-syntropia-ssh.conf and sets a conflicting
+    value the script does not know to neutralize, the effective-config check
+    (sshd -T) must catch it, remove our drop-in, and fail loudly rather than
+    reporting success on a box that is not actually hardened."""
+    bindir, log = make_stubs(tmp_path, openssh_installed=True)
+    home = tmp_path / "home"
+    ssh_dir = home / ".ssh"
+    ssh_dir.mkdir(parents=True)
+    (ssh_dir / "id_ed25519").write_text("key\n")
+    (ssh_dir / "authorized_keys").write_text("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITest producer@host\n")
+    dropin_dir = tmp_path / "sshd_config.d"
+    dropin_dir.mkdir(parents=True)
+    # "00-conflicting" sorts before "00-syntropia-ssh" within the same prefix
+    # tier, so it wins the first-value-read race unless caught by the
+    # effective-config verification (the script only special-cases 10-archiso.conf).
+    (dropin_dir / "00-conflicting.conf").write_text("PasswordAuthentication yes\n")
+    dropin = dropin_dir / "00-syntropia-ssh.conf"
+
+    env = {
+        **BASE_ENV,
+        "PATH": f"{bindir}:{BASE_ENV['PATH']}",
+        "HOME": str(home),
+        "USER": "producer",
+        "SYNTROPIA_EUID": "0",
+        "SYNTROPIA_SSHD_CONFIG_D": str(dropin_dir),
+        "SSH_TEST_LOG": str(log),
+    }
+
+    result = subprocess.run(
+        ["bash", str(SSH_SETUP)],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
+    )
+
+    assert result.returncode != 0
+    assert not dropin.exists()
+    assert "effective sshd config does not match" in (result.stdout + result.stderr)
+    calls = log.read_text()
+    assert calls.count("systemctl restart sshd") == 2
 
 
 def test_sshd_hardening_removes_dropin_and_reports_when_sshd_t_fails(tmp_path: Path) -> None:
@@ -364,7 +481,7 @@ def test_sshd_hardening_removes_dropin_and_reports_when_sshd_t_fails(tmp_path: P
     (ssh_dir / "id_ed25519").write_text("key\n")
     (ssh_dir / "authorized_keys").write_text("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITest producer@host\n")
     dropin_dir = tmp_path / "sshd_config.d"
-    dropin = dropin_dir / "50-syntropia-ssh.conf"
+    dropin = dropin_dir / "00-syntropia-ssh.conf"
 
     env = {
         **BASE_ENV,

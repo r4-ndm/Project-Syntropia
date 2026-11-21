@@ -21,8 +21,15 @@
 #      SYNTROPIA_SSH_KEY_PASSPHRASE, warning explicitly when passphrase-less,
 #      and chowning .ssh to the target user when running as root).
 #   5. When root and <target-home>/.ssh/authorized_keys exists, write
-#      /etc/ssh/sshd_config.d/50-syntropia-ssh.conf (644, root:root), validate
-#      with `sshd -t` (removing the drop-in on failure), and restart sshd.
+#      /etc/ssh/sshd_config.d/00-syntropia-ssh.conf (644, root:root) — "00" so
+#      it is read before archiso's own 10-archiso.conf, which ships
+#      PasswordAuthentication/PermitRootLogin "yes" for the live session and
+#      survives into the installed target. sshd uses the FIRST value it reads
+#      for a keyword, so file ordering alone decides the winner; this also
+#      directly neutralizes any 10-archiso.conf found in the same directory
+#      (do not trust ordering alone). Validates with `sshd -t`, restarts sshd,
+#      then re-derives the EFFECTIVE config with `sshd -T` and reverts +
+#      fails loudly if anything still outbids the hardening.
 #   6. Print LAN IPv4 addresses and a ready-to-run `ssh-copy-id` hint.
 
 set -euo pipefail
@@ -157,9 +164,23 @@ ssh_setup_harden_sshd() {
     fi
 
     local dropin_dir="${SYNTROPIA_SSHD_CONFIG_D:-${SYNTROPIA_ROOT:-}/etc/ssh/sshd_config.d}"
-    local dropin_file="$dropin_dir/50-syntropia-ssh.conf"
+    local dropin_file="$dropin_dir/00-syntropia-ssh.conf"
+    local legacy_dropin="$dropin_dir/50-syntropia-ssh.conf"
+    local archiso_dropin="$dropin_dir/10-archiso.conf"
 
     mkdir -p "$dropin_dir"
+
+    # sshd uses the first value it reads for a keyword, so the archiso live-ISO
+    # leftover (PasswordAuthentication/PermitRootLogin "yes") would otherwise
+    # win outright once it sorts before our drop-in. "00" fixes read order, but
+    # do not trust ordering alone: neutralize the archiso file's values too.
+    if [[ -f "$archiso_dropin" ]]; then
+        sed -i \
+            -e 's/^\([[:space:]]*PasswordAuthentication[[:space:]]\+\)yes/\1no/I' \
+            -e 's/^\([[:space:]]*PermitRootLogin[[:space:]]\+\)yes/\1prohibit-password/I' \
+            "$archiso_dropin"
+    fi
+
     cat > "$dropin_file" <<EOF
 PasswordAuthentication no
 KbdInteractiveAuthentication no
@@ -168,6 +189,7 @@ AllowUsers $target_user
 EOF
     chmod 644 "$dropin_file"
     chown root:root "$dropin_file"
+    rm -f "$legacy_dropin"
 
     if ! sshd -t; then
         rm -f "$dropin_file"
@@ -176,8 +198,24 @@ EOF
         return 1
     fi
 
-    echo "sshd hardening: applied $dropin_file"
     systemctl restart sshd
+
+    # A file that looks correct is not the same as sshd agreeing: re-derive the
+    # EFFECTIVE config sshd would actually apply and fail loudly (reverting our
+    # drop-in) if anything still outbids the hardening.
+    local effective
+    effective="$(sshd -T 2>/dev/null)"
+    if ! grep -qix 'passwordauthentication no' <<<"$effective" \
+        || ! grep -qix 'permitrootlogin prohibit-password' <<<"$effective" \
+        || ! grep -qix "allowusers $target_user" <<<"$effective"; then
+        rm -f "$dropin_file"
+        echo "ERROR: effective sshd config does not match the intended hardening — removed $dropin_file" >&2
+        echo "$effective" | grep -iE '^(passwordauthentication|permitrootlogin|allowusers) ' >&2 || true
+        systemctl restart sshd
+        return 1
+    fi
+
+    echo "sshd hardening: applied $dropin_file (effective config verified)"
 }
 
 ssh_setup_lan_ipv4() {
