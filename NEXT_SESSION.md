@@ -44,13 +44,14 @@ The long-term goal is a full fork, but **not yet**.
    `phase1/cli/transform/syntropia_transform/transform.py`. `build.sh`
    AST-extracts it — never duplicate it.
 
-## 📍 Status — 2026-11-21
+## 📍 Status — 2026-11-22
 
-**Phase 1 is done.** It works end to end on real hardware (fresh installs
-verified 2026-10-29, on the 2026-11-19 image, and again on the 2026-11-21
-rebuild): TUI install → Limine → Hyprland + Noctalia → wizard → audio → wallet
-unlocks with the login password. The last open item — proving the installer
-cleanup patch on hardware — passed on the 2026-11-21 reinstall.
+**Phase 1 is done, and the shipping image is fully hardware-verified.** It works
+end to end on real hardware (fresh installs verified 2026-10-29, on the
+2026-11-19 image, on the 2026-11-21 rebuild, and the 20:41 image installed on
+the laptop 2026-11-22): TUI install → Limine → Hyprland + Noctalia → wizard →
+audio → wallet unlocks with the login password. The last open item — proving the
+SSH helper and its sshd hardening outside test stubs — passed 2026-11-22.
 
 - **Tests: 449 passing** (`phase1/tests` + `iso/tests`).
 - **Latest ISO**: `iso/out/syntropia-2026.08.12-x86_64.iso` (2026-11-21 20:41,
@@ -61,12 +62,60 @@ cleanup patch on hardware — passed on the 2026-11-21 reinstall.
   byte-identical to `iso/installer/`; the shipped helper carries `--key`, the
   `public key>` prompt and the `-t 0`-only escalation gate. **Flashed to the
   stick 2026-11-21 20:5x** — read back from `/dev/sdd`, the first 3,538,399,232
-  bytes hash `d7a5a4978dc0…f56e16`, identical to the ISO. **Not yet installed,
-  so this image has no hardware verification of its own.**
+  bytes hash `d7a5a4978dc0…f56e16`, identical to the ISO. **Installed on the
+  laptop 2026-11-22 and verified** — see the laptop-install entry below. This is
+  now the best image: hardware-proven, and the only one carrying the ssh-setup
+  fixes.
+- **Laptop install of the 20:41 image verified 2026-11-22.** Installed from the
+  stick, booted, logged in. Identity correct (`ID=cachyos`,
+  `VARIANT_ID=syntropia`, `PRETTY_NAME="CachyOS Syntropia"`, chassis `laptop`,
+  kernel `7.3.5-2-cachyos`). Both cleanup checks pass on this freshly pulled
+  CachyOS base: `pacman -Q cachyos-calamares-staging mkinitcpio-archiso` → both
+  "was not found", `journalctl -b -p 3 | grep -i spl` → empty.
+  `systemctl --failed` is empty. The cosmetic noctalia item from the earlier
+  install did **not** recur: `/usr/bin/noctalia` is cleanly owned by
+  `noctalia 5.6.0-1`. Reachable as `r5@192.168.1.22` (DHCP — re-check the lease
+  before assuming that address).
+- **The SSH helper is hardware-verified 2026-11-22 — its first run outside test
+  stubs, via the wizard's "SSH Setup" pick.** Both fixes bite on real hardware:
+  - *Escalation under the wizard's pipe.* The pick printed
+    `root privileges are needed … Re-running via sudo` and prompted for the
+    password. This is the `-t 0`-only gate working where the old `-t 0 && -t 1`
+    gate made the whole pick a silent no-op.
+  - *The `public key>` prompt appears* and openssh was already installed by the
+    first pass.
+  - *Skipping the prompt behaves as designed, and is not a regression.* First
+    run, the prompt was skipped: the helper started sshd **without** hardening
+    and said password login stays open until re-run — correct, since hardening
+    with zero authorized keys would lock the box out. Measured from the desktop
+    at that point: `publickey,password`. Worth knowing sshd is reachable with
+    passwords open in that window.
+  - *Hardening applied on the re-run with `--key`.* Measured from the desktop,
+    `ssh -vv -o PreferredAuthentications=none r5@192.168.1.22` now answers
+    `Authentications that can continue: publickey` — password auth refused
+    outright. Key login from the desktop works.
+  - *The drop-in ordering fix is confirmed from inside.* `sshd_config.d/` holds
+    `00-syntropia-ssh.conf` (`PasswordAuthentication no`,
+    `KbdInteractiveAuthentication no`, `PermitRootLogin prohibit-password`,
+    `AllowUsers r5`) and a neutralised `10-archiso.conf` — whose stale comment
+    still reads "Allow root login using password authentication" while its
+    directives say `no`. That file is what used to outbid the hardening.
+    `authorized_keys` is `600` inside a `700` `.ssh`; `sshd` is enabled+active.
+  - *A lossy paste still worked.* The key arrived without its trailing comment
+    (81 bytes, key body only) and authorized fine, as it should — dedup is by
+    key body. The validator's refusal path was **not** exercised on hardware;
+    it remains test-stub-only.
+  - *Caveat on method.* The helper's own
+    `sshd hardening: applied … (effective config verified)` line was never
+    captured, so the evidence here is external measurement plus inspection of
+    the installed drop-ins — not the helper's self-report. Both agree.
+  - Verified as `r5` over SSH, not root: `sshd -T` needs root, so the effective
+    config was proven from outside, per the trap below.
 - **Known-good fallbacks in `iso/out/`** (both bootable, both hardware-proven):
   - `…iso.verified-2026-11-21` — sha256 `55e1cf2944b7…cdd352`, the image that
-    installed cleanly and passed both cleanup checks on 2026-11-21. Use this if
-    the new build misbehaves; it is the best fallback.
+    installed cleanly and passed both cleanup checks on 2026-11-21. A good
+    fallback, but it predates the ssh-setup fixes, so the 20:41 image above is
+    the one to prefer now.
   - `…iso.verified` — the older 2026-11-19 image, which predates the installer
     cleanup patch.
 - **sshd hardening fixed in the tree** (`iso/installer/lib/ssh-setup.sh` writes
@@ -140,38 +189,25 @@ cleanup patch on hardware — passed on the 2026-11-21 reinstall.
 
 ## ⏭️ Next, in order
 
-**Start here: the laptop install is a hands-on task, planned for 2026-11-22.**
-Nothing needs doing on this desktop first — the stick is flashed and verified,
-the tree is clean, everything is pushed. Phase 1 is already done (proven on the
-18:31 image); what follows re-proves the 20:41 rebuild, which ships the
-ssh-setup fixes on a freshly pulled CachyOS base.
+**Phase 1 has nothing left to prove.** Every item that stood here on
+2026-11-21 — the laptop install, both cleanup checks, and the SSH helper on
+hardware — passed on 2026-11-22. The tree is clean and the 20:41 image is
+hardware-verified. Do not invent more Phase 1 verification work; the next real
+move is a conversation, not a commit.
 
-1. **Boot the laptop from the stick and install.** Keyboard → network → one
-   password → dashboard. Reboot, remove the stick, log in. The stick holds the
-   20:41 image (`d7a5a4978dc0…f56e16`), byte-verified — no need to re-flash.
-2. **Re-run the two cleanup checks on the installed system.** This image pulled
-   a fresh CachyOS base, so it inherits no hardware verification:
-   - `pacman -Q cachyos-calamares-staging mkinitcpio-archiso` → both "not found"
-   - `journalctl -b -p 3 | grep -i spl` → empty
-3. **Exercise the SSH helper on hardware — it has never run outside test
-   stubs.** On the client: `cat ~/.ssh/id_ed25519.pub`. On the laptop:
-   `sudo syntropia-ssh-setup --key "<that line>"`. Expect
-   `sshd hardening: applied … (effective config verified)` and sshd started
-   *after* hardening. Then from the client, prove passwords are refused:
-   `ssh -vv -o PreferredAuthentications=none <user>@<laptop-ip>` →
-   `Authentications that can continue:` must list `publickey` only.
-   Also try the wizard's **"SSH Setup"** pick: it should prompt `public key>`
-   and actually install openssh. That path was a silent no-op until today, so
-   it is the one most worth watching.
-4. **If the install misbehaves**, re-flash the known-good
-   `iso/out/syntropia-2026.08.12-x86_64.iso.verified-2026-11-21`
-   (`55e1cf2944b7…cdd352`) rather than debugging blind — then compare.
-5. **Open Phase 2 deliberately** — scope it with the Final Boss before writing
-   code. `phase2/` exists but Phase 2 has never been scoped; do not drift into
-   it by accident.
-6. **Optional, not blocking:** the stick's real capacity is unverified
+1. **Open Phase 2 deliberately** — scope it with the Final Boss **before
+   writing code**. `phase2/` exists but Phase 2 has never been scoped; do not
+   drift into it by accident. This is the only non-optional item.
+2. **Optional, not blocking:** the stick's real capacity is unverified
    (`f3probe` would settle it). Its identifiers are placeholder strings, so
    29 GiB is the controller's claim, not a fact.
+3. **Optional, cosmetic:** `10-archiso.conf`'s comment still reads "Allow root
+   login using password authentication" while its directives say `no`. The
+   behaviour is right and the comment is upstream archiso's, but it reads as a
+   contradiction to anyone auditing the installed system.
+4. **If a future image misbehaves**, re-flash a known-good fallback from
+   `iso/out/` rather than debugging blind — then compare. The 20:41 image
+   (`d7a5a4978dc0…f56e16`) is now the best of them.
 
 ## 🧰 Commands
 
