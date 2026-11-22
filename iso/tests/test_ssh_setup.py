@@ -84,7 +84,11 @@ def make_stubs(
         "#!/bin/bash\n"
         'echo "sshd $*" >> "$SSH_TEST_LOG"\n'
         'if [ "$1" = "-T" ]; then\n'
+        # Defaults mirror sshd's own: password and keyboard-interactive auth
+        # are permitted unless a drop-in says otherwise. sshd honours the
+        # FIRST value it reads for a keyword, which is what "seen_*" models.
         '    passwordauth="yes"\n'
+        '    kbdauth="yes"\n'
         '    rootlogin="prohibit-password"\n'
         '    allowusers=""\n'
         '    for f in "$SYNTROPIA_SSHD_CONFIG_D"/*.conf; do\n'
@@ -92,12 +96,14 @@ def make_stubs(
         '        while read -r key val; do\n'
         '            case "$key" in\n'
         '                PasswordAuthentication) [ -z "${seen_pw:-}" ] && passwordauth="$val" && seen_pw=1 ;;\n'
+        '                KbdInteractiveAuthentication) [ -z "${seen_kbd:-}" ] && kbdauth="$val" && seen_kbd=1 ;;\n'
         '                PermitRootLogin) [ -z "${seen_root:-}" ] && rootlogin="$val" && seen_root=1 ;;\n'
         '                AllowUsers) [ -z "${seen_allow:-}" ] && allowusers="$val" && seen_allow=1 ;;\n'
         '            esac\n'
         '        done < "$f"\n'
         '    done\n'
         '    echo "passwordauthentication $passwordauth"\n'
+        '    echo "kbdinteractiveauthentication $kbdauth"\n'
         '    echo "permitrootlogin $rootlogin"\n'
         '    [ -n "$allowusers" ] && echo "allowusers $allowusers"\n'
         "    exit 0\n"
@@ -484,6 +490,149 @@ def test_sshd_hardening_fails_loudly_and_reverts_when_something_still_outbids_it
     assert "effective sshd config does not match" in (result.stdout + result.stderr)
     calls = log.read_text()
     assert calls.count("systemctl restart sshd") == 2
+
+
+def test_sshd_hardening_catches_kbdinteractive_being_outbid(tmp_path: Path) -> None:
+    """The drop-in sets KbdInteractiveAuthentication no, so the effective-config
+    check must verify it like the other three directives. PAM can serve a
+    password prompt through keyboard-interactive even with
+    PasswordAuthentication no, so a box where only this directive is outbid is
+    still password-reachable and must not be reported as hardened."""
+    bindir, log = make_stubs(tmp_path, openssh_installed=True)
+    home = tmp_path / "home"
+    ssh_dir = home / ".ssh"
+    ssh_dir.mkdir(parents=True)
+    (ssh_dir / "authorized_keys").write_text("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITest producer@host\n")
+    dropin_dir = tmp_path / "sshd_config.d"
+    dropin_dir.mkdir(parents=True)
+    # Sorts before 00-syntropia-ssh.conf and is not a file the script knows to
+    # neutralize, so only the effective-config check can catch it. It leaves
+    # PasswordAuthentication alone: the point is that the OTHER three
+    # directives verify clean and this one alone must still fail the run.
+    (dropin_dir / "00-conflicting.conf").write_text("KbdInteractiveAuthentication yes\n")
+    dropin = dropin_dir / "00-syntropia-ssh.conf"
+
+    env = {
+        **BASE_ENV,
+        "PATH": f"{bindir}:{BASE_ENV['PATH']}",
+        "HOME": str(home),
+        "USER": "producer",
+        "SYNTROPIA_EUID": "0",
+        "SYNTROPIA_SSHD_CONFIG_D": str(dropin_dir),
+        "SSH_TEST_LOG": str(log),
+    }
+
+    result = subprocess.run(
+        ["bash", str(SSH_SETUP)],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
+    )
+
+    assert result.returncode != 0
+    assert not dropin.exists(), "a half-hardened box must not keep the drop-in"
+    combined = result.stdout + result.stderr
+    assert "effective sshd config does not match" in combined
+    # The offending directive must appear in the diagnostic, or the operator
+    # cannot tell which of the four failed.
+    assert "kbdinteractiveauthentication yes" in combined.lower()
+    assert "effective config verified" not in result.stdout
+
+
+def test_sshd_hardening_neutralizes_archiso_kbdinteractive_and_stale_comment(
+    tmp_path: Path,
+) -> None:
+    """A real archiso drop-in can also enable keyboard-interactive auth, and
+    its comment claims it allows password root logins. Both must be corrected
+    in place: the directive because it is password-equivalent, the comment
+    because it otherwise tells anyone auditing the installed system the
+    opposite of what the file now does."""
+    bindir, log = make_stubs(tmp_path, openssh_installed=True)
+    home = tmp_path / "home"
+    ssh_dir = home / ".ssh"
+    ssh_dir.mkdir(parents=True)
+    (ssh_dir / "authorized_keys").write_text("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITest producer@host\n")
+    dropin_dir = tmp_path / "sshd_config.d"
+    dropin_dir.mkdir(parents=True)
+    archiso_dropin = dropin_dir / "10-archiso.conf"
+    archiso_dropin.write_text(
+        "# Allow root login using password authentication\n"
+        "PasswordAuthentication yes\n"
+        "KbdInteractiveAuthentication yes\n"
+        "PermitRootLogin yes\n"
+    )
+
+    env = {
+        **BASE_ENV,
+        "PATH": f"{bindir}:{BASE_ENV['PATH']}",
+        "HOME": str(home),
+        "USER": "producer",
+        "SYNTROPIA_EUID": "0",
+        "SYNTROPIA_SSHD_CONFIG_D": str(dropin_dir),
+        "SSH_TEST_LOG": str(log),
+    }
+
+    result = subprocess.run(
+        ["bash", str(SSH_SETUP)],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "effective config verified" in result.stdout
+    archiso_content = archiso_dropin.read_text()
+    assert "KbdInteractiveAuthentication no" in archiso_content
+    assert "PasswordAuthentication no" in archiso_content
+    assert "PermitRootLogin prohibit-password" in archiso_content
+    assert "yes" not in archiso_content.lower()
+    # The misleading upstream comment must be gone, replaced by one that
+    # describes what the file actually does now.
+    assert "Allow root login using password authentication" not in archiso_content
+    assert "Neutralized by syntropia-ssh-setup" in archiso_content
+
+
+def test_skip_path_warning_names_every_way_to_close_the_password_window(
+    tmp_path: Path,
+) -> None:
+    """Pressing Enter at the key prompt leaves sshd up with password auth
+    permitted. That is a deliberate trade so ssh-copy-id can still get in, but
+    the warning has to tell the user how to close the window rather than only
+    that it is open."""
+    bindir, log = make_stubs(tmp_path, openssh_installed=True)
+    home = tmp_path / "home"
+    (home / ".ssh").mkdir(parents=True)
+
+    env = {
+        **BASE_ENV,
+        "PATH": f"{bindir}:{BASE_ENV['PATH']}",
+        "HOME": str(home),
+        "USER": "producer",
+        "SYNTROPIA_EUID": "0",
+        "SYNTROPIA_SSHD_CONFIG_D": str(tmp_path / "sshd_config.d"),
+        "SSH_TEST_LOG": str(log),
+        "SYNTROPIA_SSH_NO_PROMPT": "1",
+    }
+
+    result = subprocess.run(
+        ["bash", str(SSH_SETUP)],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
+    combined = result.stdout + result.stderr
+    assert "password login is OPEN" in combined
+    assert "--key" in combined
+    assert "ssh-copy-id producer@" in combined
+    assert "--github" in combined
+    # Opting out of SSH entirely is a legitimate answer and the one route a
+    # user with no second machine can actually take.
+    assert "systemctl disable --now sshd" in combined
 
 
 def test_sshd_hardening_removes_dropin_and_reports_when_sshd_t_fails(tmp_path: Path) -> None:

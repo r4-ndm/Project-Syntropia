@@ -53,7 +53,28 @@ the laptop 2026-11-22): TUI install → Limine → Hyprland + Noctalia → wizar
 audio → wallet unlocks with the login password. The last open item — proving the
 SSH helper and its sshd hardening outside test stubs — passed 2026-11-22.
 
-- **Tests: 449 passing** (`phase1/tests` + `iso/tests`).
+- **Tests: 452 passing** (`phase1/tests` + `iso/tests`).
+- **ssh-setup hardened further 2026-11-22 (polish pass).** Decision: keep the
+  existing design — the `ssh-copy-id` route stays, so the skip path still
+  starts sshd with passwords open. No new input modes. Three changes:
+  - **Real gap closed: the effective-config check verified only three of the
+    four directives the drop-in writes.** `KbdInteractiveAuthentication` was
+    set and never verified, so anything outbidding *just that one* left a
+    password-reachable box reporting `effective config verified` and exiting 0.
+    PAM can serve a password prompt through keyboard-interactive even with
+    `PasswordAuthentication no`. Proven by reverting the fix: the new test
+    fails against the old code with `returncode 0`. All four are checked now,
+    and the failure diagnostic prints the offending directive.
+  - `10-archiso.conf` neutralisation extended to `KbdInteractiveAuthentication`
+    and legacy `ChallengeResponseAuthentication`, and its misleading "Allow
+    root login using password authentication" comment is replaced with one
+    describing what the file actually does.
+  - The skip-path warning now names all four ways to close the password window
+    (`--key`, `ssh-copy-id`, `--github`, or `systemctl disable --now sshd`)
+    instead of only stating that it is open.
+  - **Not in any ISO yet.** The installed laptop and the 20:41 image both carry
+    the pre-polish helper. Needs a rebuild to ship; the hardware-verified
+    behaviour above is unaffected, since all three changes are additive.
 - **Latest ISO**: `iso/out/syntropia-2026.08.12-x86_64.iso` (2026-11-21 20:41,
   sha256 `d7a5a4978dc0…f56e16`) — rebuilt to pick up the `ssh-setup.sh` `--key`
   and piped-stdout fixes. Boot-config checked (9 files) and content-verified
@@ -201,10 +222,10 @@ move is a conversation, not a commit.
 2. **Optional, not blocking:** the stick's real capacity is unverified
    (`f3probe` would settle it). Its identifiers are placeholder strings, so
    29 GiB is the controller's claim, not a fact.
-3. **Optional, cosmetic:** `10-archiso.conf`'s comment still reads "Allow root
-   login using password authentication" while its directives say `no`. The
-   behaviour is right and the comment is upstream archiso's, but it reads as a
-   contradiction to anyone auditing the installed system.
+3. **Optional: rebuild the ISO to ship the 2026-11-22 ssh-setup polish.** Not
+   urgent — the changes are additive hardening, and the current image's
+   verified behaviour still holds. Fold it into the next rebuild for whatever
+   reason rather than burning 15 minutes on it alone.
 4. **If a future image misbehaves**, re-flash a known-good fallback from
    `iso/out/` rather than debugging blind — then compare. The 20:41 image
    (`d7a5a4978dc0…f56e16`) is now the best of them.

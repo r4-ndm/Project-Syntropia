@@ -41,10 +41,16 @@
 #      survives into the installed target. sshd uses the FIRST value it reads
 #      for a keyword, so file ordering alone decides the winner; this also
 #      directly neutralizes any 10-archiso.conf found in the same directory
-#      (do not trust ordering alone). Validates with `sshd -t`, restarts sshd,
-#      then re-derives the EFFECTIVE config with `sshd -T` and reverts +
-#      fails loudly if anything still outbids the hardening.
-#   6. Print LAN IPv4 addresses and a ready-to-run `ssh-copy-id` hint.
+#      (do not trust ordering alone), including its keyboard-interactive
+#      directives and its misleading comment. Validates with `sshd -t`,
+#      restarts sshd, then re-derives the EFFECTIVE config with `sshd -T` and
+#      reverts + fails loudly if anything still outbids the hardening. ALL
+#      FOUR directives the drop-in writes are verified: omitting
+#      KbdInteractiveAuthentication would let PAM serve a password prompt on a
+#      box reported as hardened.
+#   6. Print LAN IPv4 addresses and a ready-to-run `ssh-copy-id` hint. When no
+#      key was authorized, also print every route to closing the password
+#      window (--key, ssh-copy-id, --github, or disabling sshd).
 
 set -euo pipefail
 
@@ -362,7 +368,12 @@ ssh_setup_harden_sshd() {
     if [[ -f "$archiso_dropin" ]]; then
         sed -i \
             -e 's/^\([[:space:]]*PasswordAuthentication[[:space:]]\+\)yes/\1no/I' \
+            -e 's/^\([[:space:]]*KbdInteractiveAuthentication[[:space:]]\+\)yes/\1no/I' \
+            -e 's/^\([[:space:]]*ChallengeResponseAuthentication[[:space:]]\+\)yes/\1no/I' \
             -e 's/^\([[:space:]]*PermitRootLogin[[:space:]]\+\)yes/\1prohibit-password/I' \
+            "$archiso_dropin" \
+            && sed -i \
+            -e 's|^# Allow root login using password authentication$|# Neutralized by syntropia-ssh-setup: the directives below were flipped to\n# deny password and root logins. The original archiso comment claimed the\n# opposite and no longer describes this file.|' \
             "$archiso_dropin"
     fi
 
@@ -390,12 +401,18 @@ EOF
     # drop-in) if anything still outbids the hardening.
     local effective
     effective="$(sshd -T 2>/dev/null)"
+    # Every directive the drop-in writes is verified here. Leaving one out
+    # means something could outbid it and hardening would still report
+    # success — KbdInteractiveAuthentication is the dangerous one to miss,
+    # since PAM can serve a password prompt through it even with
+    # PasswordAuthentication no.
     if ! grep -qix 'passwordauthentication no' <<<"$effective" \
+        || ! grep -qix 'kbdinteractiveauthentication no' <<<"$effective" \
         || ! grep -qix 'permitrootlogin prohibit-password' <<<"$effective" \
         || ! grep -qix "allowusers $target_user" <<<"$effective"; then
         rm -f "$dropin_file"
         echo "ERROR: effective sshd config does not match the intended hardening — removed $dropin_file" >&2
-        echo "$effective" | grep -iE '^(passwordauthentication|permitrootlogin|allowusers) ' >&2 || true
+        echo "$effective" | grep -iE '^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin|allowusers) ' >&2 || true
         systemctl restart sshd
         return 1
     fi
@@ -556,7 +573,12 @@ ssh_setup_main() {
             echo ""
             echo "WARNING: password login is OPEN until you do. Anyone who can reach"
             echo "WARNING: this machine on the network may attempt to log in."
-            echo "WARNING: Avoid this next time: syntropia-ssh-setup --key \"\$(cat ~/.ssh/id_ed25519.pub)\""
+            echo ""
+            echo "Close it now, by whichever route suits you:"
+            echo "  - already have a key here?   sudo syntropia-ssh-setup --key \"\$(cat ~/.ssh/id_ed25519.pub)\""
+            echo "  - key on the other machine?  ssh-copy-id ${target_user}@${host}  then re-run this"
+            echo "  - keys published on GitHub?  sudo syntropia-ssh-setup --github <your-user>"
+            echo "  - not using SSH after all?   sudo systemctl disable --now sshd"
         fi
     fi
 }
