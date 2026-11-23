@@ -252,11 +252,25 @@ NOT been done.**
    `.agents/skills/` dirs (reinstallable via `skills-lock.json`; `iso-builder`
    is tracked), all `__pycache__`/`.venv`/egg-info. All code is pushed.
    Verify the backup by sha256, not by rsync's exit code.
-2. **Rebuild the ISO** — `sudo env SOURCE_DATE_EPOCH=1786489200 ./iso/build.sh`.
-   Picks up `34cc69e`, so the install exercises the four-directive
-   effective-config check on hardware. Note the rebuild pulls a fresh CachyOS
-   base, so the new image inherits **no** hardware verification — which is
-   precisely why the offsite fallback in step 1 matters.
+2. **Remaster, do NOT full-rebuild — use `--phase2`.**
+
+   ```bash
+   sudo ./iso/build.sh --phase2
+   ```
+
+   `ssh-setup.sh` is injected during the *remaster* stage (`build.sh:735`,
+   writing into the unsquashed `rootfs/`), not during the mkarchiso base
+   build. So shipping `34cc69e` needs only phase 2: unsquash the existing
+   stock ISO, swap the file, resquash. Minutes instead of ~15, no pacstrap.
+
+   **This also preserves hardware verification.** A full `build.sh` pulls a
+   fresh CachyOS base, so the image inherits none of what was proven on
+   2026-11-22. `--phase2` does not touch the base, so everything verified on
+   the 20:41 build still holds and only one file changes. Reach for the full
+   build **only** when the CachyOS base or boot config must change.
+
+   `verify_installer_libs` (`build.sh:1505`) still asserts the embedded
+   helper matches the tree, so a stale remaster fails loudly — keep that.
 3. **Flash and byte-verify the stick**, same read-back method as 2026-11-21:
    recreate the guarded flasher (see Traps), then hash exactly the ISO's byte
    count back off the device with `iflag=count_bytes`.
@@ -265,6 +279,33 @@ NOT been done.**
 5. **Then open Phase 2 deliberately** — scope it with the Final Boss **before
    writing code**. `phase2/` exists but Phase 2 has never been scoped; do not
    drift into it by accident.
+
+   **Candidate raised 2026-11-22, to think about, not to start: a
+   `syntropia-installer` package.** There is no such package today — the name
+   exists only as the path `/usr/local/lib/syntropia-installer/`, which is an
+   easy thing to misremember. The three AUR packages (`syntropia`,
+   `syntropia-cli`, `syntropia-brews`) all cover the post-install Python
+   surface; none ship the installer shell layer (`syntropia-install`,
+   `-runner`, `-dashboard`, the seven `installer/lib/*.sh`, `ssh-setup.sh`).
+   That layer lives only inside the ISO, which is why a one-line shell fix has
+   no upgrade path for an already-installed machine.
+
+   Packaging it would make the ISO a thin bootable shell that changes only
+   when the base or boot config does. Two things to weigh first:
+   - **`/usr/local` is the blocker.** An Arch package must not own anything
+     under it — that tree belongs to the local admin. Packaging means
+     relocating to `/usr/lib/syntropia-installer/` and `/usr/bin/`, touching
+     every path in `build.sh`, the hook scripts and `iso/README.md`. The seam
+     already exists though: `hook-branding-users.sh:67` resolves libs via
+     `${SYNTROPIA_INSTALLER_LIB:-/usr/local/lib/syntropia-installer}`, so this
+     is a relocation, not a redesign.
+   - **Do not lose `verify_installer_libs`.** It guarantees the shipped helper
+     matches the tree, and exists because of the "a stale ISO is not an
+     installer bug" trap. A package version assertion must replace it.
+
+   Note `--phase2` already solves the *iteration speed* complaint. The package
+   solves a different problem: upgrading installed machines. Don't conflate
+   them.
 6. **Optional, not blocking:** the stick's real capacity is unverified
    (`f3probe` would settle it). Its identifiers are placeholder strings, so
    29 GiB is the controller's claim, not a fact.
