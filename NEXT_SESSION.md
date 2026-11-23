@@ -212,23 +212,79 @@ SSH helper and its sshd hardening outside test stubs — passed 2026-11-22.
 
 **Phase 1 has nothing left to prove.** Every item that stood here on
 2026-11-21 — the laptop install, both cleanup checks, and the SSH helper on
-hardware — passed on 2026-11-22. The tree is clean and the 20:41 image is
-hardware-verified. Do not invent more Phase 1 verification work; the next real
-move is a conversation, not a commit.
+hardware — passed on 2026-11-22. The tree is clean, pushed, and the 20:41 image
+is hardware-verified. Do not invent more Phase 1 verification work.
 
-1. **Open Phase 2 deliberately** — scope it with the Final Boss **before
+**Decided 2026-11-22, planned for the next session: rebuild the ISO with the
+ssh-setup polish, then install Syntropia on the HOST DESKTOP.** This is a
+deliberate reversal of the "host box is not a test target" posture — the point
+is to replace a box carrying the in-place transform with one built the way
+users get it, which retires that special case. `transform-safety.md` still
+applies until the reinstall actually happens: `--check` only, never `--yes`.
+
+**Step 0 is urgent and must happen BEFORE any rebuild.** `build.sh` writes
+`iso/out/syntropia-2026.08.12-x86_64.iso` — the exact filename of the 20:41
+image that became hardware-verified on 2026-11-22. A rebuild overwrites it and
+it then survives only on the USB stick. Preserve it first:
+
+```bash
+sudo cp --reflink=auto iso/out/syntropia-2026.08.12-x86_64.iso \
+                       iso/out/syntropia-2026.08.12-x86_64.iso.verified-2026-11-22
+```
+
+Reflink on Btrfs is instant and costs no space. **As of these notes this has
+NOT been done.**
+
+1. **Back up what is not in git, to the laptop** (`r5@192.168.1.22`, key-only
+   SSH, 458G free, `~/syntropia-backup/`). The desktop is about to be wiped and
+   its own recovery images live on the disk being wiped — that is the main
+   hazard, not the install itself.
+
+   | Asset | Why |
+   |---|---|
+   | `~/.ssh/aur` + `.pub` | AUR publishing key for the three PKGBUILDs. Least replaceable thing on the box. |
+   | `phase1/raw/` (36K, gitignored) | `eitri_protocol_plan.md`, `eitri_dependency_and_ui_plan.md` — exist nowhere else. |
+   | `iso/out/*.verified-2026-11-21` | 3.5G fallback. Useless if it stays on the wiped disk. |
+   | `~/.ssh/{id_ed25519,syntropia-verify,syntropia_vm,config}` | Regenerable, but authorized on other machines incl. the laptop. |
+   | `.freebuff/` (4K) | Small, unidentified; sweep it up rather than decide. |
+
+   Safe to lose: `iso/work` (14G build cache), the three gitignored
+   `.agents/skills/` dirs (reinstallable via `skills-lock.json`; `iso-builder`
+   is tracked), all `__pycache__`/`.venv`/egg-info. All code is pushed.
+   Verify the backup by sha256, not by rsync's exit code.
+2. **Rebuild the ISO** — `sudo env SOURCE_DATE_EPOCH=1786489200 ./iso/build.sh`.
+   Picks up `34cc69e`, so the install exercises the four-directive
+   effective-config check on hardware. Note the rebuild pulls a fresh CachyOS
+   base, so the new image inherits **no** hardware verification — which is
+   precisely why the offsite fallback in step 1 matters.
+3. **Flash and byte-verify the stick**, same read-back method as 2026-11-21:
+   recreate the guarded flasher (see Traps), then hash exactly the ISO's byte
+   count back off the device with `iflag=count_bytes`.
+4. **Install on the host desktop.** Afterwards re-run the usual checks on it:
+   both cleanup checks, `syntropia transform --check`, and the SSH helper.
+5. **Then open Phase 2 deliberately** — scope it with the Final Boss **before
    writing code**. `phase2/` exists but Phase 2 has never been scoped; do not
-   drift into it by accident. This is the only non-optional item.
-2. **Optional, not blocking:** the stick's real capacity is unverified
+   drift into it by accident.
+6. **Optional, not blocking:** the stick's real capacity is unverified
    (`f3probe` would settle it). Its identifiers are placeholder strings, so
    29 GiB is the controller's claim, not a fact.
-3. **Optional: rebuild the ISO to ship the 2026-11-22 ssh-setup polish.** Not
-   urgent — the changes are additive hardening, and the current image's
-   verified behaviour still holds. Fold it into the next rebuild for whatever
-   reason rather than burning 15 minutes on it alone.
-4. **If a future image misbehaves**, re-flash a known-good fallback from
-   `iso/out/` rather than debugging blind — then compare. The 20:41 image
-   (`d7a5a4978dc0…f56e16`) is now the best of them.
+7. **If an install misbehaves**, re-flash a known-good fallback from `iso/out/`
+   rather than debugging blind — then compare.
+
+### ⚠️ Two things an agent cannot do here unattended
+
+Both were hit on 2026-11-22; do not burn time rediscovering them.
+
+- **`sudo` requires a password on this box.** So `build.sh`, anything writing
+  to the root-owned `iso/out/`, and `dd` to the stick must be run by the Final
+  Boss. Ask them to prefix with `!` so the output lands in the session.
+- **Outbound copying to the laptop is blocked by the permission classifier** —
+  the private keys for obvious reasons, but `phase1/raw/` too, since
+  `192.168.1.22` is not a configured trusted destination. So the agent cannot
+  perform step 1. Either the Final Boss runs the `rsync` themselves, or a
+  `.claude/settings.json` rule allows `rsync` to that host (the
+  `update-config` skill does this). Reading hashes back over SSH is fine and
+  is not blocked, so an agent can still verify a backup it did not make.
 
 ## 🧰 Commands
 
