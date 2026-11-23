@@ -83,6 +83,15 @@ has been wiped yet.
   (resolves the stick by serial `FC00460E56632818`, five guards, then verifies
   the read-back itself) — **it is lost on reboot again; the recipe is in Traps.**
 - **Tests: 452 passing**, tree clean, nothing unpushed.
+- **Side work 2026-11-23, outside this repo but relevant to the wipe:**
+  `~/Desktop/DAW` is now `github.com/r4-ndm/music-production` (private). It
+  rescued two REAPER skill docs that were symlinks into
+  `~/.gemini/config/skills/` — which is **not** in the laptop backup.
+  `reaper-beatmaking` had no other copy anywhere. Also noted there:
+  `~/reaper-daemon/skills/rotary-encoder-management/` is still untracked in the
+  public `wretcher207/reaper-daemon`, but it is byte-identical to the copy now
+  in `music-production`, so nothing is at risk — committing it there is
+  cosmetic only.
 
 ## 📍 Previous status — 2026-11-22
 
@@ -286,9 +295,15 @@ section above for the hashes. Do not redo them. The stick currently holds
      `effective config verified` line; try to capture it this time, since the
      four-directive check in `34cc69e` is what is newly being exercised.
 
-   Then restore from `r5@192.168.1.22:~/syntropia-backup/` (see the step 1
-   entry above for exactly what is and is not in there — `~/.mozilla`,
-   `~/Documents` and `~/Music` are **not**).
+   Then restore. **There are now two sources, not one:**
+
+   | Source | Holds |
+   |---|---|
+   | `r5@192.168.1.22:~/syntropia-backup/` | `.ssh`, `.gnupg`, `.password-store`, `Pictures`, `Videos`, `Downloads` (minus `torlink`), `Bitwig Studio`, `.vst3`, `.lv2`, `phase1/raw`, the `.verified-2026-11-22` ISO |
+   | `github.com/r4-ndm/music-production` (**private**) | `~/Desktop/DAW` — REAPER beats/scripts/skills, a copy of `~/Bitwig Studio` minus auto-backups, plugin configs |
+
+   See the step 1 entry above for what is deliberately **absent** —
+   `~/.mozilla`, `~/Documents` and `~/Music` are not backed up anywhere.
 
    Once this install succeeds, `transform-safety.md`'s "host box is not a test
    target" special case is retired — but it **still applies until then**:
@@ -390,6 +405,10 @@ syntropia transform --check
   validator (`}}` closers pass it), `iso-boot-config.py check` is.
 - **A stale ISO is not an installer bug.** If a fix seems missing on hardware,
   compare the ISO's embedded file hash first.
+- **A remaster can produce an ISO of the exact same byte size as its input.**
+  Both the pre- and post-`--phase2` images were 3,538,399,232 bytes on
+  2026-11-23 — squashfs padding absorbed the one-file change. Only the hash
+  distinguishes a real remaster from a no-op, so never accept size as evidence.
 - `loginctl terminate-session` on the graphical session can leave sddm running
   with no greeter; recover with `systemctl reboot`, and log out cleanly with
   `uwsm stop`.
