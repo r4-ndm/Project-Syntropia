@@ -63,10 +63,17 @@ has been wiped yet.
   - *Verified by file count + exact byte total only:* `Downloads` — 60 files,
     41,597,935,495 bytes, with the 6 G `torlink` directory deliberately
     excluded. Not content-hashed; they are re-downloadable installers.
-  - *Not backed up, by the Final Boss's choice:* `~/.mozilla` (browser profile,
-    so saved logins and bookmarks will be lost), `~/Railway-Wallet`,
-    `~/contracts`, `~/Documents`, `~/Music`, and the older
+  - *Not backed up, by the Final Boss's choice:* `~/.mozilla`,
+    `~/Railway-Wallet`, `~/contracts`, `~/Documents`, `~/Music`, and the older
     `…verified-2026-11-21` ISO.
+  - **`~/.mozilla` was re-raised and re-declined 2026-11-26. Settled — do not
+    raise it again.** The profile was inspected first so the call was informed:
+    121 M, one active profile (`657przjk.default-release`), 11 saved logins,
+    6 bookmarks, 504 history entries, plus cookies and extension settings.
+    The Final Boss does not want any browser state carried over. Consequence,
+    accepted: those 11 site passwords are lost unless they also exist in
+    `~/.password-store` (which *is* backed up), and the new box starts signed
+    out everywhere.
   - **Correction to an earlier note in this file: `~/.metamask` is not a
     wallet.** It holds two files from the MetaMask *CLI* — `analytics.json` and
     `command-history.json`. No keys. It was dropped from the backup.
@@ -295,15 +302,28 @@ section above for the hashes. Do not redo them. The stick currently holds
      `effective config verified` line; try to capture it this time, since the
      four-directive check in `34cc69e` is what is newly being exercised.
 
-   Then restore. **There are now two sources, not one:**
+   Then restore. **There are now four sources, not one:**
 
    | Source | Holds |
    |---|---|
-   | `r5@192.168.1.22:~/syntropia-backup/` | `.ssh`, `.gnupg`, `.password-store`, `Pictures`, `Videos`, `Downloads` (minus `torlink`), `Bitwig Studio`, `.vst3`, `.lv2`, `phase1/raw`, the `.verified-2026-11-22` ISO |
+   | `r5@192.168.1.22:~/syntropia-backup/` | `.ssh`, `.gnupg`, `.password-store`, `Pictures`, `Videos`, `Downloads` (minus `torlink`), `Bitwig Studio`, `.vst3`, `.lv2`, `phase1/raw`, the `.verified-2026-11-22` ISO, and `job-stuff/` (22 files, added 2026-11-26, sha256-verified) |
    | `github.com/r4-ndm/music-production` (**private**) | `~/Desktop/DAW` — REAPER beats/scripts/skills, a copy of `~/Bitwig Studio` minus auto-backups, plugin configs |
+   | `github.com/r4-ndm/BOSSUSD` (**private**) | `~/Desktop/BOSSUSD` — Hardhat stablecoin project rescued 2026-11-26. Both private keys were stripped before the first commit; `upstream-frankencoin` is gitignored, its commit recorded in that repo's README |
+   | `github.com/r4-ndm/blunt-vaughan` (**private**) | `~/Desktop/Blunt-vaughan` — the unabridged 257-line plan, payment router contract and API client. Vaughan-CLI's public copy is a trimmed 106-line summary; keep this private unless publishing is a conscious choice |
+
+   **`~/Desktop` as a whole is NOT in the laptop backup.** Only the folders
+   named above survive. Every other Desktop folder was reviewed on 2026-11-26
+   and cleared — either already on GitHub, or re-downloadable, or deliberately
+   abandoned. Also pushed that day: `pirate-sampler` branch `feat/gui-mod`,
+   `vaughan-hl` (+6 commits) and `agent-memory` (+4). Nothing on the Desktop is
+   now known to be unique to this machine.
 
    See the step 1 entry above for what is deliberately **absent** —
-   `~/.mozilla`, `~/Documents` and `~/Music` are not backed up anywhere.
+   `~/.mozilla`, `~/Documents` and `~/Music` are not backed up anywhere. All
+   three are confirmed intentional (`.mozilla` re-declined 2026-11-26 after
+   inspection); nothing here is an oversight, so do not stall the install
+   asking about them. `~/.hermes` is likewise gone by choice: its 17 memory
+   entries were confirmed already synced into `agent-memory`.
 
    Once this install succeeds, `transform-safety.md`'s "host box is not a test
    target" special case is retired — but it **still applies until then**:
@@ -352,19 +372,23 @@ rediscovering them.
 - **`sudo` requires a password on this box.** So `build.sh`, anything writing
   to the root-owned `iso/out/`, and `dd` to the stick must be run by the Final
   Boss. Ask them to prefix with `!` so the output lands in the session.
-- **Outbound copying to the laptop is a HARD block — no settings rule clears
-  it.** Corrected 2026-11-23: an earlier version of this note claimed a
-  `.claude/settings.json` rule via `update-config` would allow `rsync` to
-  `192.168.1.22`. It does not. The classifier refused the transfer *and*
-  refused to let the agent write a wrapper script with the destination baked
-  in, stating explicitly that a permission override cannot clear a hard block —
-  the set includes SSH private keys, GPG keys and the password store going to a
-  host that is not a configured trusted destination. Do not attempt a
-  workaround. The Final Boss runs the `rsync`.
-  **But the agent can still prove the backup:** reading hashes back over SSH is
-  permitted. Compare manifest hashes on both ends, and **pin `LC_ALL=C` on
-  every `sort`** — the two machines collate differently, which produced a
-  spurious MISMATCH on 2026-11-23 when the file lists were in fact identical.
+- **Outbound copying to the laptop is blocked by *payload*, not by host.**
+  This note has now been wrong twice; here is the settled version.
+  - 2026-11-23 an agent was refused an `rsync` to `192.168.1.22` *and* refused
+    permission to write a wrapper with the destination baked in. That set
+    included SSH private keys, GPG keys and the password store.
+  - The conclusion drawn — that the host itself is hard-blocked and the Final
+    Boss must run every transfer — was **too broad, and was disproved
+    2026-11-26**: `rsync -av "$HOME/Desktop/Job stuff/"
+    r5@192.168.1.22:~/syntropia-backup/job-stuff/` ran with no objection,
+    22 files / 1,978,963 bytes, verified sha256-identical on both ends.
+  - **So: secret material (`.ssh`, `.gnupg`, `.password-store`) is the Final
+    Boss's to move. Ordinary documents and project files an agent can rsync
+    directly.** Don't hand over a command without trying it first.
+  **Verify either way:** reading hashes back over SSH is always permitted.
+  Compare manifest hashes on both ends, and **pin `LC_ALL=C` on every `sort`**
+  — the two machines collate differently, which produced a spurious MISMATCH
+  on 2026-11-23 when the file lists were in fact identical.
 
 ## 🧰 Commands
 
