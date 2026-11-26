@@ -44,7 +44,47 @@ The long-term goal is a full fork, but **not yet**.
    `phase1/cli/transform/syntropia_transform/transform.py`. `build.sh`
    AST-extracts it — never duplicate it.
 
-## 📍 Status — 2026-11-23
+## 📍 Status — 2026-11-26
+
+**The install slipped from 2026-11-24 and still has not happened. Nothing on
+this box has been wiped. The target changed: it is now `nvme0n1`, not `sda`.**
+The one thing blocking the install is the Final Boss rescuing a few images off
+the Windows volume. See "Next, in order" for the disk table — read it before
+touching a disk, because every earlier revision of the plan said `sda`.
+
+- **Tests: 452 passing** (`python -m pytest -q phase1/tests iso/tests`, 8.34s,
+  verified 2026-11-26). Tree clean, nothing unpushed. Today's repo changes were
+  documentation only; no code in this repo was touched.
+- **The install is no longer destructive to this machine.** Installing to
+  `nvme0n1` leaves `sda` — the current working Linux — bootable and untouched,
+  so a failed install has a fallback. `sda` gets wiped later, once the new
+  system is proven.
+- **The pre-wipe sweep of `~/Desktop` is complete.** All 27 folders accounted
+  for; nothing there is now unique to this machine. Rescued 2026-11-26:
+  - `job-stuff/` → the laptop, 22 files, sha256-verified both ends. Active job
+    applications, the only genuinely irreplaceable item found.
+  - `BOSSUSD` and `Blunt-vaughan` → new **private** repos. Both held work that
+    existed nowhere else. **Two private keys were stripped from BOSSUSD before
+    its first commit** (a `.env`, plus one in `.env.example` under a "do not
+    commit real keys" comment); its history has never held a real key.
+  - `vaughan-hl` +6 commits (incl. a 731-line `siphon.rs` that was untracked
+    while `lib.rs` already declared the module), `agent-memory` +4.
+  - `pirate-sampler` branch `feat/gui-mod`: PNG asset loading, knob at full
+    resolution. `main` untouched, by request.
+  - Confirmed safe to lose: `~/.hermes` (all 17 entries already synced into
+    `agent-memory`), Antigravity (1.6 G, app and cache only, 87-byte settings),
+    and the stale downloads `Vaughan-main` / `Vaughan-Tauri-main`.
+- **A long-standing note in this file was wrong and is corrected.** Outbound
+  copying to the laptop is blocked by *payload*, not by host — see the agent
+  note at the end of "Next, in order".
+- **`~/Desktop` is not in the laptop backup**, which this file never said. Now
+  stated explicitly in the restore map.
+- **One stash remains on `main` and is obsolete**: "pre-turing nvidia boot fix",
+  5 weeks old. It patches GRUB and Syslinux entries, but the architecture is
+  Limine everywhere; it no longer applies to `main`, and the GTX 1070 path is
+  already hardware-verified. Drop it; nothing is lost.
+
+## 📍 Previous status — 2026-11-23
 
 **The ssh-setup polish now ships, and the stick is flashed and byte-verified.
 Only the host-desktop install is left — planned for 2026-11-24.** Steps 0–3 of
