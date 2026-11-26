@@ -283,10 +283,43 @@ laptop, `--phase2` remaster, flash + byte-verify the stick). See the status
 section above for the hashes. Do not redo them. The stick currently holds
 `09d3a1f734…12749a`, which is the image to install.
 
-1. **Install on the host desktop — this is the only thing left.** Target `sda`
-   (the OS disk: `sda1` ESP + `sda2` LUKS). `sdb`, `sdc` and `nvme0n1` are
-   separate disks and must not be touched — `nvme0n1` is a 931 G NTFS Windows
-   disk. Afterwards re-run the usual checks:
+1. **Install on the host desktop — this is the only thing left.**
+
+   **⚠️ TARGET CHANGED 2026-11-26: install to `nvme0n1`, NOT `sda`.** Every
+   earlier version of this plan said `sda`; that is now wrong. Do not act on a
+   remembered instruction here, and do not pick by size — `sda` is 894 G and
+   `nvme0n1` is 931 G, which is not a safe way to tell them apart. Identify the
+   target by **name `nvme0n1`** or by **model `Samsung SSD 980 PRO`**.
+
+   | Disk | Size | Model | Holds | Install target? |
+   |---|---|---|---|---|
+   | `nvme0n1` | 931 G | Samsung 980 PRO (PCIe 4.0 x4) | Windows — own ESP `p1`, MSR `p2`, 930 G NTFS `p3`, recovery `p4` | ✅ **YES** |
+   | `sda` | 894 G | Kingston A400 (SATA) | the current Linux: `sda1` ESP + `sda2` LUKS | ❌ leave alone for now |
+   | `sdb` | 224 G | Kingston A400 (SATA) | another Linux, ESP + LUKS | ❌ never |
+   | `sdc` | 224 G | SATA SSD | another Linux, ESP + ext4 + swap | ❌ never |
+
+   **Why it changed.** The Final Boss decided 2026-11-26 to drop Windows. The
+   980 PRO is roughly 10x the Kingston A400 on sequential reads and far better
+   on small files, so the daily-driver OS belongs there; today the fast disk
+   runs the rarely-booted OS. **Prerequisite: the Final Boss rescues "a couple
+   of images" from Windows first.** Nothing else on `nvme0n1` is wanted, and
+   the 930 G NTFS volume has never been inventoried by an agent — do not
+   assume it is empty of anything they care about.
+
+   **This ordering is deliberately safer than the old plan.** Installing to
+   `nvme0n1` leaves `sda` bootable and untouched, so a failed install still has
+   a working system to fall back to. The old plan wiped the only working OS.
+   Wipe `sda` later, once the new install is proven, and reuse its 894 G.
+
+   *Checked 2026-11-26: NVMe partition naming is already handled.*
+   `syntropia-install-runner:101` branches on `[[ "$TARGET_DISK" =~ [0-9]$ ]]`
+   and emits `nvme0n1p1` rather than `nvme0n11`. No installer change needed.
+
+   *Windows will not be dual-bootable afterwards, by choice.* It has its own
+   ESP on `nvme0n1p1`, so it never depended on `sda`; wiping `nvme0n1` removes
+   it entirely. Nothing to preserve in the bootloader.
+
+   Afterwards re-run the usual checks:
 
    - `pacman -Q cachyos-calamares-staging mkinitcpio-archiso` → both
      "was not found"
